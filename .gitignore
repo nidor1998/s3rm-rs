@@ -1,2 +1,31 @@
+# IDE
 .idea/
+.vscode/
+
+# Serena
 .serena/
+
+# Rust build artifacts
+/target/
+**/*.rs.bk
+
+# Cargo lock is committed for binaries
+# Cargo.lock
+
+# Environment and credentials
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Coverage reports
+/coverage/
+*.profraw
+*.profdata
+lcov.info
+tarpaulin-report.html

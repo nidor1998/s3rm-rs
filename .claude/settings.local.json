@@ -6,7 +6,13 @@
       "Bash(rustc:*)",
       "Bash(cargo --version:*)",
       "mcp__github__get_file_contents",
-      "mcp__serena__list_dir"
+      "mcp__serena__list_dir",
+      "Bash(cargo check:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo fmt:*)",
+      "mcp__git__git_branch",
+      "mcp__git__git_status"
     ]
   },
   "enableAllProjectMcpServers": true,

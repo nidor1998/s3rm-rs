@@ -15,6 +15,19 @@ You are executing a single task from the s3rm-rs implementation plan.
 
 ## Execution Workflow
 
+### Phase 0: Branch Setup (MANDATORY)
+
+Before doing anything else, set up the working branch:
+
+1. **Determine the task number** (from `$ARGUMENTS` or by reading `tasks.md`)
+2. **Ensure working tree is clean** — run `git status`. If there are uncommitted changes, stop and ask the user how to proceed.
+3. **Checkout `init_build`** — run `git checkout init_build` and `git pull origin init_build` to get latest
+4. **Create task branch** — run `git checkout -b build/init/task<N>` where `<N>` is the task number
+   - If the branch already exists, ask the user whether to reuse it or create a fresh one
+5. **Confirm** — display the current branch name before proceeding
+
+All work for this task MUST happen on the `build/init/task<N>` branch.
+
 ### Phase 1: Read Context (MANDATORY)
 
 Before writing any code, you MUST read all three spec files:
@@ -84,6 +97,7 @@ Report:
 
 ## Rules
 
+- **BRANCH FIRST** — always create `build/init/task<N>` from `init_build` before starting
 - **ONE TASK ONLY** — never implement multiple tasks
 - **CONTEXT FIRST** — always read specs before coding
 - **S3SYNC FIRST** — always check s3sync before writing new code

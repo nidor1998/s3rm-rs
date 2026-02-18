@@ -1,1 +1,1 @@
-# s3rm-rs-claude
+# s3rm-rs

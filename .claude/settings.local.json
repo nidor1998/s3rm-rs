@@ -23,7 +23,18 @@
       "Bash(chmod:*)",
       "Bash(/workspaces/s3rm-rs/.claude/hooks/spec-context-reminder.sh)",
       "Bash(/workspaces/s3rm-rs/.claude/hooks/task-completion-check.sh:*)",
-      "mcp__filesystem__directory_tree"
+      "mcp__filesystem__directory_tree",
+      "Bash(git pull:*)",
+      "Bash(git checkout:*)",
+      "mcp__serena__get_symbols_overview",
+      "Bash(git config:*)",
+      "Bash(git push:*)",
+      "Bash(gh auth status:*)",
+      "mcp__github__issue_write",
+      "mcp__github__create_pull_request",
+      "mcp__serena__find_symbol",
+      "Bash(gh api:*)",
+      "Bash(git -C /workspaces/s3rm-rs remote get-url:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

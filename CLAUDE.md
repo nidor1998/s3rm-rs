@@ -114,6 +114,8 @@ When working on tasks, follow this process:
      - Configure timeouts to prevent indefinite hangs
 
 4. **Verification**
+   - **Always run `cargo fmt` before finishing any task** — CI enforces formatting and will fail otherwise
+   - Run `cargo clippy` to check for warnings
    - Run tests to verify implementation
    - Limit verification attempts to 2 tries maximum
    - If tests fail after 2 attempts, explain the issue and request guidance

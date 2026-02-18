@@ -57,31 +57,31 @@ Phase 1: Core Infrastructure (Task 2)
     - _Requirements: N/A (infrastructure)_
 
 
-- [ ] 3. Implement Core Data Models
-  - [ ] 3.1 Create S3Object and related types
+- [x] 3. Implement Core Data Models
+  - [x] 3.1 Create S3Object and related types
     - Implement S3Object struct (key, version_id, size, last_modified, etag, storage_class, is_delete_marker)
     - Note: content_type, metadata, tags fetched on-demand in ObjectDeleter
     - Implement ObjectKeyMap type alias
     - _Requirements: 1.8, 5.3_
 
-  - [ ] 3.2 Create deletion statistics types
+  - [x] 3.2 Create deletion statistics types
     - Implement DeletionStatistics struct (deleted_objects, deleted_bytes, failed_objects)
     - Implement DeletionStatsReport with atomic counters
     - Implement DeletionStats for public API
     - _Requirements: 6.5, 7.1, 7.3_
 
-  - [ ] 3.3 Create deletion outcome and error types
+  - [x] 3.3 Create deletion outcome and error types
     - Implement DeletionOutcome enum (Success, Failed)
     - Implement DeletionError enum (NotFound, AccessDenied, PreconditionFailed, Throttled, NetworkError, ServiceError)
     - Implement Error enum with thiserror (AwsSdk, InvalidConfig, InvalidUri, InvalidRegex, LuaScript, Io, Cancelled, DryRun, PartialFailure, Pipeline)
     - Include exit_code() and is_retryable() methods
     - _Requirements: 6.4, 6.5, 10.5, 13.4_
 
-  - [ ] 3.4 Create deletion event types
+  - [x] 3.4 Create deletion event types
     - Implement DeletionEvent enum (PipelineStart, ObjectDeleted, ObjectFailed, PipelineEnd, PipelineError)
     - _Requirements: 7.7, 7.8_
 
-  - [ ] 3.5 Create S3Target type
+  - [x] 3.5 Create S3Target type
     - Implement S3Target struct (bucket, prefix, endpoint, region)
     - Implement parse() method for s3:// URI parsing
     - _Requirements: 2.1, 8.5, 8.6_

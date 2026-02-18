@@ -1052,7 +1052,6 @@ pub enum DeletionOutcome {
     Success {
         key: String,
         version_id: Option<String>,
-        deleted_at: DateTime<Utc>,
     },
     Failed {
         key: String,

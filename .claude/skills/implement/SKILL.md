@@ -15,16 +15,28 @@ You are executing a single task from the s3rm-rs implementation plan.
 
 ## Execution Workflow
 
-### Phase 0: Branch Setup (MANDATORY)
+### Phase 0: Branch & Issue Setup (MANDATORY)
 
-Before doing anything else, set up the working branch:
+Before doing anything else, set up the working branch and GitHub issue:
 
 1. **Determine the task number** (from `$ARGUMENTS` or by reading `tasks.md`)
 2. **Ensure working tree is clean** — run `git status`. If there are uncommitted changes, stop and ask the user how to proceed.
 3. **Checkout `init_build`** — run `git checkout init_build` and `git pull origin init_build` to get latest
 4. **Create task branch** — run `git checkout -b build/init/task<N>` where `<N>` is the task number
    - If the branch already exists, ask the user whether to reuse it or create a fresh one
-5. **Confirm** — display the current branch name before proceeding
+5. **Create GitHub issue** for the task using the GitHub MCP tools:
+   - **Title**: `Task <N>: <task title from tasks.md>`
+   - **Body**: Include the task description, sub-tasks (as a checkbox list), and referenced requirements from tasks.md
+   - **Labels**: add `task` label (create it first if it doesn't exist)
+   - **Save the issue number** — you will need it when creating the PR later
+6. **Create a draft pull request** immediately after pushing the branch:
+   - Push the branch: `git push -u origin build/init/task<N>`
+   - Create a draft PR using `gh pr create`:
+     - **Title**: `Task <N>: <task title>`
+     - **Base**: `init_build`
+     - **Body**: Include `Closes #<issue_number>` to link the issue, a summary section, and a test plan section
+     - **Draft**: yes — it will be marked ready for review after implementation
+7. **Confirm** — display the current branch name, issue URL, and PR URL before proceeding
 
 All work for this task MUST happen on the `build/init/task<N>` branch.
 
@@ -87,6 +99,7 @@ Report:
 - Which s3sync files were reused
 - Which tests were written
 - Test results summary
+- GitHub issue URL and PR URL
 - Any issues or notes for the user
 
 Wait for the user to review the changes.
@@ -98,7 +111,8 @@ Wait for the user to review the changes.
 1. Update the task checkbox in `.kiro/specs/s3rm-rs/tasks.md`:
    - Change `- [ ]` to `- [x]` for the completed task and its sub-tasks
    - Change any in-progress markers `- [-]` to `- [x]`
-2. Do NOT create a git commit — the user will commit manually.
+2. **Mark the PR as ready for review** — run `gh pr ready` on the task's PR
+3. Do NOT create a git commit — the user will commit manually.
 
 ## Rules
 

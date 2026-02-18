@@ -33,7 +33,8 @@
       "mcp__github__issue_write",
       "mcp__github__create_pull_request",
       "mcp__serena__find_symbol",
-      "Bash(gh api:*)"
+      "Bash(gh api:*)",
+      "Bash(git -C /workspaces/s3rm-rs remote get-url:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -165,14 +165,14 @@ cargo fmt
 ## Key Files and Locations
 
 ### Specification Files
-- `.kiro/specs/s3rm-rs/requirements.md` - User stories and acceptance criteria
-- `.kiro/specs/s3rm-rs/design.md` - Architecture and component design
-- `.kiro/specs/s3rm-rs/tasks.md` - Implementation task list
+- @.kiro/specs/s3rm-rs/requirements.md - User stories and acceptance criteria
+- .kiro/specs/s3rm-rs/design.md - Architecture and component design
+- @.kiro/specs/s3rm-rs/tasks.md - Implementation task list
 
 ### Steering Documents
-- `.kiro/steering/tech.md` - Technology stack and common commands
-- `.kiro/steering/structure.md` - Project structure and organization
-- `.kiro/steering/product.md` - Product overview and features
+- @.kiro/steering/tech.md - Technology stack and common commands
+- @.kiro/steering/structure.md - Project structure and organization
+- @.kiro/steering/product.md - Product overview and features
 
 ### Source Code
 - `src/lib.rs` - Library entry point and public API

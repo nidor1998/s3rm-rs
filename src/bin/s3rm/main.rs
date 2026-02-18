@@ -1,5 +1,7 @@
 use anyhow::Result;
 
+mod tracing;
+
 /// s3rm - Extremely fast Amazon S3 object deletion tool.
 ///
 /// This binary is a thin wrapper over the s3rm-rs library.

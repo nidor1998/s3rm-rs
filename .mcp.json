@@ -15,7 +15,7 @@
         "--context",
         "claude-code",
         "--project",
-        "/IdeaProjects/s3rm-rs-claude"
+        "/workspaces/s3rm-rs"
       ],
       "env": {}
     },

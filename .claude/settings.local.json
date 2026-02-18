@@ -5,7 +5,8 @@
       "mcp__filesystem__list_directory",
       "Bash(rustc:*)",
       "Bash(cargo --version:*)",
-      "mcp__github__get_file_contents"
+      "mcp__github__get_file_contents",
+      "mcp__serena__list_dir"
     ]
   },
   "enableAllProjectMcpServers": true,

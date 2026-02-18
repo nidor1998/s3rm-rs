@@ -1,3 +1,8 @@
+---
+name: s3rm-rs-spec-workflow
+description: Show the s3rm-rs spec-driven development workflow including code reuse policy, task execution steps, and verification process.
+---
+
 # s3rm-rs Spec Workflow
 
 You are working on the s3rm-rs project, a high-performance S3 deletion tool.

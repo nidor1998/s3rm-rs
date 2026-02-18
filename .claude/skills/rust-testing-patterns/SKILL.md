@@ -1,3 +1,8 @@
+---
+name: rust-testing-patterns
+description: Show Rust testing patterns for s3rm-rs including property-based testing with proptest and unit test organization.
+---
+
 # Rust Testing Patterns for s3rm-rs
 
 ## Property-Based Testing with Proptest
@@ -40,10 +45,10 @@ mod tests {
     fn test_specific_behavior() {
         // Arrange
         let input = setup();
-        
+
         // Act
         let result = function(input);
-        
+
         // Assert
         assert_eq!(result, expected);
     }

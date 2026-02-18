@@ -87,7 +87,7 @@ Phase 1: Core Infrastructure (Task 2)
     - _Requirements: 2.1, 8.5, 8.6_
 
 
-- [ ] 4. Implement Storage Layer (Reuse from s3sync)
+- [-] 4. Implement Storage Layer (Reuse from s3sync)
   - [ ] 4.1 Copy Storage trait and S3 storage implementation
     - Copy storage/mod.rs with Storage trait
     - Copy storage/s3.rs with S3 storage implementation

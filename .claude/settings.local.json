@@ -19,7 +19,10 @@
       "Bash(git commit:*)",
       "Bash(git branch:*)",
       "mcp__github__search_code",
-      "mcp__serena__list_memories"
+      "mcp__serena__list_memories",
+      "Bash(chmod:*)",
+      "Bash(/workspaces/s3rm-rs/.claude/hooks/spec-context-reminder.sh)",
+      "Bash(/workspaces/s3rm-rs/.claude/hooks/task-completion-check.sh:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
@@ -29,6 +32,24 @@
     "filesystem",
     "git"
   ],
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/spec-context-reminder.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/task-completion-check.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true

@@ -17,7 +17,8 @@
       "mcp__git__git_log",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git branch:*)"
+      "Bash(git branch:*)",
+      "mcp__github__search_code"
     ]
   },
   "enableAllProjectMcpServers": true,

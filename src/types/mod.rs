@@ -1,8 +1,6 @@
-use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 
 use aws_sdk_s3::primitives::DateTime;
 use aws_sdk_s3::types::{DeleteMarkerEntry, Object, ObjectVersion};
@@ -16,7 +14,7 @@ pub mod token;
 /// Adapted from s3sync's S3syncObject enum, representing the different
 /// kinds of objects that can be listed from S3.
 #[derive(Debug, Clone, PartialEq)]
-pub enum S3rmObject {
+pub enum S3Object {
     NotVersioning(Object),
     Versioning(ObjectVersion),
     DeleteMarker(DeleteMarkerEntry),
@@ -24,24 +22,13 @@ pub enum S3rmObject {
 
 /// Statistics sent through the stats channel during pipeline execution.
 #[derive(Debug, PartialEq)]
-pub enum SyncStatistics {
-    SyncBytes(u64),
-    SyncComplete { key: String },
-    SyncSkip { key: String },
-    SyncDelete { key: String },
-    SyncError { key: String },
-    SyncWarning { key: String },
+pub enum DeletionStatistics {
+    DeleteBytes(u64),
+    DeleteComplete { key: String },
+    DeleteSkip { key: String },
+    DeleteError { key: String },
+    DeleteWarning { key: String },
 }
-
-/// Object key entry for tracking processed objects.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ObjectEntry {
-    pub last_modified: DateTime,
-    pub content_length: i64,
-    pub e_tag: Option<String>,
-}
-
-pub type ObjectKeyMap = Arc<Mutex<HashMap<String, ObjectEntry>>>;
 
 /// S3 storage path specification.
 #[derive(Debug, Clone)]
@@ -91,7 +78,7 @@ impl Debug for AccessKeys {
     }
 }
 
-impl S3rmObject {
+impl S3Object {
     pub fn key(&self) -> &str {
         match &self {
             Self::Versioning(object) => object.key().unwrap(),
@@ -174,14 +161,14 @@ mod tests {
             .last_modified(DateTime::from_secs(777))
             .build();
 
-        let s3rm_object = S3rmObject::NotVersioning(object);
+        let s3_object = S3Object::NotVersioning(object);
 
-        assert_eq!(s3rm_object.key(), "test/key.txt");
-        assert_eq!(s3rm_object.size(), 1024);
-        assert_eq!(s3rm_object.e_tag().unwrap(), "my-etag");
-        assert!(s3rm_object.version_id().is_none());
-        assert!(!s3rm_object.is_latest());
-        assert!(!s3rm_object.is_delete_marker());
+        assert_eq!(s3_object.key(), "test/key.txt");
+        assert_eq!(s3_object.size(), 1024);
+        assert_eq!(s3_object.e_tag().unwrap(), "my-etag");
+        assert!(s3_object.version_id().is_none());
+        assert!(!s3_object.is_latest());
+        assert!(!s3_object.is_delete_marker());
     }
 
     #[test]
@@ -198,14 +185,14 @@ mod tests {
             .last_modified(DateTime::from_secs(888))
             .build();
 
-        let s3rm_object = S3rmObject::Versioning(object);
+        let s3_object = S3Object::Versioning(object);
 
-        assert_eq!(s3rm_object.key(), "test/key.txt");
-        assert_eq!(s3rm_object.size(), 2048);
-        assert_eq!(s3rm_object.e_tag().unwrap(), "my-etag-v1");
-        assert_eq!(s3rm_object.version_id().unwrap(), "version1");
-        assert!(s3rm_object.is_latest());
-        assert!(!s3rm_object.is_delete_marker());
+        assert_eq!(s3_object.key(), "test/key.txt");
+        assert_eq!(s3_object.size(), 2048);
+        assert_eq!(s3_object.e_tag().unwrap(), "my-etag-v1");
+        assert_eq!(s3_object.version_id().unwrap(), "version1");
+        assert!(s3_object.is_latest());
+        assert!(!s3_object.is_delete_marker());
     }
 
     #[test]
@@ -219,14 +206,14 @@ mod tests {
             .last_modified(DateTime::from_secs(999))
             .build();
 
-        let s3rm_object = S3rmObject::DeleteMarker(marker);
+        let s3_object = S3Object::DeleteMarker(marker);
 
-        assert_eq!(s3rm_object.key(), "test/deleted.txt");
-        assert_eq!(s3rm_object.size(), 0);
-        assert!(s3rm_object.e_tag().is_none());
-        assert_eq!(s3rm_object.version_id().unwrap(), "dm-version1");
-        assert!(s3rm_object.is_latest());
-        assert!(s3rm_object.is_delete_marker());
+        assert_eq!(s3_object.key(), "test/deleted.txt");
+        assert_eq!(s3_object.size(), 0);
+        assert!(s3_object.e_tag().is_none());
+        assert_eq!(s3_object.version_id().unwrap(), "dm-version1");
+        assert!(s3_object.is_latest());
+        assert!(s3_object.is_delete_marker());
     }
 
     #[test]

@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3:*)",
+      "mcp__filesystem__list_directory",
+      "Bash(rustc:*)",
+      "Bash(cargo --version:*)",
+      "mcp__github__get_file_contents"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "context7",
+    "serena",
+    "filesystem",
+    "git"
+  ],
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true
+  }
+}

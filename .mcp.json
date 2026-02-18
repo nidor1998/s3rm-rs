@@ -1,0 +1,42 @@
+{
+  "mcpServers": {
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp"
+    },
+    "serena": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/oraios/serena",
+        "serena",
+        "start-mcp-server",
+        "--context",
+        "claude-code",
+        "--project",
+        "/IdeaProjects/s3rm-rs-claude"
+      ],
+      "env": {}
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+      "env": {},
+      "disabled": false,
+      "autoApprove": [
+        "read_text",
+        "read_text_file",
+        "read_multiple_files",
+        "list_directory",
+        "directory_tree",
+        "search_files"
+      ]
+    },
+    "git": {
+      "command": "uvx",
+      "args": ["mcp-server-git"]
+    }
+  }
+}
+  

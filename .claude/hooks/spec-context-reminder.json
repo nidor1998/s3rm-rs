@@ -1,0 +1,13 @@
+{
+  "name": "Spec Context Reminder",
+  "version": "1.0.0",
+  "description": "Remind to read requirements and design before implementing",
+  "when": {
+    "type": "promptSubmit",
+    "patterns": ["implement task", "work on task", "start task"]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Before implementing, have you: 1) Read the acceptance criteria in requirements.md? 2) Reviewed the architecture in design.md? 3) Checked existing tests for patterns? If not, read these files first."
+  }
+}

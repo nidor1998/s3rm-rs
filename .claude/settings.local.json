@@ -22,7 +22,8 @@
       "mcp__serena__list_memories",
       "Bash(chmod:*)",
       "Bash(/workspaces/s3rm-rs/.claude/hooks/spec-context-reminder.sh)",
-      "Bash(/workspaces/s3rm-rs/.claude/hooks/task-completion-check.sh:*)"
+      "Bash(/workspaces/s3rm-rs/.claude/hooks/task-completion-check.sh:*)",
+      "mcp__filesystem__directory_tree"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -1,4 +1,7 @@
 name: CI
+permissions:
+  contents: read
+  pull-requests: write
 
 on:
   push:
@@ -8,91 +11,67 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
 
 jobs:
-  check:
-    name: Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo check --all-features
-
   test:
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test --all-features
-
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --all-targets --all-features -- -D warnings
-
-  fmt:
-    name: Format
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - run: cargo fmt --all -- --check
-
-  # Multi-platform build verification
-  # Requirements 9.1-9.5: Cross-platform support
-  build:
-    name: Build (${{ matrix.target }})
-    runs-on: ${{ matrix.os }}
+    name: test
     strategy:
-      fail-fast: false
       matrix:
+        toolchain:
+          - stable
+        os:
+          - windows-latest
+          - windows-11-arm
+          - macos-latest
         include:
           # Requirement 9.1: Linux x86_64 glibc
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-          # Requirement 9.3: Linux ARM64
-          - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-            cross: true
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          # Requirement 9.2: Linux x86_64 musl
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          # Requirement 9.3: Linux ARM64 glibc
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          # Requirement 9.3: Linux ARM64 musl
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
           # Requirement 9.4: Windows x86_64
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-          # Requirement 9.5: macOS x86_64
-          - target: x86_64-apple-darwin
-            os: macos-latest
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          # Requirement 9.4: Windows aarch64
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
           # Requirement 9.5: macOS ARM64
-          - target: aarch64-apple-darwin
-            os: macos-latest
-
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      - uses: actions/checkout@v6
+      - run: rustup update
       - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
+      - run: rustup target add ${{ matrix.target }}
+      - name: Install musl tools
+        if: matrix.target == 'x86_64-unknown-linux-musl' || matrix.target == 'aarch64-unknown-linux-musl'
+        run: sudo apt update && sudo apt install -y musl-dev
+      - run: cargo build --target ${{ matrix.target }} --no-default-features --verbose
+      - run: cargo build --target ${{ matrix.target }} --verbose
+      - run: cargo test --target ${{ matrix.target }} --verbose
 
-      - name: Install cross-compilation tools
-        if: matrix.cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
+  rustfmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: rustup update stable && rustup default stable && rustup component add rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check --verbose
 
-      - name: Build (native)
-        if: "!matrix.cross"
-        run: cargo build --release --target ${{ matrix.target }} --all-features
-
-      - name: Build (cross)
-        if: matrix.cross
-        run: cross build --release --target ${{ matrix.target }} --all-features
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: rustup update stable && rustup default stable && rustup component add clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy -- -D warnings

@@ -68,9 +68,9 @@ impl S3rmError {
     pub fn exit_code(&self) -> i32 {
         match self {
             S3rmError::Cancelled | S3rmError::DryRun => 0,
-            S3rmError::InvalidConfig(_)
-            | S3rmError::InvalidUri(_)
-            | S3rmError::InvalidRegex(_) => 2,
+            S3rmError::InvalidConfig(_) | S3rmError::InvalidUri(_) | S3rmError::InvalidRegex(_) => {
+                2
+            }
             S3rmError::PartialFailure { .. } => 3,
             _ => 1,
         }
@@ -158,10 +158,7 @@ mod tests {
 
     #[test]
     fn exit_code_invalid_config() {
-        assert_eq!(
-            S3rmError::InvalidConfig("bad".to_string()).exit_code(),
-            2
-        );
+        assert_eq!(S3rmError::InvalidConfig("bad".to_string()).exit_code(), 2);
     }
 
     #[test]
@@ -210,10 +207,7 @@ mod tests {
 
     #[test]
     fn exit_code_io() {
-        assert_eq!(
-            S3rmError::Io("file not found".to_string()).exit_code(),
-            1
-        );
+        assert_eq!(S3rmError::Io("file not found".to_string()).exit_code(), 1);
     }
 
     #[test]

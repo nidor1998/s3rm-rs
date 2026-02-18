@@ -341,9 +341,9 @@ impl S3Target {
         let without_scheme = &s3_uri[5..]; // Remove "s3://"
 
         if without_scheme.is_empty() {
-            return Err(anyhow::anyhow!(error::S3rmError::InvalidUri(
-                format!("Bucket name cannot be empty: {s3_uri}")
-            )));
+            return Err(anyhow::anyhow!(error::S3rmError::InvalidUri(format!(
+                "Bucket name cannot be empty: {s3_uri}"
+            ))));
         }
 
         let (bucket, prefix) = match without_scheme.find('/') {
@@ -555,7 +555,9 @@ mod tests {
                 .build(),
         );
 
-        map.lock().unwrap().insert("test/key.txt".to_string(), object.clone());
+        map.lock()
+            .unwrap()
+            .insert("test/key.txt".to_string(), object.clone());
         let retrieved = map.lock().unwrap().get("test/key.txt").cloned();
         assert_eq!(retrieved, Some(object));
     }

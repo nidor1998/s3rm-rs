@@ -111,4 +111,3 @@ cargo fmt                # Formatting
 - Requirements: `.kiro/specs/s3rm-rs/requirements.md`
 - Design: `.kiro/specs/s3rm-rs/design.md`
 - Tasks: `.kiro/specs/s3rm-rs/tasks.md`
-- Quick Start: `.kiro/specs/s3rm-rs/CLAUDE_QUICK_START.md`

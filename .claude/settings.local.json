@@ -13,7 +13,12 @@
       "Bash(cargo fmt:*)",
       "mcp__git__git_branch",
       "mcp__git__git_status",
-      "mcp__github__list_pull_requests"
+      "mcp__github__list_pull_requests",
+      "mcp__git__git_log",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)",
+      "mcp__github__search_code"
     ]
   },
   "enableAllProjectMcpServers": true,

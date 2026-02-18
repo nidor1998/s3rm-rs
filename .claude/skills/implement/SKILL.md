@@ -1,5 +1,5 @@
 ---
-name: task
+name: implement
 description: Execute one task from the s3rm-rs implementation plan. Reads specs, implements the task, writes tests, verifies, and stops.
 argument-hint: "[task-number]"
 ---
@@ -78,15 +78,9 @@ Before writing ANY code, use the GitHub MCP tools to read the relevant source fi
 4. If failures occur, fix and retry (maximum 2 total attempts)
 5. If still failing after 2 attempts, explain the issue and stop
 
-### Phase 6: Update Task Status
+### Phase 6: Stop and Report
 
-After successful verification, update the task checkbox in `.kiro/specs/s3rm-rs/tasks.md`:
-- Change `- [ ]` to `- [x]` for the completed task and its sub-tasks
-- Change any in-progress markers `- [-]` to `- [x]`
-
-### Phase 7: Stop and Report
-
-**STOP HERE.** Do not continue to the next task.
+**STOP HERE.** Do not commit. Do not mark the task as complete. Do not continue to the next task.
 
 Report:
 - What was implemented
@@ -94,6 +88,17 @@ Report:
 - Which tests were written
 - Test results summary
 - Any issues or notes for the user
+
+Wait for the user to review the changes.
+
+### Phase 7: Mark Complete (ONLY after human review)
+
+**Only execute this phase when the user explicitly confirms the work is acceptable.**
+
+1. Update the task checkbox in `.kiro/specs/s3rm-rs/tasks.md`:
+   - Change `- [ ]` to `- [x]` for the completed task and its sub-tasks
+   - Change any in-progress markers `- [-]` to `- [x]`
+2. Do NOT create a git commit — the user will commit manually.
 
 ## Rules
 
@@ -103,3 +108,5 @@ Report:
 - **S3SYNC FIRST** — always check s3sync before writing new code
 - **MAX 2 VERIFICATION ATTEMPTS** — stop and ask if still failing
 - **STOP AFTER COMPLETION** — let the user review before proceeding
+- **NO AUTO-COMMIT** — never create git commits; let the user commit manually
+- **NO AUTO-COMPLETE** — never mark tasks as complete until the user confirms

@@ -8,12 +8,13 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Task 1 complete. Project setup and foundation established.
+**Current Achievement**: Tasks 1-2 complete. Project setup and core infrastructure established.
 
 ## Current Status
 
 **Completed Phases**:
 Phase 0: Project Setup (Task 1)
+Phase 1: Core Infrastructure (Task 2)
 
 ## Tasks
 
@@ -25,32 +26,32 @@ Phase 0: Project Setup (Task 1)
   - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
 
 
-- [ ] 2. Reuse Core Infrastructure from s3sync
-  - [ ] 2.1 Copy AWS client setup and configuration
+- [x] 2. Reuse Core Infrastructure from s3sync
+  - [x] 2.1 Copy AWS client setup and configuration
     - Copy aws/client.rs with credential loading, region configuration, endpoint setup
     - Include zeroize for secure credential handling
     - Copy AwsCredentials struct with Zeroize and ZeroizeOnDrop derives
     - _Requirements: 8.4, 8.5, 8.6_
 
-  - [ ] 2.2 Copy retry policy and rate limiter
+  - [x] 2.2 Copy retry policy and rate limiter
     - Copy aws/retry.rs with exponential backoff and error classification
     - Copy aws/rate_limiter.rs with token bucket algorithm
     - _Requirements: 6.1, 6.2, 6.6, 8.7_
 
-  - [ ] 2.3 Copy tracing infrastructure
+  - [x] 2.3 Copy tracing infrastructure
     - Copy tracing/mod.rs with subscriber configuration
     - Support verbosity levels (quiet, normal, verbose, very verbose, debug)
     - Support JSON and text formats with color control
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.9_
 
-  - [ ] 2.4 Copy configuration parsing infrastructure
+  - [x] 2.4 Copy configuration parsing infrastructure
     - Copy config/args.rs with parse_from_args function using clap
     - Copy config/mod.rs with Config struct and validation logic
     - Adapt to remove source-specific options (keep only target options)
     - Include zeroize for credential fields in Config
     - _Requirements: 8.1, 8.2, 8.3, 10.1, 10.2, 10.3, 10.4_
 
-  - [ ] 2.5 Copy cancellation token support
+  - [x] 2.5 Copy cancellation token support
     - Copy types/token.rs with CancellationToken type alias
     - Implement create_pipeline_cancellation_token function
     - _Requirements: N/A (infrastructure)_
@@ -910,3 +911,5 @@ Phase 0: Project Setup (Task 1)
 ## Implementation Status Summary
 
 Task 1 complete: Project setup with Cargo.toml, src/lib.rs, src/bin/s3rm/main.rs, .gitignore, and CI pipeline (.github/workflows/ci.yml).
+
+Task 2 complete: Core infrastructure reused from s3sync - types (S3rmObject, S3Credentials, AccessKeys with zeroize), config (Config, ClientConfig, RetryConfig, CLITimeoutConfig, TracingConfig, FilterConfig, ForceRetryConfig), S3 client builder (credential loading, region, endpoint, retry, timeout), tracing (init_tracing with verbosity/JSON/color/AWS SDK), and cancellation token. 23 tests pass, 0 clippy warnings.

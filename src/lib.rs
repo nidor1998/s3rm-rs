@@ -59,13 +59,9 @@ tokio = { version = "1", features = ["full"] }
 #![allow(clippy::assertions_on_constants)]
 #![allow(clippy::unnecessary_unwrap)]
 
-// Modules will be added as tasks are implemented:
-// pub mod callback;
-// pub mod config;
-// pub mod lua;
-// pub mod pipeline;
-// pub mod storage;
-// pub mod types;
+pub mod config;
+pub mod storage;
+pub mod types;
 
 #[cfg(test)]
 mod tests {

@@ -128,13 +128,13 @@ impl DeletionStatsReport {
 
     /// Record a successful deletion of an object with the given byte size.
     pub fn increment_deleted(&self, bytes: u64) {
-        self.stats_deleted_objects.fetch_add(1, Ordering::Relaxed);
-        self.stats_deleted_bytes.fetch_add(bytes, Ordering::Relaxed);
+        self.stats_deleted_objects.fetch_add(1, Ordering::SeqCst);
+        self.stats_deleted_bytes.fetch_add(bytes, Ordering::SeqCst);
     }
 
     /// Record a failed deletion attempt.
     pub fn increment_failed(&self) {
-        self.stats_failed_objects.fetch_add(1, Ordering::Relaxed);
+        self.stats_failed_objects.fetch_add(1, Ordering::SeqCst);
     }
 
     /// Take a point-in-time snapshot of the current statistics.
@@ -143,9 +143,9 @@ impl DeletionStatsReport {
     /// `Duration::default()` and should be overridden by the caller.
     pub fn snapshot(&self) -> DeletionStats {
         DeletionStats {
-            stats_deleted_objects: self.stats_deleted_objects.load(Ordering::Relaxed),
-            stats_deleted_bytes: self.stats_deleted_bytes.load(Ordering::Relaxed),
-            stats_failed_objects: self.stats_failed_objects.load(Ordering::Relaxed),
+            stats_deleted_objects: self.stats_deleted_objects.load(Ordering::SeqCst),
+            stats_deleted_bytes: self.stats_deleted_bytes.load(Ordering::SeqCst),
+            stats_failed_objects: self.stats_failed_objects.load(Ordering::SeqCst),
             duration: Duration::default(),
         }
     }
@@ -334,7 +334,7 @@ impl S3Target {
     pub fn parse(s3_uri: &str) -> anyhow::Result<Self> {
         if !s3_uri.starts_with("s3://") {
             return Err(anyhow::anyhow!(error::S3rmError::InvalidUri(format!(
-                "URI must start with 's3://': {s3_uri}"
+                "Target URI must start with 's3://': {s3_uri}"
             ))));
         }
 
@@ -478,6 +478,7 @@ mod tests {
         assert_eq!(s3_object.key(), "test/key.txt");
         assert_eq!(s3_object.size(), 1024);
         assert_eq!(s3_object.e_tag().unwrap(), "my-etag");
+        assert_eq!(*s3_object.last_modified(), DateTime::from_secs(777));
         assert!(s3_object.version_id().is_none());
         assert!(!s3_object.is_latest());
         assert!(!s3_object.is_delete_marker());
@@ -502,6 +503,7 @@ mod tests {
         assert_eq!(s3_object.key(), "test/key.txt");
         assert_eq!(s3_object.size(), 2048);
         assert_eq!(s3_object.e_tag().unwrap(), "my-etag-v1");
+        assert_eq!(*s3_object.last_modified(), DateTime::from_secs(888));
         assert_eq!(s3_object.version_id().unwrap(), "version1");
         assert!(s3_object.is_latest());
         assert!(!s3_object.is_delete_marker());
@@ -523,6 +525,7 @@ mod tests {
         assert_eq!(s3_object.key(), "test/deleted.txt");
         assert_eq!(s3_object.size(), 0);
         assert!(s3_object.e_tag().is_none());
+        assert_eq!(*s3_object.last_modified(), DateTime::from_secs(999));
         assert_eq!(s3_object.version_id().unwrap(), "dm-version1");
         assert!(s3_object.is_latest());
         assert!(s3_object.is_delete_marker());
@@ -597,15 +600,15 @@ mod tests {
     #[test]
     fn deletion_stats_report_new() {
         let report = DeletionStatsReport::new();
-        assert_eq!(report.stats_deleted_objects.load(Ordering::Relaxed), 0);
-        assert_eq!(report.stats_deleted_bytes.load(Ordering::Relaxed), 0);
-        assert_eq!(report.stats_failed_objects.load(Ordering::Relaxed), 0);
+        assert_eq!(report.stats_deleted_objects.load(Ordering::SeqCst), 0);
+        assert_eq!(report.stats_deleted_bytes.load(Ordering::SeqCst), 0);
+        assert_eq!(report.stats_failed_objects.load(Ordering::SeqCst), 0);
     }
 
     #[test]
     fn deletion_stats_report_default() {
         let report = DeletionStatsReport::default();
-        assert_eq!(report.stats_deleted_objects.load(Ordering::Relaxed), 0);
+        assert_eq!(report.stats_deleted_objects.load(Ordering::SeqCst), 0);
     }
 
     #[test]
@@ -614,9 +617,9 @@ mod tests {
         report.increment_deleted(1024);
         report.increment_deleted(2048);
 
-        assert_eq!(report.stats_deleted_objects.load(Ordering::Relaxed), 2);
-        assert_eq!(report.stats_deleted_bytes.load(Ordering::Relaxed), 3072);
-        assert_eq!(report.stats_failed_objects.load(Ordering::Relaxed), 0);
+        assert_eq!(report.stats_deleted_objects.load(Ordering::SeqCst), 2);
+        assert_eq!(report.stats_deleted_bytes.load(Ordering::SeqCst), 3072);
+        assert_eq!(report.stats_failed_objects.load(Ordering::SeqCst), 0);
     }
 
     #[test]
@@ -626,8 +629,8 @@ mod tests {
         report.increment_failed();
         report.increment_failed();
 
-        assert_eq!(report.stats_deleted_objects.load(Ordering::Relaxed), 0);
-        assert_eq!(report.stats_failed_objects.load(Ordering::Relaxed), 3);
+        assert_eq!(report.stats_deleted_objects.load(Ordering::SeqCst), 0);
+        assert_eq!(report.stats_failed_objects.load(Ordering::SeqCst), 3);
     }
 
     #[test]
@@ -841,7 +844,7 @@ mod tests {
         let result = S3Target::parse("my-bucket/prefix");
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("URI must start with 's3://'"));
+        assert!(err_msg.contains("Target URI must start with 's3://'"));
     }
 
     #[test]

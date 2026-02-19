@@ -113,11 +113,15 @@ Wait for the user to review the changes.
 
 **Only execute this phase when the user explicitly confirms the work is acceptable.**
 
-1. Update the task checkbox in `specs/tasks.md`:
+1. **Update `specs/tasks.md`**:
    - Change `- [-]` to `- [x]` for the completed task (was marked in-progress in Phase 0)
    - Change `- [ ]` to `- [x]` for all completed sub-tasks
-2. **Mark the PR as ready for review** — run `gh pr ready` on the task's PR
-3. Do NOT create a git commit — the user will commit manually.
+   - Update the "Current Achievement" line and "Completed Phases" section to include this task
+2. **Update the GitHub issue**:
+   - Update the issue body to mark all sub-task checkboxes as `[x]`
+   - Close the issue as completed
+3. **Mark the PR as ready for review** — run `gh pr ready` on the task's PR
+4. Do NOT create a git commit — the user will commit manually.
 
 ## Rules
 

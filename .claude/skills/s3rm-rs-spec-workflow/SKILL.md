@@ -87,6 +87,11 @@ Before any implementation:
 - Report what was implemented
 - Wait for user review
 
+### Step 6: Post-Review Updates (ONLY after human review confirms completion)
+When the user confirms the task review is complete, do BOTH:
+1. **Update `specs/tasks.md`** — mark the task and all sub-tasks as `[x]`, update the status summary and completed phases
+2. **Update the GitHub issue** — mark all sub-task checkboxes as `[x]` in the issue body, then close the issue as completed
+
 ## Important Rules
 
 - **NEVER** implement functionality for other tasks

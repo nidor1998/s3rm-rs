@@ -34,9 +34,7 @@ mod tests {
             proptest::collection::vec("[a-z0-9]{1,8}", 1..=3),
             extensions,
         )
-            .prop_map(|(prefix, segments, ext)| {
-                format!("{}{}{}", prefix, segments.join("/"), ext)
-            })
+            .prop_map(|(prefix, segments, ext)| format!("{}{}{}", prefix, segments.join("/"), ext))
     }
 
     fn arbitrary_s3_object_with_key(key: String) -> S3Object {

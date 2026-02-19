@@ -8,7 +8,7 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-5 complete. Project setup, core infrastructure, core data models, storage layer, and object lister established.
+**Current Achievement**: Tasks 1-6 complete. Project setup, core infrastructure, core data models, storage layer, object lister, and filter stages established.
 
 ## Current Status
 
@@ -18,6 +18,7 @@ Phase 1: Core Infrastructure (Task 2)
 Phase 2: Core Data Models (Task 3)
 Phase 3: Storage Layer (Task 4)
 Phase 4: Object Lister (Task 5)
+Phase 5: Filter Stages (Task 6)
 
 ## Tasks
 
@@ -117,42 +118,42 @@ Phase 4: Object Lister (Task 5)
     - **Validates: Requirements 1.5, 1.6, 1.7**
 
 
-- [-] 6. Implement Filter Stages (Reuse from s3sync)
-  - [ ] 6.1 Copy filter infrastructure
+- [x] 6. Implement Filter Stages (Reuse from s3sync)
+  - [x] 6.1 Copy filter infrastructure
     - Copy pipeline/filter/mod.rs with ObjectFilter trait
     - Copy pipeline/stage.rs with Stage struct (adapted for deletion - only target storage)
     - _Requirements: 2.11_
 
-  - [ ] 6.2 Copy time filters
+  - [x] 6.2 Copy time filters
     - Copy pipeline/filter/mtime.rs with MtimeBeforeFilter and MtimeAfterFilter
     - _Requirements: 2.7_
 
-  - [ ] 6.3 Copy size filters
+  - [x] 6.3 Copy size filters
     - Copy pipeline/filter/size.rs with SmallerSizeFilter and LargerSizeFilter
     - _Requirements: 2.6_
 
-  - [ ] 6.4 Copy regex filters for keys
+  - [x] 6.4 Copy regex filters for keys
     - Copy pipeline/filter/regex.rs with IncludeRegexFilter and ExcludeRegexFilter
     - Note: Content-type, metadata, and tag filters are in ObjectDeleter (not separate stages)
     - _Requirements: 2.2_
 
-  - [ ] 6.5 Copy user-defined Lua filter
+  - [x] 6.5 Copy user-defined Lua filter
     - Copy pipeline/filter/user_defined.rs with UserDefinedFilter
     - _Requirements: 2.8_
 
-  - [ ] 6.6 Write property tests for filters
+  - [x] 6.6 Write property tests for filters
     - **Property 7: Prefix Filtering**
     - **Validates: Requirements 2.1**
 
-  - [ ] 6.7 Write property test for regex filtering
+  - [x] 6.7 Write property test for regex filtering
     - **Property 8: Regex Filtering**
     - **Validates: Requirements 2.2, 2.3, 2.4, 2.5, 2.12**
 
-  - [ ] 6.8 Write property test for size filtering
+  - [x] 6.8 Write property test for size filtering
     - **Property 9: Size Range Filtering**
     - **Validates: Requirements 2.6**
 
-  - [ ] 6.9 Write property test for time filtering
+  - [x] 6.9 Write property test for time filtering
     - **Property 10: Time Range Filtering**
     - **Validates: Requirements 2.7**
 

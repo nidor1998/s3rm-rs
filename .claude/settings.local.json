@@ -44,7 +44,11 @@
       "Bash(grep:*)",
       "Bash(cargo doc:*)",
       "mcp__github__list_issues",
-      "mcp__github__get_label"
+      "mcp__github__get_label",
+      "Bash(git -C /workspaces/s3rm-rs branch --show-current)",
+      "mcp__github__pull_request_read",
+      "mcp__github__update_pull_request",
+      "mcp__github__issue_read"
     ]
   },
   "enableAllProjectMcpServers": true,

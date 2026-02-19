@@ -8,7 +8,7 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-3 complete. Project setup, core infrastructure, and core data models established.
+**Current Achievement**: Tasks 1-4 complete. Project setup, core infrastructure, core data models, and storage layer established.
 
 ## Current Status
 
@@ -16,6 +16,7 @@ This implementation plan follows a phased approach that maximizes code reuse fro
 Phase 0: Project Setup (Task 1)
 Phase 1: Core Infrastructure (Task 2)
 Phase 2: Core Data Models (Task 3)
+Phase 3: Storage Layer (Task 4)
 
 ## Tasks
 
@@ -88,15 +89,15 @@ Phase 2: Core Data Models (Task 3)
     - _Requirements: 2.1, 8.5, 8.6_
 
 
-- [-] 4. Implement Storage Layer (Reuse from s3sync)
-  - [ ] 4.1 Copy Storage trait and S3 storage implementation
+- [x] 4. Implement Storage Layer (Reuse from s3sync)
+  - [x] 4.1 Copy Storage trait and S3 storage implementation
     - Copy storage/mod.rs with Storage trait
     - Copy storage/s3.rs with S3 storage implementation
     - Adapt storage/factory.rs to create S3 storage only (no local storage needed)
     - Include is_versioning_enabled() method
     - _Requirements: 5.1, 5.2, 5.3_
 
-  - [ ] 4.2 Write unit tests for storage factory
+  - [x] 4.2 Write unit tests for storage factory
     - Test S3 storage creation with various configurations
     - Test versioning detection
     - _Requirements: 5.1, 5.2, 5.3_

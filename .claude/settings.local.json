@@ -42,7 +42,8 @@
       "WebSearch",
       "Bash(git mv:*)",
       "Bash(grep:*)",
-      "Bash(cargo doc:*)"
+      "Bash(cargo doc:*)",
+      "mcp__github__list_issues"
     ]
   },
   "enableAllProjectMcpServers": true,

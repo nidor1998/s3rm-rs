@@ -14,9 +14,29 @@ mod tests {
 
     // --- Generators ---
 
+    /// Generate S3 keys with a mix of extensions and prefixes so that
+    /// regex property tests exercise both the matching and non-matching paths.
     fn arbitrary_s3_key() -> impl Strategy<Value = String> {
-        // Generate realistic S3 keys: alphanumeric segments separated by /
-        proptest::collection::vec("[a-z0-9]{1,10}", 1..=4).prop_map(|segments| segments.join("/"))
+        let extensions = prop_oneof![
+            Just(".csv".to_string()),
+            Just(".tmp".to_string()),
+            Just(".pdf".to_string()),
+            Just(".txt".to_string()),
+            Just("".to_string()), // no extension
+        ];
+        let prefixes = prop_oneof![
+            Just("temp/".to_string()),
+            Just("data/".to_string()),
+            Just("".to_string()), // no prefix
+        ];
+        (
+            prefixes,
+            proptest::collection::vec("[a-z0-9]{1,8}", 1..=3),
+            extensions,
+        )
+            .prop_map(|(prefix, segments, ext)| {
+                format!("{}{}{}", prefix, segments.join("/"), ext)
+            })
     }
 
     fn arbitrary_s3_object_with_key(key: String) -> S3Object {

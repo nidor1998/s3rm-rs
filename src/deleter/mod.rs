@@ -26,7 +26,7 @@ use tracing::{debug, error, info, trace, warn};
 use crate::config::Config;
 use crate::stage::{SendResult, Stage};
 use crate::types::event_callback::{EventData, EventType};
-use crate::types::{DeletionStatistics, DeletionStatsReport, ObjectKeyMap, S3Object};
+use crate::types::{DeletionStatistics, DeletionStatsReport, S3Object};
 
 pub mod batch;
 pub mod single;
@@ -72,7 +72,6 @@ pub struct ObjectDeleter {
     worker_index: u16,
     base: Stage,
     deletion_stats_report: Arc<Mutex<DeletionStatsReport>>,
-    target_key_map: Option<ObjectKeyMap>,
     delete_counter: Arc<AtomicU64>,
     /// Deletion backend: BatchDeleter (batch_size > 1) or SingleDeleter (batch_size == 1).
     deleter: Box<dyn Deleter>,
@@ -87,7 +86,6 @@ impl ObjectDeleter {
         base: Stage,
         worker_index: u16,
         deletion_stats_report: Arc<Mutex<DeletionStatsReport>>,
-        target_key_map: Option<ObjectKeyMap>,
         delete_counter: Arc<AtomicU64>,
     ) -> Self {
         // Clone the target storage for the deleter backend.
@@ -109,7 +107,6 @@ impl ObjectDeleter {
             worker_index,
             base,
             deletion_stats_report,
-            target_key_map,
             delete_counter,
             deleter,
             buffer: Vec::with_capacity(effective_batch_size),
@@ -443,7 +440,7 @@ impl ObjectDeleter {
     /// headers, so if_match mode always uses direct per-object deletion.
     async fn delete_single_with_if_match(&self, object: S3Object) -> Result<()> {
         let key = object.key();
-        let target_etag = self.get_etag_from_target_key_map(key);
+        let target_etag = object.e_tag().map(|e| e.to_string());
 
         let result = self
             .base
@@ -828,21 +825,6 @@ impl ObjectDeleter {
         !is_match
     }
 
-    // -----------------------------------------------------------------------
-    // ETag helper (adapted from s3sync's ObjectDeleter)
-    // -----------------------------------------------------------------------
-
-    fn get_etag_from_target_key_map(&self, key: &str) -> Option<String> {
-        if let Some(target_key_map) = self.target_key_map.as_ref() {
-            let target_key_map_map = target_key_map.lock().unwrap();
-            let result = target_key_map_map.get(key);
-            if let Some(entry) = result {
-                return entry.e_tag().map(|e| e.to_string());
-            }
-        }
-
-        None
-    }
 }
 
 // ---------------------------------------------------------------------------

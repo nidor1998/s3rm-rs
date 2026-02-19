@@ -643,7 +643,7 @@ async fn object_deleter_processes_objects() {
     let delete_counter = Arc::new(AtomicU64::new(0));
 
     let mut deleter =
-        ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter.clone());
+        ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter.clone());
 
     // Send objects and close channel
     input_sender
@@ -697,7 +697,7 @@ async fn object_deleter_max_delete_threshold() {
     let delete_counter = Arc::new(AtomicU64::new(0));
 
     let mut deleter =
-        ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter.clone());
+        ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter.clone());
 
     // Send 5 objects
     for i in 0..5 {
@@ -745,7 +745,7 @@ async fn object_deleter_cancellation() {
 
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
-    let mut deleter = ObjectDeleter::new(stage, 0, stats_report, None, delete_counter);
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report, delete_counter);
 
     // Cancel immediately
     cancellation_token.cancel();
@@ -779,7 +779,7 @@ async fn object_deleter_content_type_include_filter() {
 
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
-    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
     input_sender
         .send(make_s3_object("doc.txt", 100))
@@ -819,7 +819,7 @@ async fn object_deleter_content_type_exclude_filter() {
 
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
-    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
     input_sender
         .send(make_s3_object("doc.txt", 100))
@@ -857,7 +857,7 @@ async fn object_deleter_metadata_include_filter() {
 
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
-    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
     input_sender
         .send(make_s3_object("data.json", 500))
@@ -894,7 +894,7 @@ async fn object_deleter_tag_include_filter() {
 
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
-    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
     input_sender
         .send(make_s3_object("tagged.txt", 256))
@@ -931,7 +931,7 @@ async fn object_deleter_tag_exclude_filter() {
 
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
-    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
     input_sender
         .send(make_s3_object("important.txt", 999))
@@ -972,7 +972,7 @@ async fn object_deleter_filter_combination_and_logic() {
 
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
-    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
     input_sender
         .send(make_s3_object("data.json", 1000))
@@ -1004,7 +1004,7 @@ async fn object_deleter_no_head_without_filters() {
 
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
-    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
     input_sender
         .send(make_s3_object("simple.txt", 100))
@@ -1044,7 +1044,7 @@ async fn object_deleter_batch_size_1_uses_single_deleter() {
 
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
-    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
     input_sender
         .send(make_s3_object("key/a", 100))
@@ -1092,7 +1092,7 @@ async fn object_deleter_if_match_uses_direct_deletion() {
 
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
-    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
     input_sender
         .send(make_s3_object("if-match/obj.txt", 512))
@@ -1134,7 +1134,7 @@ async fn object_deleter_flushes_at_batch_size_boundary() {
 
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
-    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
     // Send 7 objects: should produce 2 full batches (3+3) + 1 partial flush (1)
     for i in 0..7 {
@@ -1300,7 +1300,7 @@ async fn prop_concurrent_workers_process_all_objects() {
         let counter = delete_counter.clone();
 
         let handle = tokio::spawn(async move {
-            let mut deleter = ObjectDeleter::new(stage, worker_idx as u16, report, None, counter);
+            let mut deleter = ObjectDeleter::new(stage, worker_idx as u16, report, counter);
             deleter.delete().await.unwrap();
         });
         handles.push(handle);

@@ -48,7 +48,11 @@
       "Bash(git -C /workspaces/s3rm-rs branch --show-current)",
       "mcp__github__pull_request_read",
       "mcp__github__update_pull_request",
-      "mcp__github__issue_read"
+      "mcp__github__issue_read",
+      "mcp__git__git_create_branch",
+      "mcp__git__git_checkout",
+      "mcp__git__git_add",
+      "mcp__git__git_commit"
     ]
   },
   "enableAllProjectMcpServers": true,

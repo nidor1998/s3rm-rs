@@ -189,7 +189,7 @@ Phase 6: Lua Integration (Task 7)
     - **Validates: Requirements 2.13, 2.14**
 
 
-- [ ] 8. Implement Deletion Components (New)
+- [-] 8. Implement Deletion Components (New)
   - [ ] 8.1 Implement BatchDeleter
     - Create pipeline/batch_deleter.rs
     - Implement Deleter trait with delete() method

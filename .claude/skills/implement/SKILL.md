@@ -15,9 +15,9 @@ You are executing a single task from the s3rm-rs implementation plan.
 
 ## Execution Workflow
 
-### Phase 0: Branch & Issue Setup (MANDATORY)
+### Phase 0: Branch, Issue & PR Setup (MANDATORY)
 
-Before doing anything else, set up the working branch and GitHub issue:
+Before doing anything else, set up the working branch, GitHub issue, and draft PR:
 
 1. **Determine the task number** (from `$ARGUMENTS` or by reading `tasks.md`)
 2. **Ensure working tree is clean** — run `git status`. If there are uncommitted changes, stop and ask the user how to proceed.
@@ -29,14 +29,19 @@ Before doing anything else, set up the working branch and GitHub issue:
    - **Body**: Include the task description, sub-tasks (as a checkbox list), and referenced requirements from tasks.md
    - **Labels**: add `task` label (create it first if it doesn't exist)
    - **Save the issue number** — you will need it when creating the PR later
-6. **Create a draft pull request** immediately after pushing the branch:
-   - Push the branch: `git push -u origin build/init/task<N>`
-   - Create a draft PR using `gh pr create`:
-     - **Title**: `Task <N>: <task title>`
-     - **Base**: `init_build`
-     - **Body**: Include `Closes #<issue_number>` to link the issue, a summary section, and a test plan section
-     - **Draft**: yes — it will be marked ready for review after implementation
-7. **Confirm** — display the current branch name, issue URL, and PR URL before proceeding
+6. **Mark task as in-progress** in `.kiro/specs/s3rm-rs/tasks.md`:
+   - Change the task's `- [ ]` to `- [-]` (in-progress marker)
+   - Do NOT change sub-task checkboxes yet
+7. **Commit the in-progress update and push**:
+   - Stage only `tasks.md`: `git add .kiro/specs/s3rm-rs/tasks.md`
+   - Commit: `git commit -m "Mark Task <N> as in-progress in tasks.md"`
+   - Push: `git push -u origin build/init/task<N>`
+8. **Create a draft pull request** using `gh pr create`:
+   - **Title**: `Task <N>: <task title>`
+   - **Base**: `init_build`
+   - **Body**: Include `Closes #<issue_number>` to link the issue, a summary section, and a test plan section
+   - **Draft**: yes — it will be marked ready for review after implementation
+9. **Confirm** — display the current branch name, issue URL, and PR URL before proceeding
 
 All work for this task MUST happen on the `build/init/task<N>` branch.
 
@@ -109,8 +114,8 @@ Wait for the user to review the changes.
 **Only execute this phase when the user explicitly confirms the work is acceptable.**
 
 1. Update the task checkbox in `.kiro/specs/s3rm-rs/tasks.md`:
-   - Change `- [ ]` to `- [x]` for the completed task and its sub-tasks
-   - Change any in-progress markers `- [-]` to `- [x]`
+   - Change `- [-]` to `- [x]` for the completed task (was marked in-progress in Phase 0)
+   - Change `- [ ]` to `- [x]` for all completed sub-tasks
 2. **Mark the PR as ready for review** — run `gh pr ready` on the task's PR
 3. Do NOT create a git commit — the user will commit manually.
 

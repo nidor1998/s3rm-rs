@@ -59,9 +59,12 @@ tokio = { version = "1", features = ["full"] }
 #![allow(clippy::assertions_on_constants)]
 #![allow(clippy::unnecessary_unwrap)]
 
+pub mod callback;
 pub mod config;
 pub mod filters;
 pub mod lister;
+#[cfg(feature = "lua_support")]
+pub mod lua;
 pub mod stage;
 pub mod storage;
 pub mod types;

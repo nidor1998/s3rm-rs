@@ -1,3 +1,5 @@
+use crate::callback::event_manager::EventManager;
+use crate::callback::filter_manager::FilterManager;
 use crate::types::{ClientConfigLocation, S3Credentials, StoragePath};
 use aws_sdk_s3::types::RequestPayer;
 use aws_smithy_types::checksum_config::RequestChecksumCalculation;
@@ -35,6 +37,9 @@ pub struct Config {
     pub lua_vm_memory_limit: usize,
     pub if_match: bool,
     pub max_delete: Option<u64>,
+    // Callback managers
+    pub filter_manager: FilterManager,
+    pub event_manager: EventManager,
     // Deletion-specific options
     pub batch_size: u16,
     pub delete_all_versions: bool,

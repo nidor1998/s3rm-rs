@@ -101,6 +101,9 @@ pub(crate) mod tests {
     }
 
     fn make_test_config() -> Config {
+        use crate::callback::event_manager::EventManager;
+        use crate::callback::filter_manager::FilterManager;
+
         Config {
             target: StoragePath::S3 {
                 bucket: "test-bucket".to_string(),
@@ -131,6 +134,8 @@ pub(crate) mod tests {
             lua_vm_memory_limit: 0,
             if_match: false,
             max_delete: None,
+            filter_manager: FilterManager::new(),
+            event_manager: EventManager::new(),
             batch_size: 1000,
             delete_all_versions: false,
             force: false,
@@ -419,6 +424,9 @@ mod property_tests {
         max_parallel_listing_max_depth: u16,
         delete_all_versions: bool,
     ) -> Config {
+        use crate::callback::event_manager::EventManager;
+        use crate::callback::filter_manager::FilterManager;
+
         Config {
             target: StoragePath::S3 {
                 bucket: "test-bucket".to_string(),
@@ -449,6 +457,8 @@ mod property_tests {
             lua_vm_memory_limit: 0,
             if_match: false,
             max_delete: None,
+            filter_manager: FilterManager::new(),
+            event_manager: EventManager::new(),
             batch_size: 1000,
             delete_all_versions,
             force: false,

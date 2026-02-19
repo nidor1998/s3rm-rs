@@ -233,6 +233,8 @@ mod tests {
     }
 
     pub(crate) fn create_test_config() -> Config {
+        use crate::callback::event_manager::EventManager;
+        use crate::callback::filter_manager::FilterManager;
         use crate::config::{FilterConfig, ForceRetryConfig};
         use crate::types::StoragePath;
 
@@ -266,6 +268,8 @@ mod tests {
             lua_vm_memory_limit: 0,
             if_match: false,
             max_delete: None,
+            filter_manager: FilterManager::new(),
+            event_manager: EventManager::new(),
             batch_size: 1000,
             delete_all_versions: false,
             force: false,

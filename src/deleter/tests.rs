@@ -642,7 +642,8 @@ async fn object_deleter_processes_objects() {
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
 
-    let deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter.clone());
+    let mut deleter =
+        ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter.clone());
 
     // Send objects and close channel
     input_sender
@@ -658,11 +659,16 @@ async fn object_deleter_processes_objects() {
     // Run deleter
     deleter.delete().await.unwrap();
 
-    // Verify deletions happened
-    let calls = mock.delete_object_calls.lock().unwrap();
-    assert_eq!(calls.len(), 2);
-    assert_eq!(calls[0].key, "test/obj1.txt");
-    assert_eq!(calls[1].key, "test/obj2.txt");
+    // Verify deletions happened via BatchDeleter (batch_size=1000)
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 1); // One batch call for 2 objects
+    assert_eq!(batch_calls[0].identifiers.len(), 2);
+    assert_eq!(batch_calls[0].identifiers[0].key(), "test/obj1.txt");
+    assert_eq!(batch_calls[0].identifiers[1].key(), "test/obj2.txt");
+
+    // No direct delete_object calls (delegated to BatchDeleter)
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(single_calls.len(), 0);
 
     // Verify stats
     let report = stats_report.lock().unwrap();
@@ -690,7 +696,8 @@ async fn object_deleter_max_delete_threshold() {
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
 
-    let deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter.clone());
+    let mut deleter =
+        ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter.clone());
 
     // Send 5 objects
     for i in 0..5 {
@@ -704,9 +711,15 @@ async fn object_deleter_max_delete_threshold() {
     // Run deleter — should stop after max_delete threshold
     deleter.delete().await.unwrap();
 
-    // At most 2 deletions should have been made
-    let calls = mock.delete_object_calls.lock().unwrap();
-    assert!(calls.len() <= 2);
+    // Objects 0 and 1 are within threshold (counter ≤ 2), buffered and flushed
+    // via BatchDeleter when object 2 triggers the threshold.
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].identifiers.len(), 2);
+
+    // No direct single-object calls
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(single_calls.len(), 0);
 }
 
 #[tokio::test]
@@ -732,7 +745,7 @@ async fn object_deleter_cancellation() {
 
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
-    let deleter = ObjectDeleter::new(stage, 0, stats_report, None, delete_counter);
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report, None, delete_counter);
 
     // Cancel immediately
     cancellation_token.cancel();
@@ -766,7 +779,7 @@ async fn object_deleter_content_type_include_filter() {
 
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
-    let deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
 
     input_sender
         .send(make_s3_object("doc.txt", 100))
@@ -777,9 +790,11 @@ async fn object_deleter_content_type_include_filter() {
     deleter.delete().await.unwrap();
 
     // Object had content_type "text/plain" but filter requires "application/json"
-    // So the object should NOT have been deleted
-    let calls = mock.delete_object_calls.lock().unwrap();
-    assert_eq!(calls.len(), 0);
+    // So the object should NOT have been deleted (filtered out, never buffered)
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 0);
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(single_calls.len(), 0);
 
     // HeadObject should have been called
     let head_calls = mock.head_object_calls.lock().unwrap();
@@ -804,7 +819,7 @@ async fn object_deleter_content_type_exclude_filter() {
 
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
-    let deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
 
     input_sender
         .send(make_s3_object("doc.txt", 100))
@@ -815,9 +830,11 @@ async fn object_deleter_content_type_exclude_filter() {
     deleter.delete().await.unwrap();
 
     // Object had content_type "text/plain" which matches exclude regex
-    // So it should NOT have been deleted (excluded)
-    let calls = mock.delete_object_calls.lock().unwrap();
-    assert_eq!(calls.len(), 0);
+    // So it should NOT have been deleted (excluded, never buffered)
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 0);
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(single_calls.len(), 0);
 }
 
 #[tokio::test]
@@ -840,7 +857,7 @@ async fn object_deleter_metadata_include_filter() {
 
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
-    let deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
 
     input_sender
         .send(make_s3_object("data.json", 500))
@@ -850,9 +867,11 @@ async fn object_deleter_metadata_include_filter() {
 
     deleter.delete().await.unwrap();
 
-    // Metadata matches include filter → object should be deleted
-    let calls = mock.delete_object_calls.lock().unwrap();
-    assert_eq!(calls.len(), 1);
+    // Metadata matches include filter → object should be deleted via BatchDeleter
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].identifiers.len(), 1);
+    assert_eq!(batch_calls[0].identifiers[0].key(), "data.json");
 }
 
 #[tokio::test]
@@ -875,7 +894,7 @@ async fn object_deleter_tag_include_filter() {
 
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
-    let deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
 
     input_sender
         .send(make_s3_object("tagged.txt", 256))
@@ -885,9 +904,11 @@ async fn object_deleter_tag_include_filter() {
 
     deleter.delete().await.unwrap();
 
-    // Tags match include filter → object should be deleted
-    let calls = mock.delete_object_calls.lock().unwrap();
-    assert_eq!(calls.len(), 1);
+    // Tags match include filter → object should be deleted via BatchDeleter
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].identifiers.len(), 1);
+    assert_eq!(batch_calls[0].identifiers[0].key(), "tagged.txt");
 }
 
 #[tokio::test]
@@ -910,7 +931,7 @@ async fn object_deleter_tag_exclude_filter() {
 
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
-    let deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
 
     input_sender
         .send(make_s3_object("important.txt", 999))
@@ -920,9 +941,11 @@ async fn object_deleter_tag_exclude_filter() {
 
     deleter.delete().await.unwrap();
 
-    // Tags match exclude filter → object should NOT be deleted
-    let calls = mock.delete_object_calls.lock().unwrap();
-    assert_eq!(calls.len(), 0);
+    // Tags match exclude filter → object should NOT be deleted (filtered out)
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 0);
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(single_calls.len(), 0);
 }
 
 #[tokio::test]
@@ -949,7 +972,7 @@ async fn object_deleter_filter_combination_and_logic() {
 
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
-    let deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
 
     input_sender
         .send(make_s3_object("data.json", 1000))
@@ -960,8 +983,10 @@ async fn object_deleter_filter_combination_and_logic() {
     deleter.delete().await.unwrap();
 
     // Content-type matched but metadata didn't → AND logic means no delete
-    let calls = mock.delete_object_calls.lock().unwrap();
-    assert_eq!(calls.len(), 0);
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 0);
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(single_calls.len(), 0);
 }
 
 #[tokio::test]
@@ -979,7 +1004,7 @@ async fn object_deleter_no_head_without_filters() {
 
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
-    let deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
 
     input_sender
         .send(make_s3_object("simple.txt", 100))
@@ -993,9 +1018,144 @@ async fn object_deleter_no_head_without_filters() {
     let head_calls = mock.head_object_calls.lock().unwrap();
     assert_eq!(head_calls.len(), 0);
 
-    // Object should still be deleted
-    let delete_calls = mock.delete_object_calls.lock().unwrap();
-    assert_eq!(delete_calls.len(), 1);
+    // Object should still be deleted via BatchDeleter (batch_size=1000)
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].identifiers.len(), 1);
+    assert_eq!(batch_calls[0].identifiers[0].key(), "simple.txt");
+}
+
+// ===========================================================================
+// Unit tests: ObjectDeleter with batch_size=1 (uses SingleDeleter)
+// ===========================================================================
+
+#[tokio::test]
+async fn object_deleter_batch_size_1_uses_single_deleter() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.batch_size = 1; // Force SingleDeleter
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
+
+    input_sender
+        .send(make_s3_object("key/a", 100))
+        .await
+        .unwrap();
+    input_sender
+        .send(make_s3_object("key/b", 200))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // With batch_size=1, SingleDeleter is used → delete_object calls
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(single_calls.len(), 2);
+    assert_eq!(single_calls[0].key, "key/a");
+    assert_eq!(single_calls[1].key, "key/b");
+
+    // No batch calls
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 0);
+
+    let report = stats_report.lock().unwrap();
+    assert_eq!(report.stats_deleted_objects.load(Ordering::SeqCst), 2);
+    assert_eq!(report.stats_deleted_bytes.load(Ordering::SeqCst), 300);
+}
+
+// ===========================================================================
+// Unit tests: ObjectDeleter with if_match (uses direct per-object deletion)
+// ===========================================================================
+
+#[tokio::test]
+async fn object_deleter_if_match_uses_direct_deletion() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.if_match = true; // Enable if-match mode
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
+
+    input_sender
+        .send(make_s3_object("if-match/obj.txt", 512))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // if_match mode bypasses buffering, uses direct delete_object calls
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(single_calls.len(), 1);
+    assert_eq!(single_calls[0].key, "if-match/obj.txt");
+
+    // No batch calls
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 0);
+
+    let report = stats_report.lock().unwrap();
+    assert_eq!(report.stats_deleted_objects.load(Ordering::SeqCst), 1);
+}
+
+// ===========================================================================
+// Unit tests: ObjectDeleter buffer flush on batch_size boundary
+// ===========================================================================
+
+#[tokio::test]
+async fn object_deleter_flushes_at_batch_size_boundary() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(20);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(20);
+
+    let mut config = make_test_config();
+    config.batch_size = 3; // Small batch for testing
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), None, delete_counter);
+
+    // Send 7 objects: should produce 2 full batches (3+3) + 1 partial flush (1)
+    for i in 0..7 {
+        input_sender
+            .send(make_s3_object(&format!("key/{i}"), 100))
+            .await
+            .unwrap();
+    }
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    // 3 batch calls: [3, 3, 1]
+    assert_eq!(batch_calls.len(), 3);
+    assert_eq!(batch_calls[0].identifiers.len(), 3);
+    assert_eq!(batch_calls[1].identifiers.len(), 3);
+    assert_eq!(batch_calls[2].identifiers.len(), 1);
+
+    let report = stats_report.lock().unwrap();
+    assert_eq!(report.stats_deleted_objects.load(Ordering::SeqCst), 7);
 }
 
 // ===========================================================================
@@ -1140,7 +1300,7 @@ async fn prop_concurrent_workers_process_all_objects() {
         let counter = delete_counter.clone();
 
         let handle = tokio::spawn(async move {
-            let deleter = ObjectDeleter::new(stage, worker_idx as u16, report, None, counter);
+            let mut deleter = ObjectDeleter::new(stage, worker_idx as u16, report, None, counter);
             deleter.delete().await.unwrap();
         });
         handles.push(handle);

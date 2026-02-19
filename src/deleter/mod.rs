@@ -81,6 +81,12 @@ pub struct ObjectDeleter {
     deletion_stats_report: Arc<Mutex<DeletionStatsReport>>,
     target_key_map: Option<ObjectKeyMap>,
     delete_counter: Arc<AtomicU64>,
+    /// Deletion backend: BatchDeleter (batch_size > 1) or SingleDeleter (batch_size == 1).
+    deleter: Box<dyn Deleter>,
+    /// Buffer of objects that passed filtering, pending flush to the deleter.
+    buffer: Vec<S3Object>,
+    /// Effective batch size (min of config.batch_size and MAX_BATCH_SIZE).
+    effective_batch_size: usize,
 }
 
 impl ObjectDeleter {
@@ -91,22 +97,40 @@ impl ObjectDeleter {
         target_key_map: Option<ObjectKeyMap>,
         delete_counter: Arc<AtomicU64>,
     ) -> Self {
+        // Clone the target storage for the deleter backend.
+        let target_storage = base.target.clone();
+
+        let effective_batch_size = if base.config.batch_size <= 1 {
+            1
+        } else {
+            (base.config.batch_size as usize).min(batch::MAX_BATCH_SIZE)
+        };
+
+        let deleter: Box<dyn Deleter> = if base.config.batch_size <= 1 {
+            Box::new(SingleDeleter::new(target_storage))
+        } else {
+            Box::new(BatchDeleter::new(target_storage))
+        };
+
         Self {
             worker_index,
             base,
             deletion_stats_report,
             target_key_map,
             delete_counter,
+            deleter,
+            buffer: Vec::with_capacity(effective_batch_size),
+            effective_batch_size,
         }
     }
 
     /// Main entry point: read objects from channel, filter, and delete.
-    pub async fn delete(&self) -> Result<()> {
+    pub async fn delete(&mut self) -> Result<()> {
         debug!(worker_index = self.worker_index, "delete worker started.");
         self.receive_and_delete().await
     }
 
-    async fn receive_and_delete(&self) -> Result<()> {
+    async fn receive_and_delete(&mut self) -> Result<()> {
         loop {
             tokio::select! {
                 recv_result = self.base.receiver.as_ref().unwrap().recv() => {
@@ -115,13 +139,16 @@ impl ObjectDeleter {
                             self.process_object(object).await?;
                         },
                         Err(_) => {
-                            // Channel closed — normal shutdown
+                            // Channel closed — flush remaining buffer and shut down
+                            self.flush_buffer().await?;
                             debug!(worker_index = self.worker_index, "delete worker has been completed.");
                             break;
                         }
                     }
                 },
                 _ = self.base.cancellation_token.cancelled() => {
+                    // Flush buffered objects that already passed filtering
+                    self.flush_buffer().await?;
                     info!(worker_index = self.worker_index, "delete worker has been cancelled.");
                     return Ok(());
                 }
@@ -131,12 +158,15 @@ impl ObjectDeleter {
         Ok(())
     }
 
-    async fn process_object(&self, object: S3Object) -> Result<()> {
+    async fn process_object(&mut self, object: S3Object) -> Result<()> {
         // Check max_delete threshold
         self.delete_counter.fetch_add(1, Ordering::SeqCst);
         let deleted_count = self.delete_counter.load(Ordering::SeqCst);
         if let Some(max_delete) = self.base.config.max_delete {
             if deleted_count > max_delete {
+                // Flush already-buffered objects (they are within the threshold)
+                self.flush_buffer().await?;
+
                 self.base
                     .send_stats(DeletionStatistics::DeleteWarning {
                         key: object.key().to_string(),
@@ -295,12 +325,132 @@ impl ObjectDeleter {
             }
         }
 
-        // --- Delete the object ---
-        let target_etag = if self.base.config.if_match {
-            self.get_etag_from_target_key_map(key)
+        // --- Delegate deletion ---
+        if self.base.config.if_match {
+            // Per-object deletion with ETag (S3 DeleteObjects API does not
+            // support per-object If-Match headers).
+            self.delete_single_with_if_match(object).await?;
         } else {
-            None
-        };
+            // Buffer the object for batch/single deletion via the deleter backend.
+            self.buffer.push(object);
+            if self.buffer.len() >= self.effective_batch_size {
+                self.flush_buffer().await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Flush the internal buffer by delegating to the Deleter backend
+    /// (BatchDeleter or SingleDeleter).
+    async fn flush_buffer(&mut self) -> Result<()> {
+        if self.buffer.is_empty() {
+            return Ok(());
+        }
+
+        let batch = std::mem::take(&mut self.buffer);
+
+        match self.deleter.delete(&batch, &self.base.config).await {
+            Ok(deleted_count) => {
+                // Emit per-object stats and events for successes.
+                // increment_deleted increments the object counter by 1, so call per-object.
+                for obj in batch.iter().take(deleted_count) {
+                    let size = obj.size() as u64;
+                    self.deletion_stats_report
+                        .lock()
+                        .unwrap()
+                        .increment_deleted(size);
+
+                    self.base
+                        .send_stats(DeletionStatistics::DeleteComplete {
+                            key: obj.key().to_string(),
+                        })
+                        .await;
+                    self.base
+                        .send_stats(DeletionStatistics::DeleteBytes(size))
+                        .await;
+
+                    let mut event_data = EventData::new(EventType::DELETE_COMPLETE);
+                    event_data.key = Some(obj.key().to_string());
+                    event_data.version_id = obj.version_id().map(|v| v.to_string());
+                    event_data.size = Some(size);
+                    self.base
+                        .config
+                        .event_manager
+                        .trigger_event(event_data)
+                        .await;
+                }
+
+                // Record failures (partial batch failure)
+                for _ in 0..(batch.len() - deleted_count) {
+                    self.deletion_stats_report
+                        .lock()
+                        .unwrap()
+                        .increment_failed();
+                }
+
+                // Emit failure events for partial failures
+                for obj in batch.iter().skip(deleted_count) {
+                    let mut event_data = EventData::new(EventType::DELETE_FAILED);
+                    event_data.key = Some(obj.key().to_string());
+                    event_data.version_id = obj.version_id().map(|v| v.to_string());
+                    event_data.error_message = Some("batch partial failure".to_string());
+                    self.base
+                        .config
+                        .event_manager
+                        .trigger_event(event_data)
+                        .await;
+                }
+
+                // Forward all objects to next stage
+                for obj in batch {
+                    if self.base.send(obj).await? == SendResult::Closed {
+                        return Ok(());
+                    }
+                }
+
+                Ok(())
+            }
+            Err(e) => {
+                // Entire operation failed — cancel pipeline
+                self.base.cancellation_token.cancel();
+                error!(
+                    worker_index = self.worker_index,
+                    error = e.to_string(),
+                    "delete worker has been cancelled with error."
+                );
+
+                for _ in 0..batch.len() {
+                    self.deletion_stats_report
+                        .lock()
+                        .unwrap()
+                        .increment_failed();
+                }
+
+                for obj in &batch {
+                    let mut event_data = EventData::new(EventType::DELETE_FAILED);
+                    event_data.key = Some(obj.key().to_string());
+                    event_data.version_id = obj.version_id().map(|v| v.to_string());
+                    event_data.error_message = Some(e.to_string());
+                    self.base
+                        .config
+                        .event_manager
+                        .trigger_event(event_data)
+                        .await;
+                }
+
+                Err(anyhow!("delete worker has been cancelled with error."))
+            }
+        }
+    }
+
+    /// Delete a single object with If-Match ETag conditional deletion.
+    ///
+    /// S3 DeleteObjects (batch) API does not support per-object If-Match
+    /// headers, so if_match mode always uses direct per-object deletion.
+    async fn delete_single_with_if_match(&self, object: S3Object) -> Result<()> {
+        let key = object.key();
+        let target_etag = self.get_etag_from_target_key_map(key);
 
         let result = self
             .base

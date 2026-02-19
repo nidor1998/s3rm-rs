@@ -373,7 +373,8 @@ impl StorageTrait for S3Storage {
                 tokio::time::sleep(std::time::Duration::from_millis(force_retry_interval)).await;
             }
 
-            self.exec_rate_limit_objects_per_sec().await;
+            self.exec_rate_limit_objects_per_sec_n(remaining_objects.len())
+                .await;
 
             let delete = Delete::builder()
                 .set_objects(Some(remaining_objects))
@@ -470,10 +471,27 @@ impl StorageTrait for S3Storage {
 impl S3Storage {
     /// Apply rate limiting for objects per second if configured.
     ///
+    /// Acquires a single token. Appropriate for single-object operations
+    /// (delete_object, head_object, get_object_tagging, list_objects).
+    ///
     /// Reused from s3sync's rate limiting pattern.
     async fn exec_rate_limit_objects_per_sec(&self) {
         if let Some(ref rate_limiter) = self.rate_limit_objects_per_sec {
             rate_limiter.acquire_one().await;
+        }
+    }
+
+    /// Apply rate limiting proportional to the number of objects being processed.
+    ///
+    /// Used for batch operations (delete_objects) where a single API call
+    /// processes multiple objects. Acquires `count` tokens to accurately
+    /// enforce the configured objects-per-second rate.
+    async fn exec_rate_limit_objects_per_sec_n(&self, count: usize) {
+        if count == 0 {
+            return;
+        }
+        if let Some(ref rate_limiter) = self.rate_limit_objects_per_sec {
+            rate_limiter.acquire(count).await;
         }
     }
 

@@ -256,7 +256,6 @@ mod tests {
             }),
             worker_size: 4,
             warn_as_error: false,
-            enable_versioning: false,
             dry_run: false,
             rate_limit_objects: None,
             max_parallel_listings: 1,

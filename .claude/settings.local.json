@@ -43,7 +43,8 @@
       "Bash(git mv:*)",
       "Bash(grep:*)",
       "Bash(cargo doc:*)",
-      "mcp__github__list_issues"
+      "mcp__github__list_issues",
+      "mcp__github__get_label"
     ]
   },
   "enableAllProjectMcpServers": true,

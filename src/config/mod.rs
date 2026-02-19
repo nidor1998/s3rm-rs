@@ -19,7 +19,6 @@ pub struct Config {
     pub tracing_config: Option<TracingConfig>,
     pub worker_size: u16,
     pub warn_as_error: bool,
-    pub enable_versioning: bool,
     pub dry_run: bool,
     pub rate_limit_objects: Option<u32>,
     pub max_parallel_listings: u16,

@@ -103,7 +103,7 @@ Phase 3: Storage Layer (Task 4)
     - _Requirements: 5.1, 5.2, 5.3_
 
 
-- [ ] 5. Implement Object Lister (Reuse from s3sync)
+- [-] 5. Implement Object Lister (Reuse from s3sync)
   - [ ] 5.1 Copy ObjectLister implementation
     - Copy lister/mod.rs with parallel pagination support
     - Support configurable Parallel_Lister_Count

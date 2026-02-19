@@ -642,8 +642,7 @@ async fn object_deleter_processes_objects() {
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
 
-    let mut deleter =
-        ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter.clone());
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter.clone());
 
     // Send objects and close channel
     input_sender
@@ -696,8 +695,7 @@ async fn object_deleter_max_delete_threshold() {
     let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
     let delete_counter = Arc::new(AtomicU64::new(0));
 
-    let mut deleter =
-        ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter.clone());
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter.clone());
 
     // Send 5 objects
     for i in 0..5 {

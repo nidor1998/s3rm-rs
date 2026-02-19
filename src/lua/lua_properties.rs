@@ -338,7 +338,7 @@ mod tests {
             ]),
         ) {
             let engine = LuaScriptCallbackEngine::new_without_os_io_libs(8 * 1024 * 1024);
-            let result = engine.load_and_compile(&os_func);
+            let result = engine.load_and_compile(os_func);
             prop_assert!(result.is_err(), "os function should be blocked in safe mode: {}", os_func);
         }
 
@@ -356,7 +356,7 @@ mod tests {
             ]),
         ) {
             let engine = LuaScriptCallbackEngine::new_without_os_io_libs(8 * 1024 * 1024);
-            let result = engine.load_and_compile(&io_func);
+            let result = engine.load_and_compile(io_func);
             prop_assert!(result.is_err(), "io function should be blocked in safe mode: {}", io_func);
         }
 
@@ -373,7 +373,7 @@ mod tests {
             ]),
         ) {
             let engine = LuaScriptCallbackEngine::new(8 * 1024 * 1024);
-            let result = engine.load_and_compile(&os_func);
+            let result = engine.load_and_compile(os_func);
             prop_assert!(result.is_ok(), "os function should work with allow_lua_os_library: {}", os_func);
         }
     }

@@ -20,8 +20,8 @@ use aws_sdk_s3::types::Tag;
 use aws_smithy_runtime_api::client::result::SdkError;
 use aws_smithy_runtime_api::http::Response;
 use aws_smithy_types::body::SdkBody;
-use urlencoding::encode;
 use tracing::{debug, error, info, trace, warn};
+use urlencoding::encode;
 
 use crate::config::Config;
 use crate::stage::{SendResult, Stage};
@@ -824,7 +824,6 @@ impl ObjectDeleter {
 
         !is_match
     }
-
 }
 
 // ---------------------------------------------------------------------------

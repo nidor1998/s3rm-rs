@@ -1,12 +1,20 @@
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
+use anyhow::{Context, Result, anyhow};
 use async_channel::{Receiver, Sender};
 
 use crate::config::Config;
 use crate::storage::Storage;
-use crate::types::S3Object;
 use crate::types::token::PipelineCancellationToken;
+use crate::types::{DeletionStatistics, S3Object};
+
+/// Result of sending an object to the next stage.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SendResult {
+    Success,
+    Closed,
+}
 
 /// Shared context passed to each pipeline stage.
 ///
@@ -43,5 +51,44 @@ impl Stage {
             cancellation_token,
             has_warning,
         }
+    }
+
+    /// Send an object to the next stage via the sender channel.
+    ///
+    /// Returns `SendResult::Closed` if the downstream channel has been closed
+    /// (e.g. due to cancellation), allowing the caller to exit gracefully.
+    pub async fn send(&self, object: S3Object) -> Result<SendResult> {
+        let result = self
+            .sender
+            .as_ref()
+            .unwrap()
+            .send(object)
+            .await
+            .context("async_channel::Sender::send() failed.");
+
+        if let Err(e) = result {
+            return if !self.is_channel_closed() {
+                Err(anyhow!(e))
+            } else {
+                Ok(SendResult::Closed)
+            };
+        }
+
+        Ok(SendResult::Success)
+    }
+
+    /// Check if the sender channel has been closed by the receiver.
+    pub fn is_channel_closed(&self) -> bool {
+        self.sender.as_ref().unwrap().is_closed()
+    }
+
+    /// Send a statistics event through the storage stats channel.
+    pub async fn send_stats(&self, stats: DeletionStatistics) {
+        let _ = self.target.get_stats_sender().send(stats).await;
+    }
+
+    /// Set the warning flag to indicate a non-fatal issue occurred.
+    pub fn set_warning(&self) {
+        self.has_warning.store(true, Ordering::SeqCst);
     }
 }

@@ -292,7 +292,11 @@ impl StorageTrait for S3Storage {
         Ok(())
     }
 
-    async fn head_object(&self, key: &str, version_id: Option<String>) -> Result<HeadObjectOutput> {
+    async fn head_object(
+        &self,
+        relative_key: &str,
+        version_id: Option<String>,
+    ) -> Result<HeadObjectOutput> {
         self.exec_rate_limit_objects_per_sec().await;
 
         Ok(self
@@ -302,7 +306,7 @@ impl StorageTrait for S3Storage {
             .head_object()
             .set_request_payer(self.request_payer.clone())
             .bucket(&self.bucket)
-            .key(generate_full_key(&self.prefix, key))
+            .key(prepend_prefix(&self.prefix, relative_key))
             .set_version_id(version_id)
             .send()
             .await?)
@@ -310,7 +314,7 @@ impl StorageTrait for S3Storage {
 
     async fn get_object_tagging(
         &self,
-        key: &str,
+        relative_key: &str,
         version_id: Option<String>,
     ) -> Result<GetObjectTaggingOutput> {
         self.exec_rate_limit_objects_per_sec().await;
@@ -322,7 +326,7 @@ impl StorageTrait for S3Storage {
             .get_object_tagging()
             .set_request_payer(self.request_payer.clone())
             .bucket(&self.bucket)
-            .key(generate_full_key(&self.prefix, key))
+            .key(prepend_prefix(&self.prefix, relative_key))
             .set_version_id(version_id)
             .send()
             .await?)
@@ -330,7 +334,7 @@ impl StorageTrait for S3Storage {
 
     async fn delete_object(
         &self,
-        key: &str,
+        relative_key: &str,
         version_id: Option<String>,
         if_match: Option<String>,
     ) -> Result<DeleteObjectOutput> {
@@ -343,7 +347,7 @@ impl StorageTrait for S3Storage {
             .delete_object()
             .set_request_payer(self.request_payer.clone())
             .bucket(&self.bucket)
-            .key(generate_full_key(&self.prefix, key))
+            .key(prepend_prefix(&self.prefix, relative_key))
             .set_version_id(version_id)
             .set_if_match(if_match)
             .send()
@@ -808,15 +812,15 @@ impl S3Storage {
     }
 }
 
-/// Generate the full S3 key by prepending the prefix.
+/// Prepend the storage prefix to a relative key to form the full S3 key.
 ///
-/// If the prefix is empty, returns the key as-is.
+/// If the prefix is empty, returns the relative key as-is.
 /// Reused from s3sync's key generation pattern.
-fn generate_full_key(prefix: &str, key: &str) -> String {
+fn prepend_prefix(prefix: &str, relative_key: &str) -> String {
     if prefix.is_empty() {
-        key.to_string()
+        relative_key.to_string()
     } else {
-        format!("{prefix}{key}")
+        format!("{prefix}{relative_key}")
     }
 }
 
@@ -878,19 +882,19 @@ mod tests {
     }
 
     #[test]
-    fn generate_full_key_with_prefix() {
+    fn prepend_prefix_with_prefix() {
         init_dummy_tracing_subscriber();
 
-        assert_eq!(generate_full_key("logs/", "file.txt"), "logs/file.txt");
-        assert_eq!(generate_full_key("a/b/c/", "key.json"), "a/b/c/key.json");
+        assert_eq!(prepend_prefix("logs/", "file.txt"), "logs/file.txt");
+        assert_eq!(prepend_prefix("a/b/c/", "key.json"), "a/b/c/key.json");
     }
 
     #[test]
-    fn generate_full_key_empty_prefix() {
+    fn prepend_prefix_empty_prefix() {
         init_dummy_tracing_subscriber();
 
-        assert_eq!(generate_full_key("", "file.txt"), "file.txt");
-        assert_eq!(generate_full_key("", "a/b/c"), "a/b/c");
+        assert_eq!(prepend_prefix("", "file.txt"), "file.txt");
+        assert_eq!(prepend_prefix("", "a/b/c"), "a/b/c");
     }
 
     #[test]

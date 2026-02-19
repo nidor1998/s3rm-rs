@@ -74,33 +74,44 @@ pub trait StorageTrait: DynClone {
 
     /// Get object metadata via HeadObject API.
     ///
+    /// `relative_key` is the object key relative to the storage prefix;
+    /// the prefix is prepended internally before calling S3.
     /// Used by ObjectDeleter for content-type and metadata filtering.
-    async fn head_object(&self, key: &str, version_id: Option<String>) -> Result<HeadObjectOutput>;
+    async fn head_object(
+        &self,
+        relative_key: &str,
+        version_id: Option<String>,
+    ) -> Result<HeadObjectOutput>;
 
     /// Get object tags via GetObjectTagging API.
     ///
+    /// `relative_key` is the object key relative to the storage prefix;
+    /// the prefix is prepended internally before calling S3.
     /// Used by ObjectDeleter for tag filtering.
     async fn get_object_tagging(
         &self,
-        key: &str,
+        relative_key: &str,
         version_id: Option<String>,
     ) -> Result<GetObjectTaggingOutput>;
 
     /// Delete a single object via DeleteObject API.
     ///
+    /// `relative_key` is the object key relative to the storage prefix;
+    /// the prefix is prepended internally before calling S3.
     /// Supports version_id for versioned deletions and if_match for
     /// optimistic locking (ETag-based conditional deletion).
     async fn delete_object(
         &self,
-        key: &str,
+        relative_key: &str,
         version_id: Option<String>,
         if_match: Option<String>,
     ) -> Result<DeleteObjectOutput>;
 
     /// Delete multiple objects in a single request via DeleteObjects batch API.
     ///
-    /// Takes a list of ObjectIdentifier (key + optional version_id) and deletes
-    /// them in one API call. Supports up to 1000 objects per request.
+    /// Takes a list of ObjectIdentifier whose keys are **full S3 keys**
+    /// (already include any prefix). The prefix is NOT prepended.
+    /// Supports up to 1000 objects per request.
     /// The caller is responsible for batching into groups of 1000.
     ///
     /// Returns DeleteObjectsOutput containing both successfully deleted objects

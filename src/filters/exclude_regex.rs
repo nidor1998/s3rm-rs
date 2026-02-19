@@ -1,0 +1,115 @@
+//! Exclude regex filter stage.
+//!
+//! Reused from s3sync's `pipeline/filter/exclude_regex.rs`.
+//! Passes objects whose key does NOT match the configured exclude regex pattern.
+
+use anyhow::Result;
+use async_trait::async_trait;
+use tracing::debug;
+
+use crate::config::FilterConfig;
+use crate::filters::{ObjectFilter, ObjectFilterBase};
+use crate::stage::Stage;
+use crate::types::S3Object;
+
+pub struct ExcludeRegexFilter<'a> {
+    base: ObjectFilterBase<'a>,
+}
+
+const FILTER_NAME: &str = "ExcludeRegexFilter";
+
+impl ExcludeRegexFilter<'_> {
+    pub fn new(base: Stage) -> Self {
+        Self {
+            base: ObjectFilterBase {
+                base,
+                name: FILTER_NAME,
+            },
+        }
+    }
+}
+
+#[async_trait]
+impl ObjectFilter for ExcludeRegexFilter<'_> {
+    async fn filter(&self) -> Result<()> {
+        self.base.filter(is_not_match).await
+    }
+}
+
+fn is_not_match(object: &S3Object, config: &FilterConfig) -> bool {
+    let match_result = config
+        .exclude_regex
+        .as_ref()
+        .unwrap()
+        .is_match(object.key())
+        .unwrap();
+
+    if match_result {
+        let key = object.key();
+        let delete_marker = object.is_delete_marker();
+        let version_id = object.version_id();
+        let exclude_regex = config.exclude_regex.as_ref().unwrap().as_str();
+
+        debug!(
+            name = FILTER_NAME,
+            key = key,
+            delete_marker = delete_marker,
+            version_id = version_id,
+            exclude_regex = exclude_regex,
+            "object filtered."
+        );
+    }
+
+    !match_result
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use crate::config::FilterConfig;
+    use aws_sdk_s3::types::Object;
+    use fancy_regex::Regex;
+
+    /// Test helper: expose is_not_match for property tests.
+    pub(crate) fn test_is_not_match(object: &S3Object, config: &FilterConfig) -> bool {
+        is_not_match(object, config)
+    }
+
+    fn init_dummy_tracing_subscriber() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("dummy=trace")
+            .try_init();
+    }
+
+    #[test]
+    fn is_not_match_true() {
+        init_dummy_tracing_subscriber();
+
+        let config = FilterConfig {
+            exclude_regex: Some(Regex::new(r".+\.(csv|pdf)$").unwrap()),
+            ..Default::default()
+        };
+
+        let object = S3Object::NotVersioning(Object::builder().key("dir1/aaa.txt").build());
+        assert!(is_not_match(&object, &config));
+
+        let object = S3Object::NotVersioning(Object::builder().key("abcdefg.docx").build());
+        assert!(is_not_match(&object, &config));
+    }
+
+    #[test]
+    fn is_not_match_false() {
+        init_dummy_tracing_subscriber();
+
+        let config = FilterConfig {
+            exclude_regex: Some(Regex::new(r".+\.(csv|pdf)$").unwrap()),
+            ..Default::default()
+        };
+
+        let object = S3Object::NotVersioning(Object::builder().key("aaa.csv").build());
+        assert!(!is_not_match(&object, &config));
+
+        let object = S3Object::NotVersioning(Object::builder().key("abcdefg.pdf").build());
+        assert!(!is_not_match(&object, &config));
+    }
+}

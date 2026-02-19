@@ -1,0 +1,377 @@
+//! Filter stages for the deletion pipeline.
+//!
+//! Reused from s3sync's pipeline/filter infrastructure with adaptations:
+//! - Simplified for deletion-only operations (no source/target key map comparison)
+//! - Uses `S3Object` instead of `S3syncObject`
+//! - Uses `DeletionStatistics` instead of `SyncStatistics`
+//!
+//! Each filter reads objects from its input channel, applies filtering logic,
+//! and forwards passing objects to its output channel. Filters are chained
+//! in sequence to form the filter pipeline, with logical AND semantics.
+//!
+//! **Note**: Content-type, metadata, and tag regex filters are NOT separate stages.
+//! They are implemented within ObjectDeleter (Task 8) because they require
+//! fetching object metadata/tags via HeadObject/GetObjectTagging API calls.
+
+use anyhow::Result;
+use async_trait::async_trait;
+use tracing::debug;
+
+use crate::config::FilterConfig;
+use crate::stage::{SendResult, Stage};
+use crate::types::{DeletionStatistics, S3Object};
+
+pub mod exclude_regex;
+mod filter_properties;
+pub mod include_regex;
+pub mod larger_size;
+pub mod mtime_after;
+pub mod mtime_before;
+pub mod smaller_size;
+pub mod user_defined;
+
+pub use exclude_regex::ExcludeRegexFilter;
+pub use include_regex::IncludeRegexFilter;
+pub use larger_size::LargerSizeFilter;
+pub use mtime_after::MtimeAfterFilter;
+pub use mtime_before::MtimeBeforeFilter;
+pub use smaller_size::SmallerSizeFilter;
+pub use user_defined::UserDefinedFilter;
+
+/// Trait implemented by all filter stages in the deletion pipeline.
+///
+/// Reused from s3sync's ObjectFilter trait.
+#[async_trait]
+pub trait ObjectFilter {
+    async fn filter(&self) -> Result<()>;
+}
+
+/// Base implementation for receive-and-filter loop shared by all simple filters.
+///
+/// Adapted from s3sync's ObjectFilterBase. Simplified by removing:
+/// - `ObjectKeyMap` parameter (not needed for deletion, only for sync comparison)
+/// - Event callback integration (will be added in Task 7)
+/// - Test simulation code
+pub struct ObjectFilterBase<'a> {
+    name: &'a str,
+    base: Stage,
+}
+
+impl ObjectFilterBase<'_> {
+    /// Run the receive-and-filter loop with the given filter function.
+    ///
+    /// Objects where `filter_fn` returns `true` are forwarded to the next stage.
+    /// Objects where it returns `false` are skipped (a `DeleteSkip` stat is sent).
+    pub async fn filter<F>(&self, filter_fn: F) -> Result<()>
+    where
+        F: Fn(&S3Object, &FilterConfig) -> bool,
+    {
+        self.receive_and_filter(filter_fn).await
+    }
+
+    async fn receive_and_filter<F>(&self, filter_fn: F) -> Result<()>
+    where
+        F: Fn(&S3Object, &FilterConfig) -> bool,
+    {
+        // Yield to prevent task starvation under high load.
+        // (from s3sync pipeline/filter/mod.rs)
+        loop {
+            tokio::task::yield_now().await;
+            if self.base.cancellation_token.is_cancelled() {
+                debug!(name = self.name, "filter has been cancelled.");
+                return Ok(());
+            }
+
+            tokio::task::yield_now().await;
+            match self.base.receiver.as_ref().unwrap().recv().await {
+                Ok(object) => {
+                    tokio::task::yield_now().await;
+                    if !filter_fn(&object, &self.base.config.filter_config) {
+                        tokio::task::yield_now().await;
+
+                        self.base
+                            .send_stats(DeletionStatistics::DeleteSkip {
+                                key: object.key().to_string(),
+                            })
+                            .await;
+                        continue;
+                    }
+
+                    tokio::task::yield_now().await;
+                    if self.base.send(object).await? == SendResult::Closed {
+                        return Ok(());
+                    }
+                }
+                Err(_) => {
+                    debug!(name = self.name, "filter has been completed.");
+                    return Ok(());
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::storage::Storage;
+    use crate::types::token;
+    use async_channel::Receiver;
+    use aws_sdk_s3::types::Object;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+
+    #[tokio::test]
+    async fn filter_true_passes_object() {
+        init_dummy_tracing_subscriber();
+
+        let (sender, receiver) = async_channel::bounded::<S3Object>(1000);
+        let cancellation_token = token::create_pipeline_cancellation_token();
+        let (base, next_stage_receiver) =
+            create_base_helper(receiver, cancellation_token.clone()).await;
+        let filter_base = ObjectFilterBase {
+            base,
+            name: "unittest",
+        };
+        let object = S3Object::NotVersioning(Object::builder().key("test").build());
+
+        sender.send(object).await.unwrap();
+        sender.close();
+
+        filter_base.filter(|_, _| true).await.unwrap();
+
+        let received_object = next_stage_receiver.recv().await.unwrap();
+        assert_eq!(received_object.key(), "test");
+    }
+
+    #[tokio::test]
+    async fn filter_false_skips_object() {
+        init_dummy_tracing_subscriber();
+
+        let (sender, receiver) = async_channel::bounded::<S3Object>(1000);
+        let cancellation_token = token::create_pipeline_cancellation_token();
+        let (base, next_stage_receiver) =
+            create_base_helper(receiver, cancellation_token.clone()).await;
+        let filter_base = ObjectFilterBase {
+            base,
+            name: "unittest",
+        };
+        let object = S3Object::NotVersioning(Object::builder().key("test").build());
+
+        sender.send(object).await.unwrap();
+        sender.close();
+
+        filter_base.filter(|_, _| false).await.unwrap();
+
+        assert!(next_stage_receiver.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn filter_cancelled() {
+        init_dummy_tracing_subscriber();
+
+        let (_, receiver) = async_channel::bounded::<S3Object>(1000);
+        let cancellation_token = token::create_pipeline_cancellation_token();
+        let (base, next_stage_receiver) =
+            create_base_helper(receiver, cancellation_token.clone()).await;
+        let filter_base = ObjectFilterBase {
+            base,
+            name: "unittest",
+        };
+
+        cancellation_token.cancel();
+        filter_base.filter(|_, _| false).await.unwrap();
+
+        assert!(next_stage_receiver.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn filter_receiver_closed() {
+        init_dummy_tracing_subscriber();
+
+        let (sender, receiver) = async_channel::bounded::<S3Object>(1000);
+        let cancellation_token = token::create_pipeline_cancellation_token();
+        let (base, next_stage_receiver) =
+            create_base_helper(receiver, cancellation_token.clone()).await;
+        let filter_base = ObjectFilterBase {
+            base,
+            name: "unittest",
+        };
+        let object = S3Object::NotVersioning(Object::builder().key("test").build());
+
+        next_stage_receiver.close();
+        sender.send(object).await.unwrap();
+
+        filter_base.filter(|_, _| true).await.unwrap();
+    }
+
+    // --- Test helpers ---
+
+    pub(crate) async fn create_base_helper(
+        receiver: Receiver<S3Object>,
+        cancellation_token: crate::types::token::PipelineCancellationToken,
+    ) -> (Stage, Receiver<S3Object>) {
+        let (stats_sender, _stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+
+        let storage = create_mock_storage(stats_sender, has_warning.clone());
+
+        let (sender, next_stage_receiver) = async_channel::bounded::<S3Object>(1000);
+
+        (
+            Stage {
+                config: create_test_config(),
+                target: storage,
+                receiver: Some(receiver),
+                sender: Some(sender),
+                cancellation_token,
+                has_warning,
+            },
+            next_stage_receiver,
+        )
+    }
+
+    pub(crate) fn create_test_config() -> Config {
+        use crate::config::{FilterConfig, ForceRetryConfig};
+        use crate::types::StoragePath;
+
+        Config {
+            target: StoragePath::S3 {
+                bucket: "test-bucket".to_string(),
+                prefix: String::new(),
+            },
+            show_no_progress: false,
+            target_client_config: None,
+            force_retry_config: ForceRetryConfig {
+                force_retry_count: 0,
+                force_retry_interval_milliseconds: 0,
+            },
+            tracing_config: None,
+            worker_size: 1,
+            warn_as_error: false,
+            dry_run: false,
+            rate_limit_objects: None,
+            max_parallel_listings: 1,
+            object_listing_queue_size: 1000,
+            max_parallel_listing_max_depth: 0,
+            allow_parallel_listings_in_express_one_zone: false,
+            filter_config: FilterConfig::default(),
+            max_keys: 1000,
+            auto_complete_shell: None,
+            event_callback_lua_script: None,
+            filter_callback_lua_script: None,
+            allow_lua_os_library: false,
+            allow_lua_unsafe_vm: false,
+            lua_vm_memory_limit: 0,
+            if_match: false,
+            max_delete: None,
+            batch_size: 1000,
+            delete_all_versions: false,
+            force: false,
+        }
+    }
+
+    pub(crate) fn create_mock_storage(
+        stats_sender: async_channel::Sender<DeletionStatistics>,
+        has_warning: Arc<AtomicBool>,
+    ) -> Storage {
+        Box::new(MockStorage {
+            stats_sender,
+            has_warning,
+        })
+    }
+
+    /// Minimal mock storage for filter tests.
+    ///
+    /// Only implements get_stats_sender() and send_stats() since filters
+    /// don't call S3 APIs directly.
+    #[derive(Clone)]
+    pub(crate) struct MockStorage {
+        stats_sender: async_channel::Sender<DeletionStatistics>,
+        has_warning: Arc<AtomicBool>,
+    }
+
+    #[async_trait]
+    impl crate::storage::StorageTrait for MockStorage {
+        fn is_express_onezone_storage(&self) -> bool {
+            false
+        }
+
+        async fn list_objects(
+            &self,
+            _sender: &async_channel::Sender<S3Object>,
+            _max_keys: i32,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn list_object_versions(
+            &self,
+            _sender: &async_channel::Sender<S3Object>,
+            _max_keys: i32,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn head_object(
+            &self,
+            _relative_key: &str,
+            _version_id: Option<String>,
+        ) -> anyhow::Result<aws_sdk_s3::operation::head_object::HeadObjectOutput> {
+            unimplemented!()
+        }
+
+        async fn get_object_tagging(
+            &self,
+            _relative_key: &str,
+            _version_id: Option<String>,
+        ) -> anyhow::Result<aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput>
+        {
+            unimplemented!()
+        }
+
+        async fn delete_object(
+            &self,
+            _relative_key: &str,
+            _version_id: Option<String>,
+            _if_match: Option<String>,
+        ) -> anyhow::Result<aws_sdk_s3::operation::delete_object::DeleteObjectOutput> {
+            unimplemented!()
+        }
+
+        async fn delete_objects(
+            &self,
+            _objects: Vec<aws_sdk_s3::types::ObjectIdentifier>,
+        ) -> anyhow::Result<aws_sdk_s3::operation::delete_objects::DeleteObjectsOutput> {
+            unimplemented!()
+        }
+
+        async fn is_versioning_enabled(&self) -> anyhow::Result<bool> {
+            Ok(false)
+        }
+
+        fn get_client(&self) -> Option<Arc<aws_sdk_s3::Client>> {
+            None
+        }
+
+        fn get_stats_sender(&self) -> async_channel::Sender<DeletionStatistics> {
+            self.stats_sender.clone()
+        }
+
+        async fn send_stats(&self, stats: DeletionStatistics) {
+            let _ = self.stats_sender.send(stats).await;
+        }
+
+        fn set_warning(&self) {
+            self.has_warning
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    fn init_dummy_tracing_subscriber() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("dummy=trace")
+            .try_init();
+    }
+}

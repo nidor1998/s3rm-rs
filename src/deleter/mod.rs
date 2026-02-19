@@ -20,7 +20,7 @@ use aws_sdk_s3::types::Tag;
 use aws_smithy_runtime_api::client::result::SdkError;
 use aws_smithy_runtime_api::http::Response;
 use aws_smithy_types::body::SdkBody;
-use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
+use urlencoding::encode;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::config::Config;
@@ -59,13 +59,6 @@ const INCLUDE_METADATA_REGEX_FILTER_NAME: &str = "include_metadata_regex_filter"
 const EXCLUDE_METADATA_REGEX_FILTER_NAME: &str = "exclude_metadata_regex_filter";
 const INCLUDE_TAG_REGEX_FILTER_NAME: &str = "include_tag_regex_filter";
 const EXCLUDE_TAG_REGEX_FILTER_NAME: &str = "exclude_tag_regex_filter";
-
-/// Characters that MUST be percent-encoded in tag keys/values (matching s3sync's urlencoding crate).
-const TAG_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
-    .remove(b'-')
-    .remove(b'_')
-    .remove(b'.')
-    .remove(b'~');
 
 // ---------------------------------------------------------------------------
 // ObjectDeleter worker
@@ -862,13 +855,7 @@ impl ObjectDeleter {
 pub fn format_metadata(metadata: &HashMap<String, String>) -> String {
     let mut pairs: Vec<String> = metadata
         .iter()
-        .map(|(k, v)| {
-            format!(
-                "{}={}",
-                utf8_percent_encode(k, TAG_ENCODE_SET),
-                utf8_percent_encode(v, TAG_ENCODE_SET),
-            )
-        })
+        .map(|(k, v)| format!("{}={}", encode(k), encode(v)))
         .collect();
     pairs.sort();
     pairs.join("&")
@@ -880,13 +867,7 @@ pub fn format_metadata(metadata: &HashMap<String, String>) -> String {
 pub fn format_tags(tags: &[Tag]) -> String {
     let mut pairs: Vec<String> = tags
         .iter()
-        .map(|tag| {
-            format!(
-                "{}={}",
-                utf8_percent_encode(tag.key(), TAG_ENCODE_SET),
-                utf8_percent_encode(tag.value(), TAG_ENCODE_SET),
-            )
-        })
+        .map(|tag| format!("{}={}", encode(tag.key()), encode(tag.value())))
         .collect();
     pairs.sort();
     pairs.join("&")
@@ -900,13 +881,7 @@ pub fn generate_tagging_string(
         output
             .tag_set()
             .iter()
-            .map(|tag| {
-                format!(
-                    "{}={}",
-                    utf8_percent_encode(tag.key(), TAG_ENCODE_SET),
-                    utf8_percent_encode(tag.value(), TAG_ENCODE_SET),
-                )
-            })
+            .map(|tag| format!("{}={}", encode(tag.key()), encode(tag.value())))
             .collect::<Vec<_>>()
             .join("&")
     })

@@ -117,7 +117,7 @@ Phase 4: Object Lister (Task 5)
     - **Validates: Requirements 1.5, 1.6, 1.7**
 
 
-- [ ] 6. Implement Filter Stages (Reuse from s3sync)
+- [-] 6. Implement Filter Stages (Reuse from s3sync)
   - [ ] 6.1 Copy filter infrastructure
     - Copy pipeline/filter/mod.rs with ObjectFilter trait
     - Copy pipeline/stage.rs with Stage struct (adapted for deletion - only target storage)

@@ -107,7 +107,14 @@ mod tests {
         /// A Lua filter that matches on key prefix should correctly distinguish
         /// objects based on their key.
         #[test]
-        fn lua_filter_key_prefix_based(key in arb_s3_key()) {
+        fn lua_filter_key_prefix_based(
+            key in prop_oneof![
+                // ~50%: keys that start with "logs/"
+                "[a-zA-Z0-9/_.-]{0,94}".prop_map(|suffix| format!("logs/{suffix}")),
+                // ~50%: arbitrary keys (unlikely to start with "logs/")
+                arb_s3_key(),
+            ]
+        ) {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
                 let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false);

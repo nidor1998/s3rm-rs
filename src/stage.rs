@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use async_channel::{Receiver, Sender};
 
 use crate::config::Config;
@@ -68,7 +68,7 @@ impl Stage {
 
         if let Err(e) = result {
             return if !self.is_channel_closed() {
-                Err(anyhow!(e))
+                Err(e)
             } else {
                 Ok(SendResult::Closed)
             };

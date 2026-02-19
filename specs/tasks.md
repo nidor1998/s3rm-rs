@@ -19,6 +19,7 @@ Phase 2: Core Data Models (Task 3)
 Phase 3: Storage Layer (Task 4)
 Phase 4: Object Lister (Task 5)
 Phase 5: Filter Stages (Task 6)
+Phase 6: Lua Integration (Task 7)
 
 ## Tasks
 
@@ -158,32 +159,32 @@ Phase 5: Filter Stages (Task 6)
     - **Validates: Requirements 2.7**
 
 
-- [-] 7. Implement Lua Integration (Reuse from s3sync)
-  - [ ] 7.1 Copy Lua VM and callback infrastructure
+- [x] 7. Implement Lua Integration (Reuse from s3sync)
+  - [x] 7.1 Copy Lua VM and callback infrastructure
     - Copy lua/vm.rs with LuaScriptCallbackEngine
     - Support safe mode (no OS/I/O), allow_lua_os_library mode, and unsafe mode
     - Implement memory limits
     - _Requirements: 2.13, 2.14_
 
-  - [ ] 7.2 Copy Lua filter callback
+  - [x] 7.2 Copy Lua filter callback
     - Copy lua/callbacks.rs with LuaFilterCallback
     - Implement FilterCallback trait
     - _Requirements: 2.8, 2.12_
 
-  - [ ] 7.3 Copy Lua event callback
+  - [x] 7.3 Copy Lua event callback
     - Copy lua/callbacks.rs with LuaEventCallback
     - Implement EventCallback trait
     - _Requirements: 7.7, 7.8, 2.12_
 
-  - [ ] 7.4 Write property test for Lua filter callbacks
+  - [x] 7.4 Write property test for Lua filter callbacks
     - **Property 11: Lua Filter Callback Execution**
     - **Validates: Requirements 2.8**
 
-  - [ ] 7.5 Write property test for Lua callback types
+  - [x] 7.5 Write property test for Lua callback types
     - **Property 14: Lua Callback Type Support**
     - **Validates: Requirements 2.12**
 
-  - [ ] 7.6 Write property test for Lua sandbox security
+  - [x] 7.6 Write property test for Lua sandbox security
     - **Property 15: Lua Sandbox Security**
     - **Validates: Requirements 2.13, 2.14**
 

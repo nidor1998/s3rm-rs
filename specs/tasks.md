@@ -8,7 +8,7 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-4 complete. Project setup, core infrastructure, core data models, and storage layer established.
+**Current Achievement**: Tasks 1-5 complete. Project setup, core infrastructure, core data models, storage layer, and object lister established.
 
 ## Current Status
 
@@ -17,6 +17,7 @@ Phase 0: Project Setup (Task 1)
 Phase 1: Core Infrastructure (Task 2)
 Phase 2: Core Data Models (Task 3)
 Phase 3: Storage Layer (Task 4)
+Phase 4: Object Lister (Task 5)
 
 ## Tasks
 
@@ -103,15 +104,15 @@ Phase 3: Storage Layer (Task 4)
     - _Requirements: 5.1, 5.2, 5.3_
 
 
-- [-] 5. Implement Object Lister (Reuse from s3sync)
-  - [ ] 5.1 Copy ObjectLister implementation
+- [x] 5. Implement Object Lister (Reuse from s3sync)
+  - [x] 5.1 Copy ObjectLister implementation
     - Copy lister/mod.rs with parallel pagination support
     - Support configurable Parallel_Lister_Count
     - Support Max_Parallel_Listing_Max_Depth option
     - Handle versioned bucket listing
     - _Requirements: 1.5, 1.6, 1.7, 5.3_
 
-  - [ ] 5.2 Write property test for parallel listing
+  - [x] 5.2 Write property test for parallel listing
     - **Property 5: Parallel Listing Configuration**
     - **Validates: Requirements 1.5, 1.6, 1.7**
 

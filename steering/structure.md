@@ -8,9 +8,8 @@
 │   └── lib.rs              # Library entry point and public API
 ├── Cargo.toml              # Package manifest and dependencies
 ├── Cargo.lock              # Dependency lock file
-├── .kiro/
-│   ├── specs/              # Feature specifications
-│   └── steering/           # Project steering documents
+├── specs/                  # Feature specifications (requirements, design, tasks)
+├── steering/               # Project steering documents
 └── .git/                   # Git repository
 ```
 

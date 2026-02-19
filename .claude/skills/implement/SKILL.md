@@ -11,13 +11,13 @@ You are executing a single task from the s3rm-rs implementation plan.
 ## Task Selection
 
 - If a task number is provided (`$ARGUMENTS`), execute that specific task.
-- If no task number is provided, read `.kiro/specs/s3rm-rs/tasks.md` and find the **first unchecked task** (`- [ ]`) that is not blocked by uncompleted dependencies.
+- If no task number is provided, read `specs/tasks.md` and find the **first unchecked task** (`- [ ]`) that is not blocked by uncompleted dependencies.
 
 ## Execution Workflow
 
-### Phase 0: Branch & Issue Setup (MANDATORY)
+### Phase 0: Branch, Issue & PR Setup (MANDATORY)
 
-Before doing anything else, set up the working branch and GitHub issue:
+Before doing anything else, set up the working branch, GitHub issue, and draft PR:
 
 1. **Determine the task number** (from `$ARGUMENTS` or by reading `tasks.md`)
 2. **Ensure working tree is clean** — run `git status`. If there are uncommitted changes, stop and ask the user how to proceed.
@@ -29,14 +29,19 @@ Before doing anything else, set up the working branch and GitHub issue:
    - **Body**: Include the task description, sub-tasks (as a checkbox list), and referenced requirements from tasks.md
    - **Labels**: add `task` label (create it first if it doesn't exist)
    - **Save the issue number** — you will need it when creating the PR later
-6. **Create a draft pull request** immediately after pushing the branch:
-   - Push the branch: `git push -u origin build/init/task<N>`
-   - Create a draft PR using `gh pr create`:
-     - **Title**: `Task <N>: <task title>`
-     - **Base**: `init_build`
-     - **Body**: Include `Closes #<issue_number>` to link the issue, a summary section, and a test plan section
-     - **Draft**: yes — it will be marked ready for review after implementation
-7. **Confirm** — display the current branch name, issue URL, and PR URL before proceeding
+6. **Mark task as in-progress** in `specs/tasks.md`:
+   - Change the task's `- [ ]` to `- [-]` (in-progress marker)
+   - Do NOT change sub-task checkboxes yet
+7. **Commit the in-progress update and push**:
+   - Stage only `tasks.md`: `git add specs/tasks.md`
+   - Commit: `git commit -m "Mark Task <N> as in-progress in tasks.md"`
+   - Push: `git push -u origin build/init/task<N>`
+8. **Create a draft pull request** using `gh pr create`:
+   - **Title**: `Task <N>: <task title>`
+   - **Base**: `init_build`
+   - **Body**: Include `Closes #<issue_number>` to link the issue, a summary section, and a test plan section
+   - **Draft**: yes — it will be marked ready for review after implementation
+9. **Confirm** — display the current branch name, issue URL, and PR URL before proceeding
 
 All work for this task MUST happen on the `build/init/task<N>` branch.
 
@@ -44,9 +49,9 @@ All work for this task MUST happen on the `build/init/task<N>` branch.
 
 Before writing any code, you MUST read all three spec files:
 
-1. **Tasks**: Read `.kiro/specs/s3rm-rs/tasks.md` — find the target task and its sub-tasks
-2. **Requirements**: Read `.kiro/specs/s3rm-rs/requirements.md` — find the acceptance criteria referenced by the task
-3. **Design**: Read `.kiro/specs/s3rm-rs/design.md` — find the component interfaces and architecture for the task
+1. **Tasks**: Read `specs/tasks.md` — find the target task and its sub-tasks
+2. **Requirements**: Read `specs/requirements.md` — find the acceptance criteria referenced by the task
+3. **Design**: Read `specs/design.md` — find the component interfaces and architecture for the task
 
 Extract from the task entry:
 - The task number and description
@@ -108,11 +113,15 @@ Wait for the user to review the changes.
 
 **Only execute this phase when the user explicitly confirms the work is acceptable.**
 
-1. Update the task checkbox in `.kiro/specs/s3rm-rs/tasks.md`:
-   - Change `- [ ]` to `- [x]` for the completed task and its sub-tasks
-   - Change any in-progress markers `- [-]` to `- [x]`
-2. **Mark the PR as ready for review** — run `gh pr ready` on the task's PR
-3. Do NOT create a git commit — the user will commit manually.
+1. **Update `specs/tasks.md`**:
+   - Change `- [-]` to `- [x]` for the completed task (was marked in-progress in Phase 0)
+   - Change `- [ ]` to `- [x]` for all completed sub-tasks
+   - Update the "Current Achievement" line and "Completed Phases" section to include this task
+2. **Update the GitHub issue**:
+   - Update the issue body to mark all sub-task checkboxes as `[x]`
+   - Close the issue as completed
+3. **Mark the PR as ready for review** — run `gh pr ready` on the task's PR
+4. Do NOT create a git commit — the user will commit manually.
 
 ## Rules
 

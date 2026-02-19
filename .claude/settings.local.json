@@ -34,7 +34,16 @@
       "mcp__github__create_pull_request",
       "mcp__serena__find_symbol",
       "Bash(gh api:*)",
-      "Bash(git -C /workspaces/s3rm-rs remote get-url:*)"
+      "Bash(git -C /workspaces/s3rm-rs remote get-url:*)",
+      "Bash(find:*)",
+      "Bash(gh pr create:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "mcp__context7__resolve-library-id",
+      "WebSearch",
+      "Bash(git mv:*)",
+      "Bash(grep:*)",
+      "Bash(cargo doc:*)",
+      "mcp__github__list_issues"
     ]
   },
   "enableAllProjectMcpServers": true,

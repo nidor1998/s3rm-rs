@@ -43,7 +43,7 @@ Before implementing ANY component:
 
 ## Core Principles
 
-1. **Spec-Driven Development**: All work follows the specification in `.kiro/specs/s3rm-rs/`
+1. **Spec-Driven Development**: All work follows the specification in `specs/`
 2. **Maximum s3sync Reuse**: Check s3sync repository before writing new code
 3. **One Task at a Time**: Never implement multiple tasks simultaneously
 4. **Context First**: Always read requirements and design before coding
@@ -54,8 +54,8 @@ Before implementing ANY component:
 
 ### Step 1: Read Context (REQUIRED)
 Before any implementation:
-1. Read `.kiro/specs/s3rm-rs/requirements.md` - Find acceptance criteria
-2. Read `.kiro/specs/s3rm-rs/design.md` - Understand architecture
+1. Read `specs/requirements.md` - Find acceptance criteria
+2. Read `specs/design.md` - Understand architecture
 3. Read related tests - Understand testing patterns
 
 ### Step 2: Implement
@@ -108,6 +108,6 @@ cargo fmt                # Formatting
 
 ## Resources
 
-- Requirements: `.kiro/specs/s3rm-rs/requirements.md`
-- Design: `.kiro/specs/s3rm-rs/design.md`
-- Tasks: `.kiro/specs/s3rm-rs/tasks.md`
+- Requirements: `specs/requirements.md`
+- Design: `specs/design.md`
+- Tasks: `specs/tasks.md`

@@ -11,7 +11,7 @@ You are executing a single task from the s3rm-rs implementation plan.
 ## Task Selection
 
 - If a task number is provided (`$ARGUMENTS`), execute that specific task.
-- If no task number is provided, read `.kiro/specs/s3rm-rs/tasks.md` and find the **first unchecked task** (`- [ ]`) that is not blocked by uncompleted dependencies.
+- If no task number is provided, read `specs/tasks.md` and find the **first unchecked task** (`- [ ]`) that is not blocked by uncompleted dependencies.
 
 ## Execution Workflow
 
@@ -29,11 +29,11 @@ Before doing anything else, set up the working branch, GitHub issue, and draft P
    - **Body**: Include the task description, sub-tasks (as a checkbox list), and referenced requirements from tasks.md
    - **Labels**: add `task` label (create it first if it doesn't exist)
    - **Save the issue number** — you will need it when creating the PR later
-6. **Mark task as in-progress** in `.kiro/specs/s3rm-rs/tasks.md`:
+6. **Mark task as in-progress** in `specs/tasks.md`:
    - Change the task's `- [ ]` to `- [-]` (in-progress marker)
    - Do NOT change sub-task checkboxes yet
 7. **Commit the in-progress update and push**:
-   - Stage only `tasks.md`: `git add .kiro/specs/s3rm-rs/tasks.md`
+   - Stage only `tasks.md`: `git add specs/tasks.md`
    - Commit: `git commit -m "Mark Task <N> as in-progress in tasks.md"`
    - Push: `git push -u origin build/init/task<N>`
 8. **Create a draft pull request** using `gh pr create`:
@@ -49,9 +49,9 @@ All work for this task MUST happen on the `build/init/task<N>` branch.
 
 Before writing any code, you MUST read all three spec files:
 
-1. **Tasks**: Read `.kiro/specs/s3rm-rs/tasks.md` — find the target task and its sub-tasks
-2. **Requirements**: Read `.kiro/specs/s3rm-rs/requirements.md` — find the acceptance criteria referenced by the task
-3. **Design**: Read `.kiro/specs/s3rm-rs/design.md` — find the component interfaces and architecture for the task
+1. **Tasks**: Read `specs/tasks.md` — find the target task and its sub-tasks
+2. **Requirements**: Read `specs/requirements.md` — find the acceptance criteria referenced by the task
+3. **Design**: Read `specs/design.md` — find the component interfaces and architecture for the task
 
 Extract from the task entry:
 - The task number and description
@@ -113,7 +113,7 @@ Wait for the user to review the changes.
 
 **Only execute this phase when the user explicitly confirms the work is acceptable.**
 
-1. Update the task checkbox in `.kiro/specs/s3rm-rs/tasks.md`:
+1. Update the task checkbox in `specs/tasks.md`:
    - Change `- [-]` to `- [x]` for the completed task (was marked in-progress in Phase 0)
    - Change `- [ ]` to `- [x]` for all completed sub-tasks
 2. **Mark the PR as ready for review** — run `gh pr ready` on the task's PR

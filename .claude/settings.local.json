@@ -39,7 +39,8 @@
       "Bash(gh pr create:*)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "mcp__context7__resolve-library-id",
-      "WebSearch"
+      "WebSearch",
+      "Bash(git mv:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

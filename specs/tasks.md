@@ -158,7 +158,7 @@ Phase 5: Filter Stages (Task 6)
     - **Validates: Requirements 2.7**
 
 
-- [ ] 7. Implement Lua Integration (Reuse from s3sync)
+- [-] 7. Implement Lua Integration (Reuse from s3sync)
   - [ ] 7.1 Copy Lua VM and callback infrastructure
     - Copy lua/vm.rs with LuaScriptCallbackEngine
     - Support safe mode (no OS/I/O), allow_lua_os_library mode, and unsafe mode

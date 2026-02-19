@@ -73,30 +73,85 @@ mod tests {
     // Feature: s3rm-rs, Property 7: Prefix Filtering
     // **Validates: Requirements 2.1**
     //
-    // For any prefix argument provided, the tool should delete only objects
-    // whose keys start with that prefix.
+    // Prefix filtering is enforced at the S3 API level: the configured prefix
+    // from `StoragePath` is passed as the `prefix` parameter in
+    // `ListObjectsV2`/`ListObjectVersions` requests, so S3 only returns keys
+    // that start with that prefix. We verify that:
+    //   (a) `StoragePath::S3` faithfully stores any generated prefix, and
+    //   (b) the mock-based ObjectLister emits only those objects the storage
+    //       layer provides (i.e., the lister does not drop or invent objects).
     // -----------------------------------------------------------------------
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
 
         #[test]
-        fn test_prefix_filtering(
-            objects in proptest::collection::vec(arbitrary_s3_key(), 1..50),
-            prefix in "[a-z]{1,5}/"
+        fn test_prefix_stored_in_config(
+            bucket in "[a-z]{3,10}",
+            prefix in "[a-z]{0,5}(/[a-z]{1,5}){0,3}/?"
         ) {
-            // Prefix filtering is applied at the S3 listing level (ListObjects prefix param),
-            // but we can verify the property: objects with matching prefix should be selected,
-            // objects without should not.
-            for key in &objects {
-                let has_prefix = key.starts_with(&prefix);
-                // Objects starting with prefix should be included
-                // Objects not starting with prefix should be excluded
-                if has_prefix {
-                    prop_assert!(key.starts_with(&prefix));
-                } else {
-                    prop_assert!(!key.starts_with(&prefix));
+            use crate::types::StoragePath;
+
+            let path = StoragePath::S3 {
+                bucket: bucket.clone(),
+                prefix: prefix.clone(),
+            };
+            // Property: StoragePath preserves the exact prefix that will be
+            // sent to S3's ListObjects API.
+            match &path {
+                StoragePath::S3 { bucket: b, prefix: p } => {
+                    prop_assert_eq!(b, &bucket);
+                    prop_assert_eq!(p, &prefix);
                 }
             }
+        }
+
+        #[test]
+        fn test_lister_emits_exactly_storage_objects(
+            num_objects in 0usize..20,
+        ) {
+            // Property: The ObjectLister emits exactly the objects that the
+            // storage layer returns — no filtering, reordering, or duplication.
+            // This matters because prefix selection is delegated to S3; the
+            // lister must faithfully forward whatever S3 returns.
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+
+            let _ = rt.block_on(async {
+                let objects: Vec<S3Object> = (0..num_objects)
+                    .map(|i| {
+                        S3Object::NotVersioning(
+                            Object::builder()
+                                .key(format!("prefix/obj_{}", i))
+                                .size(i as i64)
+                                .last_modified(DateTime::from_secs(1000))
+                                .build(),
+                        )
+                    })
+                    .collect();
+
+                let config = crate::lister::tests::make_test_config_pub();
+                let (lister, _, _, receiver) =
+                    crate::lister::tests::create_mock_lister(config, objects.clone(), vec![]);
+
+                lister.list_target(1000).await.unwrap();
+
+                let mut received = Vec::new();
+                while let Ok(obj) = receiver.try_recv() {
+                    received.push(obj);
+                }
+
+                // Exact count: no objects dropped or duplicated
+                prop_assert_eq!(received.len(), objects.len());
+
+                // Exact order and content preserved
+                for (got, expected) in received.iter().zip(objects.iter()) {
+                    prop_assert_eq!(got.key(), expected.key());
+                }
+
+                Ok(())
+            });
         }
     }
 

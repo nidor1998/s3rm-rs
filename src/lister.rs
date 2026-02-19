@@ -71,7 +71,7 @@ impl ObjectLister {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::config::{Config, FilterConfig, ForceRetryConfig};
     use crate::storage::StorageTrait;
@@ -94,6 +94,10 @@ mod tests {
         let _ = tracing_subscriber::fmt()
             .with_env_filter("dummy=trace")
             .try_init();
+    }
+
+    pub(crate) fn make_test_config_pub() -> Config {
+        make_test_config()
     }
 
     fn make_test_config() -> Config {

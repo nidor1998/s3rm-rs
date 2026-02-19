@@ -1,21 +1,20 @@
 //! User-defined (Lua callback) filter stage.
 //!
 //! Adapted from s3sync's `pipeline/user_defined_filter.rs`.
-//! Delegates filtering decisions to a registered Lua filter callback.
+//! Delegates filtering decisions to a registered filter callback via `FilterManager`.
 //!
 //! Unlike the simple filters (regex, size, time), this filter:
-//! - Calls into the Lua VM (or Rust callback) for each object
+//! - Calls into the Lua VM (or Rust callback) for each object via `FilterManager`
 //! - Cancels the pipeline on callback errors
 //! - Uses `tokio::select!` to watch for cancellation
-//!
-//! The actual Lua VM and callback infrastructure will be implemented in Task 7.
-//! This stage provides the pipeline integration point.
+//! - Triggers event callbacks when objects are filtered
 
-use anyhow::Result;
-use tracing::{debug, info};
+use anyhow::{Result, anyhow};
+use tracing::{debug, error, info};
 
 use crate::stage::{SendResult, Stage};
 use crate::types::DeletionStatistics;
+use crate::types::event_callback::{EventData, EventType};
 
 pub struct UserDefinedFilter {
     base: Stage,
@@ -37,23 +36,41 @@ impl UserDefinedFilter {
                 recv_result = self.base.receiver.as_ref().unwrap().recv() => {
                     match recv_result {
                         Ok(object) => {
-                            // TODO(Task 7): Integrate with Lua VM / FilterManager
-                            // For now, the user-defined filter is a pass-through.
-                            // When Task 7 implements the Lua integration, this will
-                            // call filter_manager.execute_filter(&object).
-                            //
-                            // Placeholder: check if filter_callback_lua_script is configured.
-                            // If no callback is configured, pass all objects through.
-                            let need_delete = if self.base.config.filter_callback_lua_script.is_some() {
-                                // When Lua is integrated (Task 7), this will call the Lua filter.
-                                // For now, pass all objects through as a safe default.
-                                true
+                            // If a filter callback is registered, execute it
+                            let need_delete = if self.base.config.filter_manager.is_callback_registered() {
+                                let result = self.base.config.filter_manager.execute_filter(&object).await;
+
+                                if let Err(e) = result {
+                                    let error_msg = e.to_string();
+                                    // Trigger error event if event callback is registered
+                                    if self.base.config.event_manager.is_callback_registered() {
+                                        let mut event_data = EventData::new(EventType::PIPELINE_ERROR);
+                                        event_data.message = Some(format!("User defined filter error: {error_msg}"));
+                                        self.base.config.event_manager.trigger_event(event_data).await;
+                                    }
+
+                                    self.base.cancellation_token.cancel();
+                                    error!("user defined filter worker cancelled with error: {}", e);
+                                    return Err(anyhow!("user defined filter worker cancelled with error: {}", e));
+                                }
+
+                                result?
                             } else {
-                                // No user-defined filter configured, pass all objects through
+                                // No filter callback registered, pass all objects through
                                 true
                             };
 
                             if !need_delete {
+                                // Trigger filtered event if event callback is registered
+                                if self.base.config.event_manager.is_callback_registered() {
+                                    let mut event_data = EventData::new(EventType::DELETE_FILTERED);
+                                    event_data.key = Some(object.key().to_string());
+                                    event_data.version_id = object.version_id().map(|v| v.to_string());
+                                    event_data.size = Some(object.size() as u64);
+                                    event_data.message = Some("Object filtered by user defined filter".to_string());
+                                    self.base.config.event_manager.trigger_event(event_data).await;
+                                }
+
                                 self.base
                                     .send_stats(DeletionStatistics::DeleteSkip {
                                         key: object.key().to_string(),
@@ -98,7 +115,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn passes_objects_through() {
+    async fn passes_objects_through_when_no_callback() {
         init_dummy_tracing_subscriber();
 
         let (sender, receiver) = async_channel::bounded::<S3Object>(1000);
@@ -150,5 +167,122 @@ mod tests {
         sender.close();
 
         filter.filter().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn filters_with_registered_true_callback() {
+        use crate::callback::filter_manager::FilterManager;
+        use crate::types::filter_callback::FilterCallback;
+        use anyhow::Result;
+        use async_trait::async_trait;
+
+        struct PassAllFilter;
+
+        #[async_trait]
+        impl FilterCallback for PassAllFilter {
+            async fn filter(&mut self, _object: &S3Object) -> Result<bool> {
+                Ok(true)
+            }
+        }
+
+        init_dummy_tracing_subscriber();
+
+        let (sender, receiver) = async_channel::bounded::<S3Object>(1000);
+        let cancellation_token = token::create_pipeline_cancellation_token();
+        let (mut base, next_stage_receiver) =
+            create_base_helper(receiver, cancellation_token.clone()).await;
+
+        // Register a filter that passes everything
+        let mut manager = FilterManager::new();
+        manager.register_callback(PassAllFilter);
+        base.config.filter_manager = manager;
+
+        let filter = UserDefinedFilter::new(base);
+        let object = S3Object::NotVersioning(Object::builder().key("pass-me").build());
+
+        sender.send(object).await.unwrap();
+        sender.close();
+
+        filter.filter().await.unwrap();
+
+        let received = next_stage_receiver.recv().await.unwrap();
+        assert_eq!(received.key(), "pass-me");
+    }
+
+    #[tokio::test]
+    async fn filters_with_registered_false_callback() {
+        use crate::callback::filter_manager::FilterManager;
+        use crate::types::filter_callback::FilterCallback;
+        use anyhow::Result;
+        use async_trait::async_trait;
+
+        struct RejectAllFilter;
+
+        #[async_trait]
+        impl FilterCallback for RejectAllFilter {
+            async fn filter(&mut self, _object: &S3Object) -> Result<bool> {
+                Ok(false)
+            }
+        }
+
+        init_dummy_tracing_subscriber();
+
+        let (sender, receiver) = async_channel::bounded::<S3Object>(1000);
+        let cancellation_token = token::create_pipeline_cancellation_token();
+        let (mut base, next_stage_receiver) =
+            create_base_helper(receiver, cancellation_token.clone()).await;
+
+        let mut manager = FilterManager::new();
+        manager.register_callback(RejectAllFilter);
+        base.config.filter_manager = manager;
+
+        let filter = UserDefinedFilter::new(base);
+        let object = S3Object::NotVersioning(Object::builder().key("reject-me").build());
+
+        sender.send(object).await.unwrap();
+        sender.close();
+
+        filter.filter().await.unwrap();
+
+        // Object should be filtered out, not forwarded
+        assert!(next_stage_receiver.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn filter_error_cancels_pipeline() {
+        use crate::callback::filter_manager::FilterManager;
+        use crate::types::filter_callback::FilterCallback;
+        use anyhow::Result;
+        use async_trait::async_trait;
+
+        struct ErrorFilter;
+
+        #[async_trait]
+        impl FilterCallback for ErrorFilter {
+            async fn filter(&mut self, _object: &S3Object) -> Result<bool> {
+                Err(anyhow::anyhow!("filter error"))
+            }
+        }
+
+        init_dummy_tracing_subscriber();
+
+        let (sender, receiver) = async_channel::bounded::<S3Object>(1000);
+        let cancellation_token = token::create_pipeline_cancellation_token();
+        let (mut base, _next_stage_receiver) =
+            create_base_helper(receiver, cancellation_token.clone()).await;
+
+        let mut manager = FilterManager::new();
+        manager.register_callback(ErrorFilter);
+        base.config.filter_manager = manager;
+
+        let filter = UserDefinedFilter::new(base);
+        let object = S3Object::NotVersioning(Object::builder().key("error-me").build());
+
+        sender.send(object).await.unwrap();
+        sender.close();
+
+        let result = filter.filter().await;
+        assert!(result.is_err());
+        assert!(cancellation_token.is_cancelled());
     }
 }

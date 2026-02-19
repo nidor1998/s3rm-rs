@@ -844,6 +844,9 @@ mod tests {
     }
 
     fn make_test_config(bucket: &str, prefix: &str) -> Config {
+        use crate::callback::event_manager::EventManager;
+        use crate::callback::filter_manager::FilterManager;
+
         Config {
             target: StoragePath::S3 {
                 bucket: bucket.to_string(),
@@ -874,6 +877,8 @@ mod tests {
             lua_vm_memory_limit: 0,
             if_match: false,
             max_delete: None,
+            filter_manager: FilterManager::new(),
+            event_manager: EventManager::new(),
             batch_size: 1000,
             delete_all_versions: false,
             force: false,

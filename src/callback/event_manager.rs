@@ -43,7 +43,8 @@ impl From<PipelineStats> for EventData {
 /// Manages event callback registration and dispatching.
 ///
 /// Holds an optional `EventCallback` trait object and accumulated pipeline statistics.
-/// On `PIPELINE_END`, automatically sends a `STATS_REPORT` event with accumulated stats.
+/// On `PIPELINE_END`, sends a `STATS_REPORT` event with accumulated stats if the caller
+/// subscribed to `STATS_REPORT` via `event_flags`.
 #[derive(Clone)]
 pub struct EventManager {
     pub event_callback: Option<Arc<Mutex<Box<dyn EventCallback + Send + Sync>>>>,
@@ -95,8 +96,10 @@ impl EventManager {
                 event_data.dry_run = self.dry_run;
                 callback.lock().await.on_event(event_data).await;
             }
-            // On PIPELINE_END, automatically send accumulated stats report
-            if event_type == EventType::PIPELINE_END {
+            // On PIPELINE_END, send accumulated stats report if caller subscribed to it
+            if event_type == EventType::PIPELINE_END
+                && self.event_flags.contains(EventType::STATS_REPORT)
+            {
                 let stats = self.pipeline_stats.lock().await.clone();
                 let mut stats_event: EventData = stats.into();
                 stats_event.dry_run = self.dry_run;
@@ -251,6 +254,31 @@ mod tests {
         // Only DELETE_COMPLETE should be dispatched
         assert_eq!(collected.len(), 1);
         assert_eq!(collected[0].event_type, EventType::DELETE_COMPLETE);
+    }
+
+    #[tokio::test]
+    async fn pipeline_end_without_stats_flag_skips_stats_report() {
+        let mut manager = EventManager::new();
+        let (callback, events) = CollectingCallback::new();
+        // Register for PIPELINE_START and PIPELINE_END, but NOT STATS_REPORT
+        manager.register_callback(
+            EventType::PIPELINE_START | EventType::PIPELINE_END,
+            callback,
+            false,
+        );
+
+        manager
+            .trigger_event(EventData::new(EventType::PIPELINE_START))
+            .await;
+        manager
+            .trigger_event(EventData::new(EventType::PIPELINE_END))
+            .await;
+
+        let collected = events.lock().await;
+        // Should receive PIPELINE_START + PIPELINE_END only, no STATS_REPORT
+        assert_eq!(collected.len(), 2);
+        assert_eq!(collected[0].event_type, EventType::PIPELINE_START);
+        assert_eq!(collected[1].event_type, EventType::PIPELINE_END);
     }
 
     #[tokio::test]

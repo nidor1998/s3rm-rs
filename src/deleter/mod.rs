@@ -152,9 +152,14 @@ impl ObjectDeleter {
                         Ok(object) => {
                             self.process_object(object).await?;
                         },
-                        Err(_) => {
+                        Err(_) if self.base.receiver.as_ref().unwrap().is_closed() => {
+                            // Channel closed: all senders dropped. Flush remaining buffer.
                             self.delete_buffered_objects().await?;
                             debug!(worker_index = self.worker_index, "delete worker has been completed.");
+                            break;
+                        }
+                        Err(e) => {
+                            error!(worker_index = self.worker_index, error = %e, "unexpected channel error.");
                             break;
                         }
                     }

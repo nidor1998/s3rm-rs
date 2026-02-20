@@ -4,11 +4,14 @@
 //! - Dry-run mode: Skips confirmation (pipeline runs but deletions are simulated)
 //! - Confirmation prompts: Requires exact "yes" input for destructive operations
 //! - Force flag: Skips confirmation prompts
-//! - Max-delete threshold: Requires confirmation when count exceeds limit
+//! - Max-delete threshold: Enforced at deletion time in ObjectDeleter
 //! - Non-TTY detection: Skips prompts in non-interactive environments
 //! - JSON logging: Skips prompts to avoid corrupting structured output
 //!
-//! _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 13.1_
+//! Note: Object count and size estimation is handled by dry-run mode.
+//! The confirmation prompt does not display estimation data.
+//!
+//! _Requirements: 3.1, 3.2, 3.3, 3.4, 3.6, 13.1_
 
 #[cfg(test)]
 mod safety_properties;
@@ -19,46 +22,6 @@ use anyhow::{Result, anyhow};
 use std::io::{BufRead, IsTerminal, Write};
 
 // ---------------------------------------------------------------------------
-// DeletionSummary
-// ---------------------------------------------------------------------------
-
-/// Summary of objects to be deleted, displayed before confirmation.
-///
-/// Contains the total object count and estimated total size in bytes.
-/// Displayed to the user before they confirm the deletion operation.
-///
-/// _Requirements: 3.5_
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DeletionSummary {
-    /// Total number of objects to be deleted.
-    pub total_objects: u64,
-    /// Estimated total size in bytes of objects to be deleted.
-    pub total_bytes: u64,
-}
-
-impl DeletionSummary {
-    pub fn new(total_objects: u64, total_bytes: u64) -> Self {
-        Self {
-            total_objects,
-            total_bytes,
-        }
-    }
-}
-
-impl std::fmt::Display for DeletionSummary {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let size_display = byte_unit::Byte::from_u64(self.total_bytes)
-            .get_appropriate_unit(byte_unit::UnitType::Binary)
-            .to_string();
-        write!(
-            f,
-            "Objects to delete: {}, Estimated size: {}",
-            self.total_objects, size_display
-        )
-    }
-}
-
-// ---------------------------------------------------------------------------
 // PromptHandler trait (for testability)
 // ---------------------------------------------------------------------------
 
@@ -67,17 +30,10 @@ impl std::fmt::Display for DeletionSummary {
 /// The default implementation ([`StdioPromptHandler`]) uses stdin/stdout.
 /// Tests can provide custom implementations to avoid blocking on user input.
 pub trait PromptHandler: Send + Sync {
-    /// Display the deletion summary and read a line of user input.
-    ///
-    /// If `threshold_exceeded` is true, an additional warning is displayed
-    /// indicating the deletion count exceeds the `--max-delete` threshold.
+    /// Display the confirmation prompt and read a line of user input.
     ///
     /// Returns the trimmed user input string.
-    fn read_confirmation(
-        &self,
-        summary: &DeletionSummary,
-        threshold_exceeded: bool,
-    ) -> Result<String>;
+    fn read_confirmation(&self) -> Result<String>;
 
     /// Check if the current environment supports interactive prompts.
     ///
@@ -92,15 +48,7 @@ pub trait PromptHandler: Send + Sync {
 pub struct StdioPromptHandler;
 
 impl PromptHandler for StdioPromptHandler {
-    fn read_confirmation(
-        &self,
-        summary: &DeletionSummary,
-        threshold_exceeded: bool,
-    ) -> Result<String> {
-        println!("\n{}", summary);
-        if threshold_exceeded {
-            println!("WARNING: Deletion count exceeds --max-delete threshold!");
-        }
+    fn read_confirmation(&self) -> Result<String> {
         print!("Type 'yes' to confirm deletion: ");
         std::io::stdout().flush()?;
 
@@ -137,7 +85,6 @@ pub struct SafetyChecker {
     dry_run: bool,
     force: bool,
     json_logging: bool,
-    max_delete: Option<u64>,
     prompt_handler: Box<dyn PromptHandler>,
 }
 
@@ -155,7 +102,6 @@ impl SafetyChecker {
             dry_run: config.dry_run,
             force: config.force,
             json_logging,
-            max_delete: config.max_delete,
             prompt_handler: Box::new(StdioPromptHandler),
         }
     }
@@ -171,7 +117,6 @@ impl SafetyChecker {
             dry_run: config.dry_run,
             force: config.force,
             json_logging,
-            max_delete: config.max_delete,
             prompt_handler,
         }
     }
@@ -189,11 +134,13 @@ impl SafetyChecker {
     ///    the pipeline runs but the deletion layer simulates deletions)
     /// 2. If `force` is true → return `Ok(())`
     /// 3. If non-interactive (non-TTY or JSON logging) → return `Ok(())`
-    /// 4. Display summary and prompt for confirmation
-    /// 5. Accept only exact "yes" input; anything else → `Err(S3rmError::Cancelled)`
+    /// 4. Prompt for confirmation (require exact "yes" input)
     ///
-    /// _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 13.1_
-    pub fn check_before_deletion(&self, summary: &DeletionSummary) -> Result<()> {
+    /// Note: Object count/size estimation is handled by dry-run mode.
+    /// The max-delete threshold is enforced at deletion time in ObjectDeleter.
+    ///
+    /// _Requirements: 3.1, 3.2, 3.3, 3.4, 13.1_
+    pub fn check_before_deletion(&self) -> Result<()> {
         // 1. Dry-run mode: skip confirmation — the pipeline will run but
         //    the deletion layer simulates successful deletions and outputs stats.
         if self.dry_run {
@@ -210,23 +157,8 @@ impl SafetyChecker {
             return Ok(());
         }
 
-        // 4. Check max-delete threshold
-        let threshold_exceeded = self.is_threshold_exceeded(summary.total_objects);
-
-        // 5. Prompt for confirmation
-        self.prompt_confirmation(summary, threshold_exceeded)
-    }
-
-    /// Check if the deletion count exceeds the max-delete threshold.
-    ///
-    /// Returns `true` if `max_delete` is set and `object_count` exceeds it.
-    ///
-    /// _Requirements: 3.6_
-    pub fn is_threshold_exceeded(&self, object_count: u64) -> bool {
-        match self.max_delete {
-            Some(max) => object_count > max,
-            None => false,
-        }
+        // 4. Prompt for confirmation
+        self.prompt_confirmation()
     }
 
     /// Determine if prompts should be skipped due to environment conditions.
@@ -252,18 +184,11 @@ impl SafetyChecker {
 
     /// Prompt the user for confirmation and validate their response.
     ///
-    /// Displays the deletion summary and optionally a threshold warning,
-    /// then requires the user to type exactly "yes" to proceed.
+    /// Requires the user to type exactly "yes" to proceed.
     ///
     /// _Requirements: 3.2, 3.3_
-    fn prompt_confirmation(
-        &self,
-        summary: &DeletionSummary,
-        threshold_exceeded: bool,
-    ) -> Result<()> {
-        let input = self
-            .prompt_handler
-            .read_confirmation(summary, threshold_exceeded)?;
+    fn prompt_confirmation(&self) -> Result<()> {
+        let input = self.prompt_handler.read_confirmation()?;
 
         if input != "yes" {
             return Err(anyhow!(S3rmError::Cancelled));

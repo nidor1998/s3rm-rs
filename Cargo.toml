@@ -67,7 +67,6 @@ indicatif = "0.18.3"
 simple_moving_average = "1.0.2"
 
 # Terminal
-byte-unit = "5.2.0"
 
 # Serialization (same as s3sync)
 serde = { version = "1.0", features = ["derive"] }

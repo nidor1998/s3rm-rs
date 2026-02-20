@@ -5,3 +5,6 @@
 
 pub mod event_manager;
 pub mod filter_manager;
+
+#[cfg(test)]
+mod event_callback_properties;

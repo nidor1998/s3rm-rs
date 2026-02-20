@@ -1351,7 +1351,7 @@ pub struct FilterConfig {
 
 ### Property 23: Color Output Control
 *For any* execution environment, color output should be enabled by default in TTY environments, disabled in non-TTY environments unless explicitly enabled, and disabled when the disable-color flag is set.
-**Validates: Requirements 4.8, 4.9, 7.6, 13.7**
+**Validates: Requirements 4.8, 4.9, 7.5, 13.7**
 
 ### Property 24: Error Logging
 *For any* deletion failure, the tool should log the error message and error code at the current verbosity level.
@@ -1382,12 +1382,12 @@ pub struct FilterConfig {
 **Validates: Requirements 6.4, 6.5**
 
 ### Property 31: Progress Reporting
-*For any* deletion operation in progress, the tool should display progress information including objects deleted, percentage complete, current rate, and estimated time remaining, unless quiet mode is enabled.
-**Validates: Requirements 7.1, 7.3, 7.4, 7.5**
+*For any* deletion operation in progress, the tool should display progress information including objects deleted, current rate, and throughput, unless quiet mode is enabled.
+**Validates: Requirements 7.1, 7.3, 7.4**
 
 ### Property 32: Event Callback Invocation
 *For any* registered event callback (Lua or Rust), the tool should invoke the callback for progress updates, errors, and completion events with structured event data including event type, object key, status, timestamps, and error information when applicable.
-**Validates: Requirements 7.7, 7.8**
+**Validates: Requirements 7.6, 7.7**
 
 ### Property 33: Configuration Precedence
 *For any* configuration option available via CLI arguments, environment variables, and defaults, the tool should apply the precedence: CLI args > environment variables > defaults.

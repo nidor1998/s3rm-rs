@@ -138,11 +138,10 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 1. WHEN deletions are in progress, THE S3rm_Tool SHALL display a progress indicator showing objects deleted and percentage complete
 2. THE S3rm_Tool SHALL update progress statistics at least once per second
 3. WHEN operations complete, THE S3rm_Tool SHALL display summary statistics including total objects deleted, duration, and throughput
-4. THE S3rm_Tool SHALL show estimated time remaining based on current deletion rate
-5. THE S3rm_Tool SHALL support quiet mode that suppresses progress output for scripting scenarios
-6. WHERE color output is enabled (default), THE S3rm_Tool SHALL use colored text for progress indicators and statistics
-7. WHERE event callbacks are registered (Lua or Rust), THE S3rm_Tool SHALL invoke Event_Callback_Lua or Event_Callback_Rust for progress updates, errors, and completion events
-8. THE event callbacks SHALL receive structured event data including event type, object key, status, timestamps, and error information when applicable
+4. THE S3rm_Tool SHALL support quiet mode that suppresses progress output for scripting scenarios
+5. WHERE color output is enabled (default), THE S3rm_Tool SHALL use colored text for progress indicators and statistics
+6. WHERE event callbacks are registered (Lua or Rust), THE S3rm_Tool SHALL invoke Event_Callback_Lua or Event_Callback_Rust for progress updates, errors, and completion events
+7. THE event callbacks SHALL receive structured event data including event type, object key, status, timestamps, and error information when applicable
 
 ### Requirement 8: Configuration and Customization
 

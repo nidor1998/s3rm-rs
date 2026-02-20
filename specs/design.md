@@ -2048,7 +2048,8 @@ uuid = { version = "1.20.0", features = ["v4"] }
 ```
 s3rm-rs/
 ├── src/
-│   ├── lib.rs                 # Public API exports (all modules re-exported)
+│   ├── lib.rs                 # Public API exports and root-level re-exports
+│   ├── lib_properties.rs      # Property tests for library API (Properties 44-47)
 │   ├── pipeline.rs            # DeletionPipeline orchestrator (adapted from s3sync)
 │   ├── stage.rs               # Stage struct for pipeline stages (from s3sync)
 │   ├── lister.rs              # ObjectLister (reused from s3sync)
@@ -2097,13 +2098,16 @@ s3rm-rs/
 │   └── bin/
 │       └── s3rm/
 │           ├── main.rs        # CLI binary entry point (stub, not yet implemented)
-│           └── tracing.rs     # Tracing initialization for CLI binary
+│           ├── tracing.rs     # Tracing initialization for CLI binary
+│           ├── indicator.rs   # Progress indicator with indicatif (adapted from s3sync)
+│           ├── ui_config.rs   # UI configuration helpers (color, quiet mode)
+│           └── indicator_properties.rs  # Property tests for progress indicator
 ├── Cargo.toml
 ├── Cargo.lock
 └── README.md
 ```
 
-**Notes**: Tests are co-located with source code (e.g., `deleter/tests.rs`, `filters/filter_properties.rs`, `lua/lua_properties.rs`, `safety/safety_properties.rs`). Property tests and unit tests share the same test files. Pipeline orchestrator (`pipeline.rs`) and terminator (`terminator.rs`) are implemented. Progress reporter is not yet implemented. CLI main.rs is a stub.
+**Notes**: Tests are co-located with source code (e.g., `deleter/tests.rs`, `filters/filter_properties.rs`, `lua/lua_properties.rs`, `safety/safety_properties.rs`, `callback/event_callback_properties.rs`, `bin/s3rm/indicator_properties.rs`). Property tests and unit tests share the same test files. Pipeline orchestrator (`pipeline.rs`), terminator (`terminator.rs`), and progress indicator (`bin/s3rm/indicator.rs`) are implemented. CLI main.rs is a stub pending Task 13.
 
 ### Development Phases
 

@@ -915,7 +915,7 @@ Phase 11: Library API (Task 12)
 
 Tasks 1-12 complete and merged to init_build.
 
-**Already implemented across Tasks 1-11** (infrastructure available for remaining tasks):
+**Already implemented across Tasks 1-12** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)
 - All core data types: S3Object, DeletionStats, DeletionError, DeletionEvent, S3Target (Task 3)
 - Storage trait, S3 storage with versioning, conditional deletion, rate limiting (Task 4)
@@ -928,11 +928,11 @@ Tasks 1-12 complete and merged to init_build.
 - DeletionPipeline orchestrator connecting all stages: list → filter → delete → terminate (Task 10)
 - Terminator stage for draining final pipeline output (Task 10)
 - Progress reporter with indicatif, UI config helpers, moving averages (Task 11)
+- Library API: root-level re-exports, rustdoc documentation, property tests for API surface (Task 12)
 - CI pipeline for all target platforms (Task 1)
 - 21 property tests implemented (Properties 1-3, 5-11, 14-18, 31, 32, 44-47)
 
-**Sub-tasks already completed in later task groups** (done during Tasks 1-10):
-- 12.2: Callback traits for Rust API (done in Tasks 7-8)
+**Sub-tasks already completed in later task groups** (done during Tasks 1-12):
 - 14.1: Version handling in ObjectDeleter (done in Tasks 3, 5, 8)
 - 15.1: Retry policy integration (done in Task 2)
 - 15.2: Failure tracking (done in Tasks 3, 8)
@@ -947,6 +947,6 @@ Tasks 1-12 complete and merged to init_build.
 - 25.1-25.2: Property-based testing infrastructure (done in Tasks 3-9)
 
 **Remaining work** (Task 13 is the critical path):
-- Task 13: CLI argument parsing with clap (main.rs is a stub)
+- Task 13: CLI argument parsing with clap (main.rs is a stub) — BLOCKING
 - Tasks 14-22: Remaining property tests and verification tasks (implementation sub-tasks mostly done)
 - Tasks 23-31: Quality, documentation, E2E testing, release

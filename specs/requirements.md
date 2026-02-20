@@ -29,7 +29,7 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 - **Filter_Callback_Rust**: User-provided Rust function for custom filtering logic
 - **Event_Callback_Lua**: User-provided Lua script that receives events during deletion operations (progress, errors, completions)
 - **Event_Callback_Rust**: User-provided Rust function that receives events during deletion operations
-- **If_Match**: ETag-based optimistic locking mechanism for conditional deletions
+- **If_Match**: Boolean flag enabling ETag-based optimistic locking; when enabled, uses each object's own ETag for conditional deletions to prevent race conditions
 - **Custom_Endpoint**: S3-compatible service endpoint (e.g., MinIO, Wasabi)
 - **Parallel_Lister_Count**: Number of concurrent listing operations (configurable)
 - **Max_Parallel_Listing_Max_Depth**: Maximum depth for parallel listing operations (similar to s3sync's --max-parallel-listing-max-depth)
@@ -193,10 +193,10 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 
 #### Acceptance Criteria
 
-1. WHERE an If-Match ETag is provided, THE S3rm_Tool SHALL include the If-Match header in deletion requests
-2. WHEN an If-Match condition fails (ETag mismatch), THE S3rm_Tool SHALL log the failure and skip the object
-3. THE S3rm_Tool SHALL support providing If-Match ETag values via command-line option
-4. WHEN using If-Match with batch deletions, THE Batch_Deleter SHALL handle conditional deletion failures appropriately
+1. WHERE the --if-match flag is enabled, THE S3rm_Tool SHALL use each object's own ETag (obtained during listing) to include the If-Match header in deletion requests
+2. WHEN an If-Match condition fails (ETag mismatch, indicating the object was modified since listing), THE S3rm_Tool SHALL log the failure and skip the object
+3. THE S3rm_Tool SHALL support enabling If-Match via a boolean command-line flag (--if-match)
+4. WHEN using If-Match with batch deletions, THE Batch_Deleter SHALL include per-object ETags in the DeleteObjects request and handle conditional deletion failures appropriately
 
 ### Requirement 12: Library API Support
 

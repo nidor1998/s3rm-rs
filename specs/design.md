@@ -178,13 +178,23 @@ pub struct DeletionStats {
 }
 
 // Callback registration (for programmatic use)
-pub trait FilterCallback: Send + Sync {
-    fn filter(&self, object: &S3Object) -> bool;
+// Uses async_trait for async callback support
+#[async_trait]
+pub trait FilterCallback: Send {
+    async fn filter(&mut self, object: &S3Object) -> Result<bool>;
+    // Returns Ok(true) to delete, Ok(false) to skip, Err(_) to cancel pipeline
 }
 
-pub trait EventCallback: Send + Sync {
-    fn on_event(&self, event: DeletionEvent);
+#[async_trait]
+pub trait EventCallback: Send {
+    async fn on_event(&mut self, event_data: EventData);
+    // EventData is a flat struct with event_type, key, version_id, size,
+    // error_message, and stats fields (not the DeletionEvent enum)
 }
+
+// Callback management (registration and execution)
+pub struct FilterManager;  // Manages filter callbacks (Rust and Lua)
+pub struct EventManager;   // Manages event callbacks with event type filtering
 ```
 
 **Reuse from s3sync**: The Pipeline pattern, Config structure, parse_from_args function, and cancellation token are directly from s3sync. This provides a consistent API between s3sync and s3rm-rs.
@@ -590,28 +600,29 @@ pub async fn create_storage(
 
 **Reuse from s3sync**: The Storage trait and S3 storage implementation. Local storage is NOT needed since s3rm-rs only deletes from S3.
 
-### 11. Retry Policy (Reused from s3sync)
+### 11. Retry Policy (Integrated, Reused from s3sync)
+
+Retry is handled at two levels, matching s3sync's approach:
+
+1. **AWS SDK built-in retry**: Configured via `RetryConfig` (part of `ClientConfig`), with `aws_max_attempts` and `initial_backoff_milliseconds`. The AWS SDK handles exponential backoff with jitter for retryable errors (5xx, throttling).
+
+2. **Application-level force retry**: Implemented as a retry loop in `S3Storage` methods. Configured via `ForceRetryConfig` with `force_retry_count` and `force_retry_interval_milliseconds`. This wraps each AWS SDK call and retries on failure after the SDK's own retries are exhausted.
 
 ```rust
-// Reused from s3sync with no modifications
-pub struct RetryPolicy {
-    max_attempts: u32,
-    initial_backoff: Duration,
-    max_backoff: Duration,
-    backoff_multiplier: f64,
+// Retry configuration in ClientConfig
+pub struct RetryConfig {
+    pub aws_max_attempts: u32,
+    pub initial_backoff_milliseconds: u64,
 }
 
-impl RetryPolicy {
-    pub async fn execute_with_retry<F, T>(&self, operation: F) -> Result<T, Error>
-    where
-        F: Fn() -> Future<Output = Result<T, Error>>,
-    {
-        // Exponential backoff with jitter
-        // Retry on 5xx, throttling, network errors
-        // Reuse s3sync's implementation
-    }
+// Application-level retry in Config
+pub struct ForceRetryConfig {
+    pub force_retry_count: u32,
+    pub force_retry_interval_milliseconds: u64,
 }
 ```
+
+There is no standalone `RetryPolicy` module. Rate limiting is handled via `leaky_bucket::RateLimiter` integrated into the `StorageTrait` and `S3Storage` implementation.
 
 ### 12. Progress Reporter (Reused from s3sync)
 
@@ -649,51 +660,43 @@ debug!("Applying filters: {:?}", filter_config);
 trace!("Processing object: {}", object.key);
 error!("Failed to delete object {}: {}", object.key, error);
 
-// Tracing subscriber configuration (from s3sync)
-pub fn init_tracing(config: &LoggingConfig) -> Result<(), Error> {
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(config.verbosity.to_level())
+// Tracing subscriber configuration (in bin/s3rm/tracing.rs, adapted from s3sync)
+// Uses TracingConfig from the library's config module
+pub fn init_tracing(config: &TracingConfig) {
+    let fmt_span = if config.span_events_tracing {
+        FmtSpan::NEW | FmtSpan::CLOSE
+    } else {
+        FmtSpan::NONE
+    };
+
+    let subscriber_builder = tracing_subscriber::fmt()
+        .compact()
         .with_target(false)
-        .with_thread_ids(false);
-    
-    let subscriber = if config.json_format {
-        subscriber.json().boxed()
-    } else {
-        subscriber.boxed()
-    };
-    
-    let subscriber = if config.color_enabled {
-        subscriber.with_ansi(true).boxed()
-    } else {
-        subscriber.with_ansi(false).boxed()
-    };
-    
-    tracing::subscriber::set_global_default(subscriber)?;
-    Ok(())
-}
+        .with_ansi(!config.disable_color_tracing)
+        .with_span_events(fmt_span);
 
-pub enum Verbosity {
-    Quiet,      // -q -> ERROR only
-    Normal,     // default -> INFO
-    Verbose,    // -v -> DEBUG
-    VeryVerbose, // -vv -> DEBUG with more detail
-    Debug,      // -vvv -> TRACE
-}
+    // Build event filter based on AWS SDK tracing and RUST_LOG env var
+    let event_filter = if config.aws_sdk_tracing {
+        format!("s3rm_rs={level},aws_smithy_runtime={level},aws_config={level},aws_sigv4={level}",
+                level = config.tracing_level)
+    } else if let Ok(env_filter) = env::var("RUST_LOG") {
+        env_filter
+    } else {
+        format!("s3rm_rs={}", config.tracing_level)
+    };
 
-impl Verbosity {
-    fn to_level(&self) -> tracing::Level {
-        match self {
-            Verbosity::Quiet => tracing::Level::ERROR,
-            Verbosity::Normal => tracing::Level::INFO,
-            Verbosity::Verbose => tracing::Level::DEBUG,
-            Verbosity::VeryVerbose => tracing::Level::DEBUG,
-            Verbosity::Debug => tracing::Level::TRACE,
-        }
+    // TracingConfig.tracing_level is log::Level, mapped from CLI verbosity:
+    // -q -> Error, default -> Info, -v -> Debug, -vv -> Debug, -vvv -> Trace
+
+    if config.json_tracing {
+        subscriber_builder.with_env_filter(event_filter).json().init();
+    } else {
+        subscriber_builder.with_env_filter(event_filter).init();
     }
 }
 ```
 
-**Reuse from s3sync**: The entire tracing infrastructure, subscriber configuration, verbosity mapping, and JSON/text formatting.
+**Reuse from s3sync**: The entire tracing infrastructure, subscriber configuration, and JSON/text formatting. Verbosity is configured via `TracingConfig.tracing_level` (a `log::Level`). The `init_tracing` function lives in the binary crate (`bin/s3rm/tracing.rs`), not the library.
 
 ### 14. Lua Integration (Reused from s3sync)
 
@@ -728,7 +731,7 @@ impl FilterCallback for LuaFilterCallback {
     async fn filter(&mut self, object: &S3Object) -> Result<bool> {
         // Convert object to Lua table
         // Call Lua filter() function
-        // Return boolean result
+        // Return Ok(true) to delete, Ok(false) to skip, Err(_) to cancel
         // Reuse s3sync's implementation
     }
 }
@@ -746,8 +749,9 @@ impl LuaEventCallback {
 #[async_trait]
 impl EventCallback for LuaEventCallback {
     async fn on_event(&mut self, event_data: EventData) {
-        // Convert event to Lua table
+        // Convert EventData to Lua table
         // Call Lua on_event() function
+        // EventData includes event_type, key, version_id, size, error_message, stats
         // Reuse s3sync's implementation
     }
 }
@@ -867,7 +871,7 @@ struct CliArgs {
     pub event_callback_lua_script: Option<PathBuf>,
     
     // Advanced (same as s3sync)
-    pub if_match: Option<String>,
+    pub if_match: bool,             // Uses the object's own ETag for conditional deletion
     pub warn_as_error: bool,
     pub max_keys: Option<i32>,
     pub show_no_progress: bool,
@@ -1042,31 +1046,42 @@ impl SafetyChecker {
 ### Core Data Structures
 
 ```rust
-// S3 object representation (adapted from s3sync)
+// S3 object representation (adapted from s3sync's S3syncObject enum)
+// Wraps the actual AWS SDK types for each object category.
 // Note: content_type, metadata, and tags are not included because they require
 // additional API calls (HeadObject/GetObjectTagging) and are fetched on-demand
 // in ObjectDeleter when needed for filtering
-pub struct S3Object {
-    pub key: String,
-    pub version_id: Option<String>,
-    pub size: u64,
-    pub last_modified: DateTime<Utc>,
-    pub etag: String,
-    pub storage_class: Option<String>,
-    pub is_delete_marker: bool,
+pub enum S3Object {
+    NotVersioning(Object),       // Non-versioned bucket objects
+    Versioning(ObjectVersion),   // Versioned objects with version_id
+    DeleteMarker(DeleteMarkerEntry), // Delete markers in versioned buckets
+}
+
+impl S3Object {
+    pub fn key(&self) -> &str;
+    pub fn size(&self) -> i64;
+    pub fn version_id(&self) -> Option<&str>;
+    pub fn e_tag(&self) -> Option<&str>;
+    pub fn last_modified(&self) -> &DateTime;
+    pub fn is_latest(&self) -> bool;
+    pub fn is_delete_marker(&self) -> bool;
 }
 
 // Object key map for tracking (reused from s3sync)
 pub type ObjectKeyMap = Arc<Mutex<HashMap<String, S3Object>>>;
 
-// Deletion statistics (adapted from s3sync's SyncStatistics)
-pub struct DeletionStatistics {
-    pub deleted_objects: u64,
-    pub deleted_bytes: u64,
-    pub failed_objects: u64,
+// Statistics sent through the stats channel during pipeline execution.
+// Each variant represents a single event sent from workers to the
+// progress reporter via an async channel. Adapted from s3sync's SyncStatistics.
+pub enum DeletionStatistics {
+    DeleteBytes(u64),
+    DeleteComplete { key: String },
+    DeleteSkip { key: String },
+    DeleteError { key: String },
+    DeleteWarning { key: String },
 }
 
-// Deletion stats report (adapted from s3sync's SyncStatsReport)
+// Aggregate deletion statistics report with atomic counters (adapted from s3sync's SyncStatsReport)
 pub struct DeletionStatsReport {
     pub stats_deleted_objects: AtomicU64,
     pub stats_deleted_bytes: AtomicU64,
@@ -1142,94 +1157,98 @@ pub fn create_pipeline_cancellation_token() -> CancellationToken {
 ### Configuration Structures
 
 ```rust
-// Main deletion configuration
-pub struct DeletionConfig {
-    pub target: S3Target,
-    pub batch_size: usize,  // 1-1000; if 1, use SingleDeleter; otherwise use BatchDeleter
-                            // If Express One Zone and allow_parallel_listings_in_express_one_zone is false, defaults to 1
-    pub filters: FilterConfig,
-    pub workers: WorkerConfig,
-    pub safety: SafetyConfig,
-    pub callbacks: CallbackConfig,
-    pub aws_config: AwsConfig,
-    pub logging: LoggingConfig,
-    pub retry: RetryConfig,
+// Main deletion configuration (flat struct, adapted from s3sync's Config)
+pub struct Config {
+    pub target: StoragePath,
+    pub show_no_progress: bool,
+    pub target_client_config: Option<ClientConfig>,
+    pub force_retry_config: ForceRetryConfig,
+    pub tracing_config: Option<TracingConfig>,
+    pub worker_size: u16,
+    pub warn_as_error: bool,
+    pub dry_run: bool,
+    pub rate_limit_objects: Option<u32>,
+    pub max_parallel_listings: u16,
+    pub object_listing_queue_size: u32,
+    pub max_parallel_listing_max_depth: u16,
+    pub allow_parallel_listings_in_express_one_zone: bool,
+    pub filter_config: FilterConfig,
+    pub max_keys: i32,
+    pub auto_complete_shell: Option<clap_complete::shells::Shell>,
+    pub event_callback_lua_script: Option<String>,
+    pub filter_callback_lua_script: Option<String>,
+    pub allow_lua_os_library: bool,
+    pub allow_lua_unsafe_vm: bool,
+    pub lua_vm_memory_limit: usize,
+    pub if_match: bool,             // Uses the object's own ETag for conditional deletion
+    pub max_delete: Option<u64>,
+    // Callback managers
+    pub filter_manager: FilterManager,
+    pub event_manager: EventManager,
+    // Deletion-specific options
+    pub batch_size: u16,
+    pub delete_all_versions: bool,
+    pub force: bool,
+}
+
+pub struct ClientConfig {
+    pub client_config_location: ClientConfigLocation,
+    pub credential: S3Credentials,
+    pub region: Option<String>,
+    pub endpoint_url: Option<String>,
+    pub force_path_style: bool,
+    pub accelerate: bool,
+    pub request_payer: Option<RequestPayer>,
+    pub retry_config: RetryConfig,
+    pub cli_timeout_config: CLITimeoutConfig,
+    pub disable_stalled_stream_protection: bool,
+    pub request_checksum_calculation: RequestChecksumCalculation,
+    pub parallel_upload_semaphore: Arc<Semaphore>,
+}
+
+pub struct RetryConfig {
+    pub aws_max_attempts: u32,
+    pub initial_backoff_milliseconds: u64,
+}
+
+pub struct CLITimeoutConfig {
+    pub operation_timeout_milliseconds: Option<u64>,
+    pub operation_attempt_timeout_milliseconds: Option<u64>,
+    pub connect_timeout_milliseconds: Option<u64>,
+    pub read_timeout_milliseconds: Option<u64>,
+}
+
+pub struct TracingConfig {
+    pub tracing_level: log::Level,
+    pub json_tracing: bool,
+    pub aws_sdk_tracing: bool,
+    pub span_events_tracing: bool,
+    pub disable_color_tracing: bool,
+}
+
+pub struct ForceRetryConfig {
+    pub force_retry_count: u32,
+    pub force_retry_interval_milliseconds: u64,
 }
 
 pub struct FilterConfig {
-    pub include_key_regex: Option<Regex>,
-    pub exclude_key_regex: Option<Regex>,
+    pub before_time: Option<DateTime<Utc>>,
+    pub after_time: Option<DateTime<Utc>>,
+    pub include_regex: Option<Regex>,
+    pub exclude_regex: Option<Regex>,
     pub include_content_type_regex: Option<Regex>,
     pub exclude_content_type_regex: Option<Regex>,
     pub include_metadata_regex: Option<Regex>,
     pub exclude_metadata_regex: Option<Regex>,
     pub include_tag_regex: Option<Regex>,
     pub exclude_tag_regex: Option<Regex>,
-    pub size_range: Option<(u64, u64)>,
-    pub time_range: Option<(DateTime<Utc>, DateTime<Utc>)>,
-    pub lua_script: Option<PathBuf>,
-    pub rust_callback: Option<Arc<dyn FilterCallback>>,
+    pub larger_size: Option<u64>,
+    pub smaller_size: Option<u64>,
 }
 
-pub struct WorkerConfig {
-    pub worker_count: usize,
-    pub rate_limit: Option<u64>,
-    pub parallel_listings: usize,
-    pub max_listing_depth: Option<usize>,
-}
-
-pub struct SafetyConfig {
-    pub dry_run: bool,
-    pub force: bool,
-    pub max_delete: Option<u64>,  // Optional limit (like s3sync's --max-delete)
-    pub delete_all_versions: bool,
-    pub json_logging: bool,  // Skip interactive prompts if JSON logging is enabled
-}
-
-pub struct CallbackConfig {
-    // Lua and Rust callbacks are mutually exclusive
-    // If Lua script is provided, Rust callback is ignored
-    pub event_callback_lua: Option<PathBuf>,
-    pub event_callback_rust: Option<Arc<dyn EventCallback>>,
-    pub filter_callback_lua: Option<PathBuf>,
-    pub filter_callback_rust: Option<Arc<dyn FilterCallback>>,
-}
-
-pub struct AwsConfig {
-    pub credentials: AwsCredentials,  // Uses Zeroize for secure memory handling
-    pub region: Option<String>,
-    pub endpoint: Option<String>,
-    pub config_file: Option<PathBuf>,
-    pub max_attempts: u32,
-    pub timeouts: TimeoutConfig,
-}
-
-// AWS credentials with secure memory handling (from s3sync)
-// Derives Zeroize to securely clear sensitive data from memory
-#[derive(Zeroize, ZeroizeOnDrop)]
-pub struct AwsCredentials {
-    pub access_key: Option<String>,
-    pub secret_key: Option<String>,
-    pub session_token: Option<String>,
-    pub profile: Option<String>,
-}
-
-pub struct LoggingConfig {
-    pub verbosity: Verbosity,
-    pub format: LogFormat,
-    pub color_enabled: bool,
-    pub quiet: bool,
-    pub show_progress: bool,
-}
-
-pub struct RetryConfig {
-    pub max_attempts: u32,
-    pub initial_backoff: Duration,
-    pub max_backoff: Duration,
-    pub force_retry_count: u32,
-    pub force_retry_interval: Duration,
-}
 ```
+
+**Note**: AWS credentials are handled via `S3Credentials` (with `Zeroize` and `ZeroizeOnDrop` derives for secure memory handling) inside `ClientConfig`. Logging is configured via `TracingConfig`. Retry is handled at two levels: `RetryConfig` (AWS SDK retries) and `ForceRetryConfig` (application-level retries). All these are sub-structs within the flat `Config` structure defined above.
 
 ## Correctness Properties
 
@@ -1439,29 +1458,29 @@ Following s3sync's error handling pattern, errors are categorized by their sourc
 
 ```rust
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum S3rmError {
     // AWS SDK errors (retryable based on error type)
     #[error("AWS SDK error: {0}")]
     AwsSdk(String),
-    
+
     // Configuration errors (non-retryable, exit code 2)
     #[error("Invalid configuration: {0}")]
     InvalidConfig(String),
-    
+
     #[error("Invalid S3 URI: {0}")]
     InvalidUri(String),
-    
+
     #[error("Invalid regex pattern: {0}")]
     InvalidRegex(String),
-    
+
     // Script errors (non-retryable, exit code 1)
     #[error("Lua script error: {0}")]
     LuaScript(String),
-    
+
     // I/O errors (may be retryable depending on error type)
     #[error("I/O error: {0}")]
     Io(String),
-    
+
     // User cancellation (not an error, exit code 0)
     #[error("Operation cancelled by user")]
     Cancelled,
@@ -1469,57 +1488,38 @@ pub enum Error {
     // Partial failure (warning, exit code 3)
     #[error("Partial failure: {deleted} deleted, {failed} failed")]
     PartialFailure { deleted: u64, failed: u64 },
-    
+
     // Pipeline error (general error, exit code 1)
     #[error("Pipeline error: {0}")]
     Pipeline(String),
 }
 
-impl Error {
-    // Convert from AWS SDK error
-    pub fn from_aws_sdk_error(err: &aws_sdk_s3::Error) -> Self {
-        Error::AwsSdk(err.to_string())
-    }
-    
-    // Convert from Lua error
-    pub fn from_lua_error(err: &mlua::Error) -> Self {
-        Error::LuaScript(err.to_string())
-    }
-    
-    // Convert from I/O error
-    pub fn from_io_error(err: &std::io::Error) -> Self {
-        Error::Io(err.to_string())
-    }
-    
-    // Convert from regex error
-    pub fn from_regex_error(err: &regex::Error) -> Self {
-        Error::InvalidRegex(err.to_string())
-    }
-    
+impl S3rmError {
     // Get exit code for this error
     pub fn exit_code(&self) -> i32 {
         match self {
-            Error::Cancelled => 0,
-            Error::InvalidConfig(_) | Error::InvalidUri(_) | Error::InvalidRegex(_) => 2,
-            Error::PartialFailure { .. } => 3,
+            S3rmError::Cancelled => 0,
+            S3rmError::InvalidConfig(_) | S3rmError::InvalidUri(_) | S3rmError::InvalidRegex(_) => 2,
+            S3rmError::PartialFailure { .. } => 3,
             _ => 1,
         }
     }
-    
+
     // Check if error is retryable
     pub fn is_retryable(&self) -> bool {
-        matches!(self, Error::AwsSdk(_))
+        matches!(self, S3rmError::AwsSdk(_))
     }
 }
 ```
 
 **Error Handling Rationale**:
+- The error type is named `S3rmError` (not `Error`) to avoid conflicts with `std::error::Error` and `anyhow::Error`
 - All error variants store String instead of the original error type to avoid complex lifetime and trait bound issues
-- Conversion functions (from_aws_sdk_error, from_lua_error, etc.) provide a clean way to convert from source errors
 - InvalidConfig, InvalidUri, InvalidRegex are treated as configuration errors (exit code 2)
 - Lua, I/O, and AWS SDK errors are treated separately for better error classification
 - Cancelled is not a real error (exit code 0); dry-run mode does not produce an error — the pipeline runs normally with simulated deletions
 - PartialFailure is a warning (exit code 3)
+- **Note**: There is no `DryRun` error variant — dry-run mode runs the full pipeline with simulated deletions and is not treated as an error
 
 ### Error Handling Strategy
 
@@ -1658,7 +1658,7 @@ proptest! {
 
 #### 2. Property-Based Tests
 
-Each correctness property (Properties 1-51) is implemented as a property-based test:
+Each correctness property (Properties 1-49) is implemented as a property-based test:
 
 **Example Property Test**:
 ```rust
@@ -1927,21 +1927,21 @@ async fn test_batch_deletion_with_partial_failure() {
 ### Code Reuse from s3sync
 
 **Direct Reuse** (copy with minimal changes):
-1. **AWS Client Setup**: `aws_client.rs` - credential loading, region configuration, endpoint setup (with zeroize for credential protection)
-2. **Retry Policy**: `retry.rs` - exponential backoff, error classification
-3. **Rate Limiter**: `rate_limiter.rs` - token bucket algorithm
+1. **AWS Client Setup**: `storage/s3/client_builder.rs` - credential loading, region configuration, endpoint setup (with zeroize for credential protection)
+2. **Retry Policy**: Integrated into AWS SDK retry config (`config::RetryConfig`) + application-level force retry loop in `storage/s3/mod.rs` (`config::ForceRetryConfig`)
+3. **Rate Limiter**: `leaky_bucket::RateLimiter` integrated into `storage/mod.rs` (`StorageTrait`) and `storage/s3/mod.rs` (`S3Storage`)
 4. **Filter Stages**: `filters/*.rs` - all filter implementations (regex, size, time, Lua)
-5. **Lua VM**: `lua/vm.rs` - VM initialization, sandbox configuration, memory limits
-6. **Lua Callbacks**: `lua/callbacks.rs` - callback registration and execution
-7. **Progress Reporter**: `progress.rs` - progress tracking, ETA calculation, display formatting
-8. **Tracing Infrastructure**: Tracing subscriber setup, verbosity configuration, JSON/text formatting
-9. **Configuration Parsing**: `config/args.rs` - parse_from_args function, clap configuration
-10. **Config Structure**: `config/mod.rs` - Config struct, validation logic (with zeroize for credentials)
-11. **Object Lister**: `lister.rs` - parallel pagination, version listing
-12. **Cancellation Token**: `types/token.rs` - pipeline cancellation support
-13. **Stage**: `pipeline/stage.rs` - stage context structure
-14. **Terminator**: `pipeline/terminator.rs` - pipeline termination
-15. **S3 Storage**: `storage/s3.rs` - S3 storage implementation (local storage NOT needed)
+5. **Lua VM**: `lua/engine.rs` - VM initialization, sandbox configuration, memory limits
+6. **Lua Callbacks**: `lua/filter.rs`, `lua/event.rs` - LuaFilterCallback and LuaEventCallback
+7. **Callback Managers**: `callback/filter_manager.rs`, `callback/event_manager.rs` - Rust + Lua callback dispatch
+8. **Tracing Infrastructure**: `bin/s3rm/tracing.rs` - subscriber setup, verbosity configuration, JSON/text formatting
+9. **Config Structure**: `config/mod.rs` - Config, ClientConfig, FilterConfig, TracingConfig, etc. (with zeroize for credentials)
+10. **Object Lister**: `lister.rs` - parallel pagination, version listing
+11. **Cancellation Token**: `types/token.rs` - pipeline cancellation support
+12. **Stage**: `stage.rs` - stage context structure
+13. **S3 Storage**: `storage/s3/mod.rs` - S3 storage implementation (local storage NOT needed)
+14. **Types**: `types/mod.rs` - S3Object, DeletionStatistics, StoragePath, S3Credentials, etc.
+15. **Error Types**: `types/error.rs` - S3rmError enum with exit codes
 
 **Adaptation Required**:
 1. **Filter Engine**: Remove sync-specific filters (e.g., modification time comparison between source/target)
@@ -1958,55 +1958,68 @@ async fn test_batch_deletion_with_partial_failure() {
 
 ### Dependency Management
 
-**Reuse s3sync's dependencies**:
+**Reuse s3sync's dependencies** (actual versions in Cargo.toml):
 ```toml
 [dependencies]
-# AWS SDK (same versions as s3sync)
-aws-config = "1.1.0"
-aws-sdk-s3 = "1.10.0"
-aws-smithy-runtime = "1.1.0"
+# Error handling (same as s3sync)
+anyhow = "1.0.101"
+thiserror = "2.0.18"
 
 # Async runtime (same as s3sync)
-tokio = { version = "1.35", features = ["full"] }
-tokio-util = "0.7"  # For CancellationToken
+async-trait = "0.1.89"
+async-channel = "2.5.0"
+tokio = { version = "1.49.0", features = ["full"] }
+tokio-util = "0.7.18"
+
+# AWS SDK (same versions as s3sync)
+aws-config = { version = "1.8.13", features = ["behavior-version-latest"] }
+aws-runtime = "1.6.0"
+aws-sdk-s3 = "1.122.0"
+aws-smithy-runtime-api = "1.11.3"
+aws-smithy-types = "1.4.3"
+aws-smithy-types-convert = { version = "0.60.12", features = ["convert-chrono"] }
+aws-types = "1.3.11"
 
 # CLI (same as s3sync)
-clap = { version = "4.4", features = ["derive", "env"] }
+clap = { version = "4.5.57", features = ["derive", "env", "cargo", "string"] }
+clap_complete = "4.5.65"
+clap-verbosity-flag = "3.0.4"
 
-# Signal handling (same as s3sync)
-ctrlc = "3.4"
-
-# Logging (same as s3sync)
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+# Date/time
+chrono = "0.4.43"
 
 # Regex (same as s3sync)
-regex = "1.10"
+fancy-regex = "0.17.0"
+regex = "1.12.3"
 
-# Lua (same as s3sync)
-mlua = { version = "0.9", features = ["lua54", "vendored"] }
-
-# Serialization (same as s3sync)
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-
-# Error handling (same as s3sync)
-thiserror = "1.0"
-anyhow = "1.0"
+# Rate limiter (same as s3sync)
+leaky-bucket = "1.1.2"
 
 # Security (same as s3sync)
-zeroize = { version = "1.7", features = ["derive"] }
+zeroize = "1.8.2"
+zeroize_derive = "1.4.3"
+
+# Logging (same as s3sync)
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json", "local-time"] }
+
+# Progress bar (same as s3sync)
+indicatif = "0.18.3"
 
 # Terminal
 # Uses std::io::IsTerminal (stable since Rust 1.70) instead of atty
 # Uses ANSI escape code constants instead of colored crate
 
-# Progress bar (same as s3sync)
-indicatif = "0.17"
+# Serialization (same as s3sync)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
-# Testing
-proptest = "1.4"
-aws-smithy-mocks = "0.1"
+# Lua (same as s3sync, optional feature)
+mlua = { version = "0.11.6", features = ["lua54", "async", "send", "vendored"], optional = true }
+
+[dev-dependencies]
+proptest = "1.6"
+tokio-test = "0.4"
 ```
 
 ### File Structure
@@ -2015,52 +2028,59 @@ aws-smithy-mocks = "0.1"
 s3rm-rs/
 ├── src/
 │   ├── lib.rs                 # Public API exports
-│   ├── pipeline.rs            # DeletionPipeline orchestrator (adapted from s3sync)
 │   ├── stage.rs               # Stage struct for pipeline stages (from s3sync)
-│   ├── config.rs              # Configuration and ParsedArgs (adapted from s3sync)
-│   ├── storage/
-│   │   ├── mod.rs             # Storage trait (from s3sync)
-│   │   └── s3.rs              # S3 storage implementation (from s3sync)
 │   ├── lister.rs              # ObjectLister (reused from s3sync)
+│   ├── config/
+│   │   └── mod.rs             # Config, ClientConfig, FilterConfig, etc. (adapted from s3sync)
+│   ├── types/
+│   │   ├── mod.rs             # S3Object, DeletionStatistics, StoragePath, S3Credentials, etc.
+│   │   ├── error.rs           # S3rmError enum with exit codes
+│   │   ├── filter_callback.rs # FilterCallback async trait
+│   │   ├── event_callback.rs  # EventCallback async trait, EventData
+│   │   └── token.rs           # PipelineCancellationToken type alias
+│   ├── callback/
+│   │   ├── mod.rs             # Callback module exports
+│   │   ├── filter_manager.rs  # FilterManager (Rust + Lua filter dispatch)
+│   │   └── event_manager.rs   # EventManager (Rust + Lua event dispatch)
+│   ├── storage/
+│   │   ├── mod.rs             # StorageTrait, StorageFactory, Storage type alias (from s3sync)
+│   │   └── s3/
+│   │       ├── mod.rs         # S3Storage implementation with force retry loop (from s3sync)
+│   │       └── client_builder.rs  # AWS client builder (from s3sync)
 │   ├── filters/
-│   │   ├── mod.rs             # Filter trait (from s3sync)
-│   │   ├── time.rs            # MtimeBeforeFilter, MtimeAfterFilter (from s3sync)
-│   │   ├── size.rs            # SmallerSizeFilter, LargerSizeFilter (from s3sync)
-│   │   ├── regex.rs           # IncludeRegexFilter, ExcludeRegexFilter (from s3sync)
-│   │   └── lua.rs             # UserDefinedFilter / Lua callbacks (from s3sync)
+│   │   ├── mod.rs             # ObjectFilter trait (from s3sync)
+│   │   ├── include_regex.rs   # IncludeRegexFilter (from s3sync)
+│   │   ├── exclude_regex.rs   # ExcludeRegexFilter (from s3sync)
+│   │   ├── larger_size.rs     # LargerSizeFilter (from s3sync)
+│   │   ├── smaller_size.rs    # SmallerSizeFilter (from s3sync)
+│   │   ├── mtime_after.rs     # MtimeAfterFilter (from s3sync)
+│   │   ├── mtime_before.rs    # MtimeBeforeFilter (from s3sync)
+│   │   ├── user_defined.rs    # UserDefinedFilter / Lua filter stage (from s3sync)
+│   │   └── filter_properties.rs  # Property tests for filters
 │   ├── deleter/
 │   │   ├── mod.rs             # ObjectDeleter and Deleter trait (NEW)
 │   │   ├── batch.rs           # BatchDeleter (NEW)
-│   │   └── single.rs          # SingleDeleter (NEW)
-│   ├── terminator.rs          # Terminator stage (from s3sync)
-│   ├── retry.rs               # RetryPolicy (reused from s3sync)
-│   ├── progress.rs            # Progress reporting (reused from s3sync)
+│   │   ├── single.rs          # SingleDeleter (NEW)
+│   │   └── tests.rs           # Unit + property tests for deletion components
 │   ├── safety/
-│   │   ├── mod.rs             # SafetyChecker, PromptHandler trait (NEW)
+│   │   ├── mod.rs             # SafetyChecker, confirmation prompts (NEW)
 │   │   └── safety_properties.rs  # Property tests for safety features (NEW)
 │   ├── lua/
-│   │   ├── mod.rs
+│   │   ├── mod.rs             # Lua module exports
 │   │   ├── engine.rs          # LuaScriptCallbackEngine (from s3sync)
 │   │   ├── filter.rs          # LuaFilterCallback (from s3sync)
-│   │   └── event.rs           # LuaEventCallback (from s3sync)
-│   └── cli/
-│       └── main.rs            # CLI binary entry point
-├── tests/
-│   ├── unit/
-│   │   ├── config_tests.rs
-│   │   ├── filter_tests.rs
-│   │   ├── deletion_tests.rs
-│   │   └── safety_tests.rs
-│   ├── property/
-│   │   ├── filtering_properties.rs
-│   │   ├── deletion_properties.rs
-│   │   ├── config_properties.rs
-│   │   └── safety_properties.rs
-│   └── integration/
-│       └── e2e_tests.rs
+│   │   ├── event.rs           # LuaEventCallback (from s3sync)
+│   │   └── lua_properties.rs  # Property tests for Lua integration
+│   └── bin/
+│       └── s3rm/
+│           ├── main.rs        # CLI binary entry point (stub, not yet implemented)
+│           └── tracing.rs     # Tracing initialization for CLI binary
 ├── Cargo.toml
+├── Cargo.lock
 └── README.md
 ```
+
+**Notes**: Tests are co-located with source code (e.g., `deleter/tests.rs`, `filters/filter_properties.rs`, `lua/lua_properties.rs`, `safety/safety_properties.rs`). Property tests and unit tests share the same test files. Pipeline orchestrator (`pipeline.rs`), progress reporter (`progress.rs`), and terminator (`terminator.rs`) are not yet implemented.
 
 ### Development Phases
 

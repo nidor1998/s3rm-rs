@@ -8,7 +8,7 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-8 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, and deletion components established.
+**Current Achievement**: Tasks 1-9 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, and safety features established.
 
 ## Current Status
 
@@ -21,6 +21,7 @@ Phase 4: Object Lister (Task 5)
 Phase 5: Filter Stages (Task 6)
 Phase 6: Lua Integration (Task 7)
 Phase 7: Deletion Components (Task 8)
+Phase 8: Safety Features (Task 9)
 
 ## Tasks
 
@@ -243,8 +244,8 @@ Phase 7: Deletion Components (Task 8)
     - _Requirements: 2.3, 2.4, 2.5, 2.11_
 
 
-- [-] 9. Implement Safety Features (New)
-  - [ ] 9.1 Implement SafetyChecker
+- [x] 9. Implement Safety Features (New)
+  - [x] 9.1 Implement SafetyChecker
     - Create safety/mod.rs with SafetyChecker struct
     - Implement check_before_deletion() method
     - Handle dry-run mode (skip confirmation — pipeline runs but deletion layer simulates)
@@ -256,37 +257,37 @@ Phase 7: Deletion Components (Task 8)
     - Use println/print for prompts (not tracing)
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 13.1_
 
-  - [ ] 9.2 Implement dry-run support in ObjectDeleter
+  - [x] 9.2 Implement dry-run support in ObjectDeleter
     - Skip actual S3 API calls when dry_run is enabled
     - Simulate successful deletion for all objects in buffer
     - Log each object at info level with `[dry-run]` prefix (key, version_id, size)
     - Emit stats and events with dry_run flag set
     - _Requirements: 3.1_
 
-  - [ ] 9.3 Implement max-delete threshold enforcement in ObjectDeleter
+  - [x] 9.3 Implement max-delete threshold enforcement in ObjectDeleter
     - Cancel pipeline when delete count exceeds --max-delete limit
     - Already implemented in ObjectDeleter.process_object() via delete_counter
     - _Requirements: 3.6_
 
-  - [ ] 9.4 Write property test for dry-run mode safety
+  - [x] 9.4 Write property test for dry-run mode safety
     - **Property 16: Dry-Run Mode Safety**
     - **Validates: Requirements 3.1**
 
-  - [ ] 9.5 Write property test for confirmation prompt validation
+  - [x] 9.5 Write property test for confirmation prompt validation
     - **Property 17: Confirmation Prompt Validation**
     - **Validates: Requirements 3.3**
 
-  - [ ] 9.6 Write property test for force flag behavior
+  - [x] 9.6 Write property test for force flag behavior
     - **Property 18: Force Flag Behavior**
     - **Validates: Requirements 3.4, 13.2**
 
-  - [ ] 9.7 Write unit tests for dry-run in ObjectDeleter
+  - [x] 9.7 Write unit tests for dry-run in ObjectDeleter
     - Test dry-run skips API calls and reports correct stats
     - Test dry-run works in single mode (batch_size=1)
     - Test dry-run preserves version IDs for versioned objects
     - _Requirements: 3.1_
 
-  - [ ] 9.8 Write unit tests for per-object info logging
+  - [x] 9.8 Write unit tests for per-object info logging
     - Test info-level logging with key, version_id, size for each deleted object
     - Test `[dry-run]` prefix in dry-run mode
     - Test normal mode logs without `[dry-run]` prefix

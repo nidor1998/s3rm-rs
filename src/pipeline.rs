@@ -167,6 +167,17 @@ impl DeletionPipeline {
         Some(errors)
     }
 
+    /// Get error messages without consuming them.
+    ///
+    /// Returns `None` if no errors occurred.
+    fn get_error_messages(&self) -> Option<Vec<String>> {
+        if !self.has_error() {
+            return None;
+        }
+        let error_list = self.errors.lock().unwrap();
+        Some(error_list.iter().map(|e| e.to_string()).collect())
+    }
+
     /// Get the stats receiver for progress reporting.
     ///
     /// The progress reporter reads from this channel to display
@@ -234,8 +245,17 @@ impl DeletionPipeline {
     async fn fire_completion_events(&self) {
         if self.has_error() {
             let mut event_data = EventData::new(EventType::PIPELINE_ERROR);
-            event_data.message = Some("Pipeline completed with errors".to_string());
-            self.config.event_manager.trigger_event(event_data).await;
+            event_data.message = Some(
+                self.get_error_messages()
+                    .unwrap_or_default()
+                    .first()
+                    .unwrap_or(&"Unknown error".to_string())
+                    .to_string(),
+            );
+            self.config
+                .event_manager
+                .trigger_event(event_data.clone())
+                .await;
         }
 
         self.config

@@ -361,7 +361,7 @@ Phase 10: Progress Reporting (Task 11)
     - **Validates: Requirements 7.6, 7.7**
 
 
-- [ ] 12. Implement Library API (Public Interface)
+- [-] 12. Implement Library API (Public Interface)
   - [ ] 12.1 Create lib.rs with public API
     - Export DeletionPipeline, Config, ParsedArgs
     - Export parse_from_args() function

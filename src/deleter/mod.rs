@@ -359,12 +359,22 @@ impl ObjectDeleter {
 
     /// Delete buffered objects by delegating to the Deleter backend
     /// (BatchDeleter or SingleDeleter).
+    ///
+    /// In dry-run mode, actual S3 API calls are skipped. All objects are
+    /// treated as successfully deleted and statistics/events are emitted
+    /// with `dry_run = true`.
     async fn delete_buffered_objects(&mut self) -> Result<()> {
         if self.buffer.is_empty() {
             return Ok(());
         }
 
+        // Exit immediately if pipeline was cancelled (e.g. max_delete threshold).
+        if self.base.cancellation_token.is_cancelled() {
+            return Ok(());
+        }
+
         let batch = std::mem::take(&mut self.buffer);
+        let is_dry_run = self.base.config.dry_run;
 
         // Build a lookup from (key, version_id) to object for resolving sizes after deletion.
         // Using composite key avoids collisions when multiple versions of the same key
@@ -378,81 +388,115 @@ impl ObjectDeleter {
             })
             .collect();
 
-        match self.deleter.delete(&batch, &self.base.config).await {
-            Ok(delete_result) => {
-                // Emit per-object stats and events for successes.
-                for dk in &delete_result.deleted {
-                    let lookup_key = (dk.key.clone(), dk.version_id.clone());
-                    let size = obj_by_key
-                        .get(&lookup_key)
-                        .map(|o| o.size() as u64)
-                        .unwrap_or(0);
-
-                    self.deletion_stats_report
-                        .lock()
-                        .unwrap()
-                        .increment_deleted(size);
-
-                    self.base
-                        .send_stats(DeletionStatistics::DeleteComplete {
-                            key: dk.key.clone(),
-                        })
-                        .await;
-                    self.base
-                        .send_stats(DeletionStatistics::DeleteBytes(size))
-                        .await;
-
-                    let mut event_data = EventData::new(EventType::DELETE_COMPLETE);
-                    event_data.key = Some(dk.key.clone());
-                    event_data.version_id = dk.version_id.clone();
-                    event_data.size = Some(size);
-                    self.base
-                        .config
-                        .event_manager
-                        .trigger_event(event_data)
-                        .await;
-                }
-
-                // Emit per-object stats and events for failures.
-                for fk in &delete_result.failed {
-                    self.deletion_stats_report
-                        .lock()
-                        .unwrap()
-                        .increment_failed();
-
-                    let mut event_data = EventData::new(EventType::DELETE_FAILED);
-                    event_data.key = Some(fk.key.clone());
-                    event_data.version_id = fk.version_id.clone();
-                    event_data.error_message =
-                        Some(format!("{}: {}", fk.error_code, fk.error_message));
-                    self.base
-                        .config
-                        .event_manager
-                        .trigger_event(event_data)
-                        .await;
-                }
-
-                // Forward all objects to next stage
-                for obj in batch {
-                    if self.base.send(obj).await? == SendResult::Closed {
-                        return Ok(());
-                    }
-                }
-
-                Ok(())
+        // In dry-run mode, simulate successful deletion for all objects
+        // without making any S3 API calls.
+        let delete_result = if is_dry_run {
+            DeleteResult {
+                deleted: batch
+                    .iter()
+                    .map(|o| DeletedKey {
+                        key: o.key().to_string(),
+                        version_id: o.version_id().map(|v| v.to_string()),
+                    })
+                    .collect(),
+                failed: vec![],
             }
-            Err(e) => {
-                // Entire operation failed — cancel pipeline
-                self.base.cancellation_token.cancel();
-                error!(
-                    worker_index = self.worker_index,
-                    error = e.to_string(),
-                    "delete worker has been cancelled with error."
-                );
+        } else {
+            match self.deleter.delete(&batch, &self.base.config).await {
+                Ok(result) => result,
+                Err(e) => {
+                    // Entire operation failed — cancel pipeline
+                    self.base.cancellation_token.cancel();
+                    error!(
+                        worker_index = self.worker_index,
+                        error = e.to_string(),
+                        "delete worker has been cancelled with error."
+                    );
+                    return Err(anyhow!("delete worker has been cancelled with error."));
+                }
+            }
+        };
 
-                Err(anyhow!("delete worker has been cancelled with error."))
+        // Emit per-object stats and events for successes.
+        for dk in &delete_result.deleted {
+            let lookup_key = (dk.key.clone(), dk.version_id.clone());
+            let size = obj_by_key
+                .get(&lookup_key)
+                .map(|o| o.size() as u64)
+                .unwrap_or(0);
+
+            // Per-object info logging (matching s3sync pattern).
+            // Dry-run uses "[dry-run]" prefix like s3sync's storage layer.
+            let version_id_str = dk.version_id.as_deref().unwrap_or("");
+            if is_dry_run {
+                info!(
+                    key = dk.key.as_str(),
+                    version_id = version_id_str,
+                    size = size,
+                    "[dry-run] delete completed.",
+                );
+            } else {
+                info!(
+                    key = dk.key.as_str(),
+                    version_id = version_id_str,
+                    size = size,
+                    "delete completed.",
+                );
+            }
+
+            self.deletion_stats_report
+                .lock()
+                .unwrap()
+                .increment_deleted(size);
+
+            self.base
+                .send_stats(DeletionStatistics::DeleteComplete {
+                    key: dk.key.clone(),
+                })
+                .await;
+            self.base
+                .send_stats(DeletionStatistics::DeleteBytes(size))
+                .await;
+
+            let mut event_data = EventData::new(EventType::DELETE_COMPLETE);
+            event_data.dry_run = is_dry_run;
+            event_data.key = Some(dk.key.clone());
+            event_data.version_id = dk.version_id.clone();
+            event_data.size = Some(size);
+            self.base
+                .config
+                .event_manager
+                .trigger_event(event_data)
+                .await;
+        }
+
+        // Emit per-object stats and events for failures.
+        for fk in &delete_result.failed {
+            self.deletion_stats_report
+                .lock()
+                .unwrap()
+                .increment_failed();
+
+            let mut event_data = EventData::new(EventType::DELETE_FAILED);
+            event_data.dry_run = is_dry_run;
+            event_data.key = Some(fk.key.clone());
+            event_data.version_id = fk.version_id.clone();
+            event_data.error_message = Some(format!("{}: {}", fk.error_code, fk.error_message));
+            self.base
+                .config
+                .event_manager
+                .trigger_event(event_data)
+                .await;
+        }
+
+        // Forward all objects to next stage
+        for obj in batch {
+            if self.base.send(obj).await? == SendResult::Closed {
+                return Ok(());
             }
         }
+
+        Ok(())
     }
 
     // -----------------------------------------------------------------------

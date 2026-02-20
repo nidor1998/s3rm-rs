@@ -1488,3 +1488,173 @@ proptest! {
         }
     }
 }
+
+// ===========================================================================
+// Dry-run tests
+// ===========================================================================
+
+/// Dry-run mode: the ObjectDeleter should NOT make any S3 API calls,
+/// but should still report all objects as successfully deleted (simulated)
+/// and emit statistics/events.
+#[tokio::test]
+async fn object_deleter_dry_run_skips_api_calls() {
+    init_dummy_tracing_subscriber();
+
+    let (stats_sender, _stats_receiver) = async_channel::bounded(100);
+    let (mock_storage, mock) = make_mock_storage_boxed(stats_sender.clone());
+    let (input_sender, input_receiver) = async_channel::bounded(100);
+    let (output_sender, output_receiver) = async_channel::bounded::<S3Object>(100);
+
+    let mut config = make_test_config();
+    config.dry_run = true;
+    config.batch_size = 1000;
+
+    let stage = make_stage_with_mock(
+        config,
+        mock_storage,
+        Some(input_receiver),
+        Some(output_sender),
+    );
+
+    let stats_report = Arc::new(Mutex::new(crate::types::DeletionStatsReport::new()));
+    let delete_counter = Arc::new(AtomicU64::new(0));
+
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter.clone());
+
+    // Send objects
+    let obj1 = make_s3_object("dry-run/file1.txt", 100);
+    let obj2 = make_s3_object("dry-run/file2.txt", 200);
+    let obj3 = make_s3_object("dry-run/file3.txt", 300);
+    input_sender.send(obj1).await.unwrap();
+    input_sender.send(obj2).await.unwrap();
+    input_sender.send(obj3).await.unwrap();
+    input_sender.close();
+
+    deleter.delete().await.unwrap();
+
+    // Verify NO S3 API calls were made
+    assert_eq!(
+        mock.delete_object_calls.lock().unwrap().len(),
+        0,
+        "dry-run should not call delete_object"
+    );
+    assert_eq!(
+        mock.delete_objects_calls.lock().unwrap().len(),
+        0,
+        "dry-run should not call delete_objects"
+    );
+
+    // Verify statistics report all 3 objects as deleted
+    let report = stats_report.lock().unwrap();
+    let snapshot = report.snapshot();
+    assert_eq!(
+        snapshot.stats_deleted_objects, 3,
+        "all 3 objects should be counted as deleted"
+    );
+    assert_eq!(
+        snapshot.stats_deleted_bytes, 600,
+        "total bytes should be 100+200+300=600"
+    );
+    assert_eq!(snapshot.stats_failed_objects, 0, "no failures in dry-run");
+
+    // Verify all objects were forwarded to output channel
+    let mut forwarded = Vec::new();
+    while let Ok(obj) = output_receiver.try_recv() {
+        forwarded.push(obj.key().to_string());
+    }
+    assert_eq!(forwarded.len(), 3);
+    assert!(forwarded.contains(&"dry-run/file1.txt".to_string()));
+    assert!(forwarded.contains(&"dry-run/file2.txt".to_string()));
+    assert!(forwarded.contains(&"dry-run/file3.txt".to_string()));
+}
+
+/// Dry-run with single deleter (batch_size=1): should still skip API calls.
+#[tokio::test]
+async fn object_deleter_dry_run_single_mode() {
+    init_dummy_tracing_subscriber();
+
+    let (stats_sender, _stats_receiver) = async_channel::bounded(100);
+    let (mock_storage, mock) = make_mock_storage_boxed(stats_sender.clone());
+    let (input_sender, input_receiver) = async_channel::bounded(100);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(100);
+
+    let mut config = make_test_config();
+    config.dry_run = true;
+    config.batch_size = 1; // single delete mode
+
+    let stage = make_stage_with_mock(
+        config,
+        mock_storage,
+        Some(input_receiver),
+        Some(output_sender),
+    );
+
+    let stats_report = Arc::new(Mutex::new(crate::types::DeletionStatsReport::new()));
+    let delete_counter = Arc::new(AtomicU64::new(0));
+
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    let obj = make_s3_object("dry-run/single.txt", 500);
+    input_sender.send(obj).await.unwrap();
+    input_sender.close();
+
+    deleter.delete().await.unwrap();
+
+    // No S3 calls
+    assert_eq!(mock.delete_object_calls.lock().unwrap().len(), 0);
+    assert_eq!(mock.delete_objects_calls.lock().unwrap().len(), 0);
+
+    // Stats recorded
+    let report = stats_report.lock().unwrap();
+    let snapshot = report.snapshot();
+    assert_eq!(snapshot.stats_deleted_objects, 1);
+    assert_eq!(snapshot.stats_deleted_bytes, 500);
+}
+
+/// Dry-run with versioned objects: should report version IDs without API calls.
+#[tokio::test]
+async fn object_deleter_dry_run_versioned_objects() {
+    init_dummy_tracing_subscriber();
+
+    let (stats_sender, _stats_receiver) = async_channel::bounded(100);
+    let (mock_storage, mock) = make_mock_storage_boxed(stats_sender.clone());
+    let (input_sender, input_receiver) = async_channel::bounded(100);
+    let (output_sender, output_receiver) = async_channel::bounded::<S3Object>(100);
+
+    let mut config = make_test_config();
+    config.dry_run = true;
+    config.batch_size = 1000;
+
+    let stage = make_stage_with_mock(
+        config,
+        mock_storage,
+        Some(input_receiver),
+        Some(output_sender),
+    );
+
+    let stats_report = Arc::new(Mutex::new(crate::types::DeletionStatsReport::new()));
+    let delete_counter = Arc::new(AtomicU64::new(0));
+
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    let obj = make_versioned_s3_object("versioned/file.txt", "ver-001", 1024);
+    input_sender.send(obj).await.unwrap();
+    input_sender.close();
+
+    deleter.delete().await.unwrap();
+
+    // No API calls
+    assert_eq!(mock.delete_object_calls.lock().unwrap().len(), 0);
+    assert_eq!(mock.delete_objects_calls.lock().unwrap().len(), 0);
+
+    // Stats recorded
+    let report = stats_report.lock().unwrap();
+    let snapshot = report.snapshot();
+    assert_eq!(snapshot.stats_deleted_objects, 1);
+    assert_eq!(snapshot.stats_deleted_bytes, 1024);
+
+    // Object forwarded to output
+    let forwarded = output_receiver.try_recv().unwrap();
+    assert_eq!(forwarded.key(), "versioned/file.txt");
+    assert_eq!(forwarded.version_id(), Some("ver-001"));
+}

@@ -151,6 +151,13 @@ impl ObjectDeleter {
                     match recv_result {
                         Ok(object) => {
                             self.process_object(object).await?;
+                            // Check if process_object triggered cancellation
+                            // (e.g. max_delete threshold). Exit immediately without
+                            // flushing the buffer.
+                            if self.base.cancellation_token.is_cancelled() {
+                                info!(worker_index = self.worker_index, "delete worker has been cancelled.");
+                                return Ok(());
+                            }
                         },
                         Err(_) if self.base.receiver.as_ref().unwrap().is_closed() => {
                             // Channel closed: all senders dropped. Flush remaining buffer.

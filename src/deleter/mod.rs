@@ -761,11 +761,7 @@ pub fn generate_tagging_string(
 
     let mut tags_key_value_string = String::new();
     for tag in get_object_tagging_output.clone().unwrap().tag_set() {
-        let tag_string = format!(
-            "{}={}",
-            encode(tag.key()),
-            encode(tag.value()),
-        );
+        let tag_string = format!("{}={}", encode(tag.key()), encode(tag.value()),);
         if !tags_key_value_string.is_empty() {
             tags_key_value_string.push('&');
         }

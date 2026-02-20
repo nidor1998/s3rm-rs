@@ -1,8 +1,8 @@
 //! Safety features for s3rm-rs deletion operations.
 //!
 //! Implements safeguards against accidental data loss:
-//! - Dry-run mode: Returns DryRun error without performing deletions
-//! - Confirmation prompts: Requires exact "yes" input
+//! - Dry-run mode: Skips confirmation (pipeline runs but deletions are simulated)
+//! - Confirmation prompts: Requires exact "yes" input for destructive operations
 //! - Force flag: Skips confirmation prompts
 //! - Max-delete threshold: Requires confirmation when count exceeds limit
 //! - Non-TTY detection: Skips prompts in non-interactive environments
@@ -121,11 +121,16 @@ impl PromptHandler for StdioPromptHandler {
 /// Safety checker that validates preconditions before deletion operations.
 ///
 /// Orchestrates all safety checks in a defined order:
-/// 1. Dry-run mode check (return DryRun error immediately)
+/// 1. Dry-run mode check (skip confirmation — pipeline runs but deletions are simulated)
 /// 2. Force flag check (skip all prompts)
 /// 3. Environment check (skip prompts if non-TTY or JSON logging)
 /// 4. Max-delete threshold check
 /// 5. User confirmation prompt (require exact "yes" input)
+///
+/// Note: Dry-run mode does NOT abort the pipeline. The pipeline runs fully
+/// (listing, filtering) but the deletion layer simulates successful deletions
+/// and outputs statistics. The SafetyChecker simply skips the confirmation
+/// prompt since no destructive operation will occur.
 ///
 /// _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 13.1_
 pub struct SafetyChecker {
@@ -175,13 +180,13 @@ impl SafetyChecker {
     ///
     /// # Returns
     ///
-    /// - `Ok(())` if deletion should proceed
-    /// - `Err(S3rmError::DryRun)` if dry-run mode is enabled
+    /// - `Ok(())` if the pipeline should proceed
     /// - `Err(S3rmError::Cancelled)` if the user declines confirmation
     ///
     /// # Decision Flow
     ///
-    /// 1. If `dry_run` is true → return `Err(S3rmError::DryRun)`
+    /// 1. If `dry_run` is true → return `Ok(())` (no confirmation needed;
+    ///    the pipeline runs but the deletion layer simulates deletions)
     /// 2. If `force` is true → return `Ok(())`
     /// 3. If non-interactive (non-TTY or JSON logging) → return `Ok(())`
     /// 4. Display summary and prompt for confirmation
@@ -189,9 +194,10 @@ impl SafetyChecker {
     ///
     /// _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 13.1_
     pub fn check_before_deletion(&self, summary: &DeletionSummary) -> Result<()> {
-        // 1. Dry-run mode: return early without any deletions
+        // 1. Dry-run mode: skip confirmation — the pipeline will run but
+        //    the deletion layer simulates successful deletions and outputs stats.
         if self.dry_run {
-            return Err(anyhow!(S3rmError::DryRun));
+            return Ok(());
         }
 
         // 2. Force flag: skip all prompts

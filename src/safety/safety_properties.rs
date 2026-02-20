@@ -120,15 +120,16 @@ mod tests {
     // Property 16: Dry-Run Mode Safety
     // **Validates: Requirements 3.1**
     //
-    // For any deletion operation with dry-run enabled, no actual deletions
-    // should occur, and the tool should return a DryRun error.
+    // In dry-run mode, the pipeline runs fully (listing, filtering) but
+    // the deletion layer simulates deletions. The SafetyChecker skips the
+    // confirmation prompt because no destructive operation will occur.
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
 
         #[test]
-        fn property_16_dry_run_returns_dry_run_error(
+        fn property_16_dry_run_skips_confirmation(
             total_objects in 0u64..100_000,
             total_bytes in 0u64..1_000_000_000,
             force in proptest::bool::ANY,
@@ -138,17 +139,16 @@ mod tests {
             // **Validates: Requirements 3.1**
             //
             // Regardless of force flag, max_delete, or summary values,
-            // if dry_run is true, check_before_deletion MUST return DryRun.
+            // if dry_run is true, check_before_deletion MUST return Ok
+            // (no confirmation needed — deletions will be simulated).
             let config = make_config(true, force, max_delete, false);
-            let handler = MockPromptHandler::new("yes");
+            // Use "no" response to prove the prompt is never consulted.
+            let handler = MockPromptHandler::new("no");
             let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));
             let summary = DeletionSummary::new(total_objects, total_bytes);
 
             let result = checker.check_before_deletion(&summary);
-            prop_assert!(result.is_err());
-            let err = result.unwrap_err();
-            let s3rm_err = err.downcast_ref::<S3rmError>().unwrap();
-            prop_assert_eq!(s3rm_err, &S3rmError::DryRun);
+            prop_assert!(result.is_ok(), "dry-run should skip confirmation and return Ok");
         }
     }
 
@@ -372,16 +372,27 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn dry_run_takes_precedence_over_force() {
-        let config = make_config(true, true, None, false);
-        let handler = MockPromptHandler::new("yes");
+    fn dry_run_skips_confirmation_even_without_force() {
+        // Dry-run skips confirmation because no destructive action occurs.
+        // The prompt handler returns "no" to prove it's never consulted.
+        let config = make_config(true, false, None, false);
+        let handler = MockPromptHandler::new("no");
         let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));
         let summary = DeletionSummary::new(100, 1024);
 
         let result = checker.check_before_deletion(&summary);
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert_eq!(err.downcast_ref::<S3rmError>().unwrap(), &S3rmError::DryRun);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn dry_run_with_force_also_skips_confirmation() {
+        let config = make_config(true, true, None, false);
+        let handler = MockPromptHandler::new("no");
+        let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));
+        let summary = DeletionSummary::new(100, 1024);
+
+        let result = checker.check_before_deletion(&summary);
+        assert!(result.is_ok());
     }
 
     #[test]

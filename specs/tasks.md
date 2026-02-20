@@ -8,7 +8,7 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-9 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, and safety features established.
+**Current Achievement**: Tasks 1-10 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, and deletion pipeline established.
 
 ## Current Status
 
@@ -22,6 +22,7 @@ Phase 5: Filter Stages (Task 6)
 Phase 6: Lua Integration (Task 7)
 Phase 7: Deletion Components (Task 8)
 Phase 8: Safety Features (Task 9)
+Phase 9: Deletion Pipeline (Task 10)
 
 ## Tasks
 
@@ -294,21 +295,21 @@ Phase 8: Safety Features (Task 9)
     - _Requirements: 3.1, 3.5_
 
 
-- [-] 10. Implement Deletion Pipeline (Adapted from s3sync)
-  - [ ] 10.1 Create DeletionPipeline struct
+- [x] 10. Implement Deletion Pipeline (Adapted from s3sync)
+  - [x] 10.1 Create DeletionPipeline struct
     - Create pipeline/mod.rs with DeletionPipeline
     - Include config, target storage, cancellation_token, stats_receiver, error tracking
     - Adapt from s3sync's Pipeline structure
     - _Requirements: 1.8_
 
-  - [ ] 10.2 Implement pipeline initialization
+  - [x] 10.2 Implement pipeline initialization
     - Implement new() method
     - Initialize storage using factory (S3 only)
     - Create stats channel
     - Initialize error tracking with Arc<AtomicBool> and Arc<Mutex<VecDeque<Error>>>
     - _Requirements: 1.8_
 
-  - [ ] 10.3 Implement pipeline stages
+  - [x] 10.3 Implement pipeline stages
     - Implement list_target() - spawn ObjectLister
     - Implement filter_objects() - chain filter stages
     - Implement delete_objects() - spawn ObjectDeleter workers (MPMC)
@@ -316,25 +317,25 @@ Phase 8: Safety Features (Task 9)
     - Connect stages with async channels (bounded)
     - _Requirements: 1.3, 1.5, 2.11_
 
-  - [ ] 10.4 Implement pipeline run() method
+  - [x] 10.4 Implement pipeline run() method
     - Check prerequisites (versioning, dry-run, confirmation)
     - Create and connect all stages
     - Wait for completion
     - Handle cancellation via cancellation_token
     - _Requirements: 3.1, 3.2, 5.1_
 
-  - [ ] 10.5 Implement error and statistics methods
+  - [x] 10.5 Implement error and statistics methods
     - Implement has_error(), get_errors_and_consume(), has_warning()
     - Implement get_deletion_stats()
     - Implement close_stats_sender()
     - _Requirements: 6.4, 6.5, 7.3_
 
-  - [ ] 10.6 Copy Terminator implementation
+  - [x] 10.6 Copy Terminator implementation
     - Copy pipeline/terminator.rs from s3sync
     - Consume final stage output and close channels
     - _Requirements: N/A (infrastructure)_
 
-  - [ ] 10.7 Write unit tests for pipeline stages
+  - [x] 10.7 Write unit tests for pipeline stages
     - Test stage creation and connection
     - Test channel communication between stages
     - Test cancellation handling
@@ -911,9 +912,9 @@ Phase 8: Safety Features (Task 9)
 
 ## Implementation Status Summary
 
-Tasks 1-9 complete and merged to init_build.
+Tasks 1-10 complete and merged to init_build.
 
-**Already implemented across Tasks 1-9** (infrastructure available for remaining tasks):
+**Already implemented across Tasks 1-10** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)
 - All core data types: S3Object, DeletionStats, DeletionError, DeletionEvent, S3Target (Task 3)
 - Storage trait, S3 storage with versioning, conditional deletion, rate limiting (Task 4)
@@ -923,11 +924,12 @@ Tasks 1-9 complete and merged to init_build.
 - FilterCallback and EventCallback traits, FilterManager, EventManager (Tasks 7-8)
 - BatchDeleter, SingleDeleter, ObjectDeleter with if_match, versioning, content-type/metadata/tag filters (Task 8)
 - SafetyChecker with dry-run, confirmation prompts, force flag, non-TTY detection, max-delete threshold (Task 9)
+- DeletionPipeline orchestrator connecting all stages: list → filter → delete → terminate (Task 10)
+- Terminator stage for draining final pipeline output (Task 10)
 - CI pipeline for all target platforms (Task 1)
 - 15 property tests implemented (Properties 1-3, 5-11, 14-18)
 
-**Remaining work** (Tasks 10-13 are the critical path):
-- Task 10: DeletionPipeline orchestrator (connects all components)
+**Remaining work** (Tasks 11-13 are the critical path):
 - Task 11: Progress reporting with indicatif
 - Task 12: Library API re-exports (callback traits done, needs DeletionPipeline)
 - Task 13: CLI argument parsing with clap (main.rs is a stub)

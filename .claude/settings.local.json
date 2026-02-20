@@ -55,7 +55,8 @@
       "mcp__git__git_commit",
       "Bash(gh pr view:*)",
       "Bash(ls:*)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(gh pr ready:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

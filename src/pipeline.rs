@@ -507,7 +507,7 @@ impl DeletionPipeline {
     ///
     /// Creates a shared input channel and spawns `worker_size` concurrent
     /// ObjectDeleter workers, each reading from the same channel.
-    fn delete_objects(&self, filtered_objects: Receiver<S3Object>) -> Receiver<S3Object> {
+    fn delete_objects(&self, objects_to_be_deleted: Receiver<S3Object>) -> Receiver<S3Object> {
         let (sender, next_stage_receiver) =
             async_channel::bounded::<S3Object>(self.config.object_listing_queue_size as usize);
         let delete_counter = Arc::new(AtomicU64::new(0));
@@ -515,7 +515,7 @@ impl DeletionPipeline {
         for worker_index in 0..self.config.worker_size {
             let stage = self.create_mpmc_stage(
                 sender.clone(),
-                filtered_objects.clone(),
+                objects_to_be_deleted.clone(),
                 self.has_warning.clone(),
             );
 

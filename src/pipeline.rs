@@ -124,8 +124,8 @@ impl DeletionPipeline {
             .trigger_event(EventData::new(EventType::PIPELINE_START))
             .await;
 
-        // Check prerequisites (confirmation prompt, safety checks)
-        if let Err(e) = self.check_prerequisites() {
+        // Check prerequisites (confirmation prompt, safety checks, versioning)
+        if let Err(e) = self.check_prerequisites().await {
             self.record_error(e);
             self.shutdown();
             self.fire_completion_events().await;
@@ -204,9 +204,22 @@ impl DeletionPipeline {
     // -----------------------------------------------------------------------
 
     /// Check safety prerequisites before running the pipeline.
-    fn check_prerequisites(&self) -> Result<()> {
+    async fn check_prerequisites(&self) -> Result<()> {
+        // Safety checks (confirmation prompt, dry-run, force flag)
         let checker = SafetyChecker::new(&self.config);
-        checker.check_before_deletion()
+        checker.check_before_deletion()?;
+
+        // Validate versioning prerequisite
+        if self.config.delete_all_versions {
+            let versioning_enabled = self.target.is_versioning_enabled().await?;
+            if !versioning_enabled {
+                return Err(anyhow::anyhow!(
+                    "--delete-all-versions option requires versioning enabled on the target bucket."
+                ));
+            }
+        }
+
+        Ok(())
     }
 
     /// Execute the pipeline stages: list → filter → delete → terminate.
@@ -1312,5 +1325,45 @@ mod tests {
 
         pipeline.run().await;
         // Pipeline should complete without hanging
+    }
+
+    #[tokio::test]
+    async fn pipeline_delete_all_versions_requires_versioning() {
+        init_dummy_tracing_subscriber();
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        // ListingMockStorage returns is_versioning_enabled() == false
+        let storage: Storage = Box::new(ListingMockStorage {
+            objects: vec![],
+            stats_sender,
+            has_warning: has_warning.clone(),
+        });
+
+        let mut config = create_test_config();
+        config.force = true;
+        config.delete_all_versions = true;
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let mut pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token,
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+        };
+
+        pipeline.run().await;
+        assert!(pipeline.has_error());
+        let errors = pipeline.get_errors_and_consume().unwrap();
+        assert!(
+            errors[0]
+                .to_string()
+                .contains("--delete-all-versions option requires versioning enabled")
+        );
     }
 }

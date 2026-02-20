@@ -89,11 +89,12 @@ Before writing ANY code, use the GitHub MCP tools to read the relevant source fi
 
 ### Phase 5: Verify (Max 2 Attempts)
 
-1. Run `cargo check` to verify compilation
-2. Run `cargo test` to verify tests pass
-3. Run `cargo clippy` to verify no warnings
-4. If failures occur, fix and retry (maximum 2 total attempts)
-5. If still failing after 2 attempts, explain the issue and stop
+1. Run `cargo fmt` to format all modified source code — **this is MANDATORY every time source code is modified**
+2. Run `cargo check` to verify compilation
+3. Run `cargo test` to verify tests pass
+4. Run `cargo clippy` to verify no warnings
+5. If failures occur, fix the issue, run `cargo fmt` again, and retry (maximum 2 total attempts)
+6. If still failing after 2 attempts, explain the issue and stop
 
 ### Phase 6: Stop and Report
 
@@ -129,6 +130,7 @@ Wait for the user to review the changes.
 - **ONE TASK ONLY** — never implement multiple tasks
 - **CONTEXT FIRST** — always read specs before coding
 - **S3SYNC FIRST** — always check s3sync before writing new code
+- **CARGO FMT ALWAYS** — run `cargo fmt` every time source code is modified, before any other verification step. CI enforces formatting and will fail otherwise.
 - **MAX 2 VERIFICATION ATTEMPTS** — stop and ask if still failing
 - **STOP AFTER COMPLETION** — let the user review before proceeding
 - **NO AUTO-COMMIT** — never create git commits; let the user commit manually

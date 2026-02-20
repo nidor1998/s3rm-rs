@@ -8,7 +8,7 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-6 complete. Project setup, core infrastructure, core data models, storage layer, object lister, and filter stages established.
+**Current Achievement**: Tasks 1-8 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, and deletion components established.
 
 ## Current Status
 
@@ -20,6 +20,7 @@ Phase 3: Storage Layer (Task 4)
 Phase 4: Object Lister (Task 5)
 Phase 5: Filter Stages (Task 6)
 Phase 6: Lua Integration (Task 7)
+Phase 7: Deletion Components (Task 8)
 
 ## Tasks
 
@@ -189,8 +190,8 @@ Phase 6: Lua Integration (Task 7)
     - **Validates: Requirements 2.13, 2.14**
 
 
-- [ ] 8. Implement Deletion Components (New)
-  - [ ] 8.1 Implement BatchDeleter
+- [x] 8. Implement Deletion Components (New)
+  - [x] 8.1 Implement BatchDeleter
     - Create pipeline/batch_deleter.rs
     - Implement Deleter trait with delete() method
     - Group objects into batches of up to 1000
@@ -199,14 +200,14 @@ Phase 6: Lua Integration (Task 7)
     - Retry failed objects using retry policy
     - _Requirements: 1.1, 1.9, 5.5_
 
-  - [ ] 8.2 Implement SingleDeleter
+  - [x] 8.2 Implement SingleDeleter
     - Create pipeline/single_deleter.rs
     - Implement Deleter trait with delete() method
     - Delete objects one at a time using S3 DeleteObject API
     - Apply retry policy for each deletion
     - _Requirements: 1.2_
 
-  - [ ] 8.3 Implement ObjectDeleter worker
+  - [x] 8.3 Implement ObjectDeleter worker
     - Create pipeline/deleter.rs
     - Adapt from s3sync's ObjectSyncer pattern
     - Read objects from MPMC channel (stage.receiver)
@@ -218,23 +219,23 @@ Phase 6: Lua Integration (Task 7)
     - Write results to stage.sender channel
     - _Requirements: 1.3, 2.3, 2.4, 2.5, 6.5_
 
-  - [ ] 8.4 Write property test for batch deletion API usage
+  - [x] 8.4 Write property test for batch deletion API usage
     - **Property 1: Batch Deletion API Usage**
     - **Validates: Requirements 1.1, 5.5**
 
-  - [ ] 8.5 Write property test for single deletion API usage
+  - [x] 8.5 Write property test for single deletion API usage
     - **Property 2: Single Deletion API Usage**
     - **Validates: Requirements 1.2**
 
-  - [ ] 8.6 Write property test for concurrent worker execution
+  - [x] 8.6 Write property test for concurrent worker execution
     - **Property 3: Concurrent Worker Execution**
     - **Validates: Requirements 1.3**
 
-  - [ ] 8.7 Write property test for partial batch failure recovery
+  - [x] 8.7 Write property test for partial batch failure recovery
     - **Property 6: Partial Batch Failure Recovery**
     - **Validates: Requirements 1.9**
 
-  - [ ] 8.8 Write unit tests for ObjectDeleter
+  - [x] 8.8 Write unit tests for ObjectDeleter
     - Test content-type filtering with HeadObject
     - Test metadata filtering with HeadObject
     - Test tagging filtering with GetObjectTagging

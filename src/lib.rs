@@ -61,6 +61,7 @@ tokio = { version = "1", features = ["full"] }
 
 pub mod callback;
 pub mod config;
+pub mod deleter;
 pub mod filters;
 pub mod lister;
 #[cfg(feature = "lua_support")]

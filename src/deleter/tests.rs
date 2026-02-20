@@ -659,6 +659,58 @@ async fn single_deleter_stops_on_error() {
     assert_eq!(calls.len(), 2); // key/a succeeded, key/b failed
 }
 
+#[tokio::test]
+async fn single_deleter_includes_etag_when_if_match() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    let deleter = SingleDeleter::new(boxed);
+
+    let mut config = make_test_config();
+    config.if_match = true;
+
+    let objects = vec![S3Object::NotVersioning(
+        Object::builder()
+            .key("key/with-etag")
+            .size(100)
+            .last_modified(DateTime::from_secs(1000))
+            .e_tag("\"abc123\"")
+            .build(),
+    )];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+    assert_eq!(result.deleted.len(), 1);
+
+    let calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].key, "key/with-etag");
+    assert_eq!(calls[0].if_match.as_deref(), Some("\"abc123\""));
+}
+
+#[tokio::test]
+async fn single_deleter_no_etag_when_if_match_disabled() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    let deleter = SingleDeleter::new(boxed);
+
+    let config = make_test_config(); // if_match = false
+
+    let objects = vec![S3Object::NotVersioning(
+        Object::builder()
+            .key("key/with-etag")
+            .size(100)
+            .last_modified(DateTime::from_secs(1000))
+            .e_tag("\"abc123\"")
+            .build(),
+    )];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+    assert_eq!(result.deleted.len(), 1);
+
+    let calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].if_match, None);
+}
+
 // ===========================================================================
 // Unit tests: ObjectDeleter (channel-based worker)
 // ===========================================================================

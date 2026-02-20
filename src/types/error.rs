@@ -10,7 +10,7 @@ use thiserror::Error;
 /// ## Exit Codes
 ///
 /// Each variant maps to an exit code (via `exit_code()`):
-/// - 0: Non-error conditions (Cancelled, DryRun)
+/// - 0: Non-error conditions (Cancelled)
 /// - 1: General errors (AwsSdk, LuaScript, Io, Pipeline)
 /// - 2: Configuration errors (InvalidConfig, InvalidUri, InvalidRegex)
 /// - 3: Partial failure (some objects deleted, some failed)
@@ -44,10 +44,6 @@ pub enum S3rmError {
     #[error("Operation cancelled by user")]
     Cancelled,
 
-    /// Dry-run mode — no deletions performed.
-    #[error("Dry-run mode - no deletions performed")]
-    DryRun,
-
     /// Partial failure during deletion.
     #[error("Partial failure: {deleted} deleted, {failed} failed")]
     PartialFailure { deleted: u64, failed: u64 },
@@ -61,13 +57,13 @@ impl S3rmError {
     /// Get the appropriate process exit code for this error.
     ///
     /// Exit codes follow s3sync conventions:
-    /// - 0: Success or non-error conditions (Cancelled, DryRun)
+    /// - 0: Success or non-error conditions (Cancelled)
     /// - 1: General error (AwsSdk, LuaScript, Io, Pipeline)
     /// - 2: Invalid arguments/configuration (InvalidConfig, InvalidUri, InvalidRegex)
     /// - 3: Partial failure (some objects deleted, some failed)
     pub fn exit_code(&self) -> i32 {
         match self {
-            S3rmError::Cancelled | S3rmError::DryRun => 0,
+            S3rmError::Cancelled => 0,
             S3rmError::InvalidConfig(_) | S3rmError::InvalidUri(_) | S3rmError::InvalidRegex(_) => {
                 2
             }
@@ -92,14 +88,6 @@ impl S3rmError {
 pub fn is_cancelled_error(e: &Error) -> bool {
     if let Some(err) = e.downcast_ref::<S3rmError>() {
         return *err == S3rmError::Cancelled;
-    }
-    false
-}
-
-/// Check if an anyhow::Error wraps a dry-run error.
-pub fn is_dry_run_error(e: &Error) -> bool {
-    if let Some(err) = e.downcast_ref::<S3rmError>() {
-        return *err == S3rmError::DryRun;
     }
     false
 }
@@ -132,28 +120,11 @@ mod tests {
         assert!(!is_cancelled_error(&anyhow!("generic error")));
     }
 
-    // --- is_dry_run_error tests ---
-
-    #[test]
-    fn is_dry_run_error_test() {
-        assert!(is_dry_run_error(&anyhow!(S3rmError::DryRun)));
-    }
-
-    #[test]
-    fn is_dry_run_error_false_for_other_errors() {
-        assert!(!is_dry_run_error(&anyhow!(S3rmError::Cancelled)));
-    }
-
     // --- exit_code tests ---
 
     #[test]
     fn exit_code_cancelled() {
         assert_eq!(S3rmError::Cancelled.exit_code(), 0);
-    }
-
-    #[test]
-    fn exit_code_dry_run() {
-        assert_eq!(S3rmError::DryRun.exit_code(), 0);
     }
 
     #[test]
@@ -233,7 +204,6 @@ mod tests {
         assert!(!S3rmError::LuaScript("bad".to_string()).is_retryable());
         assert!(!S3rmError::Io("bad".to_string()).is_retryable());
         assert!(!S3rmError::Cancelled.is_retryable());
-        assert!(!S3rmError::DryRun.is_retryable());
         assert!(
             !S3rmError::PartialFailure {
                 deleted: 1,
@@ -275,10 +245,6 @@ mod tests {
         assert_eq!(
             S3rmError::Cancelled.to_string(),
             "Operation cancelled by user"
-        );
-        assert_eq!(
-            S3rmError::DryRun.to_string(),
-            "Dry-run mode - no deletions performed"
         );
         assert_eq!(
             S3rmError::PartialFailure {

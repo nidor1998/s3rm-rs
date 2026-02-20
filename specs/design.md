@@ -216,10 +216,12 @@ impl DeletionPipeline {
     }
     
     pub async fn run(&mut self) {
-        // 1. Check prerequisites (dry-run, confirmation, versioning)
+        // 1. Check prerequisites (confirmation prompt, versioning)
+        //    Note: dry-run does NOT abort — the pipeline runs fully
+        //    but the deletion layer simulates deletions
         // 2. List objects (using s3sync's parallel lister)
         // 3. Filter objects (using s3sync's filter stages)
-        // 4. Delete objects (using deletion workers)
+        // 4. Delete objects (using deletion workers; dry-run skips S3 API calls)
         // 5. Terminate pipeline
         // Note: All stages connected by async channels
     }
@@ -271,7 +273,7 @@ graph LR
 ```
 
 **Workflow**:
-1. **Check Prerequisites**: Validate configuration, check versioning, handle dry-run/confirmation
+1. **Check Prerequisites**: Validate configuration, check versioning, handle confirmation prompt (dry-run skips confirmation but pipeline still runs fully)
 2. **List Stage**: Spawn ObjectLister to list target objects into channel
 3. **Filter Stages**: Chain filter stages (each reads from previous, writes to next)
    - MtimeBeforeFilter (if configured)
@@ -968,48 +970,72 @@ Each option group should be clearly labeled in the help output with a heading, m
 ### 17. Safety Features (New Component)
 
 ```rust
+pub trait PromptHandler: Send + Sync {
+    fn read_confirmation(&self, target_display: &str, use_color: bool) -> Result<String>;
+    fn is_interactive(&self) -> bool;
+}
+
+pub struct StdioPromptHandler;
+
+impl PromptHandler for StdioPromptHandler {
+    fn read_confirmation(&self, target_display: &str, use_color: bool) -> Result<String> {
+        if use_color {
+            println!("\n\x1b[1;31mWARNING:\x1b[0m All objects matching prefix \x1b[1;33m{}\x1b[0m  will be deleted.",
+                target_display);
+        } else {
+            println!("\nWARNING: All objects matching prefix {}  will be deleted.", target_display);
+        }
+        print!("Type 'yes' to confirm deletion: ");
+        std::io::stdout().flush()?;
+        let mut input = String::new();
+        std::io::stdin().lock().read_line(&mut input)?;
+        Ok(input.trim().to_string())
+    }
+
+    fn is_interactive(&self) -> bool {
+        std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
+    }
+}
+
 pub struct SafetyChecker {
     dry_run: bool,
     force: bool,
     json_logging: bool,
+    disable_color: bool,
+    target_display: String,
+    prompt_handler: Box<dyn PromptHandler>,
 }
 
 impl SafetyChecker {
-    pub fn check_before_deletion(&self) -> Result<(), Error> {
+    pub fn check_before_deletion(&self) -> Result<()> {
+        // 1. Dry-run: skip confirmation — pipeline runs fully but
+        //    deletion layer simulates deletions and outputs stats.
         if self.dry_run {
-            return Err(Error::DryRun);
+            return Ok(());
         }
-        
-        // Skip confirmation if force flag is set or JSON logging is enabled
-        // (JSON logging would be corrupted by interactive prompts)
-        if !self.force && !self.json_logging && is_interactive() {
-            self.prompt_confirmation()?;
-        }
-        
-        Ok(())
-    }
-    
-    fn prompt_confirmation(&self) -> Result<(), Error> {
-        // Use println/print for interactive prompts (not tracing)
-        println!("About to delete objects");
-        print!("Type 'yes' to confirm: ");
-        std::io::stdout().flush()?;
-        
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input)?;
-        
-        if input.trim() != "yes" {
-            return Err(Error::Cancelled);
-        }
-        
-        Ok(())
-    }
-}
 
-fn is_interactive() -> bool {
-    atty::is(atty::Stream::Stdin) && atty::is(atty::Stream::Stdout)
+        // 2. Force flag: skip all prompts
+        if self.force {
+            return Ok(());
+        }
+
+        // 3. Non-interactive environment (non-TTY or JSON logging): skip prompts
+        if self.json_logging || !self.prompt_handler.is_interactive() {
+            return Ok(());
+        }
+
+        // 4. Prompt for confirmation (require exact "yes" input)
+        let use_color = !self.disable_color;
+        let input = self.prompt_handler.read_confirmation(&self.target_display, use_color)?;
+        if input != "yes" {
+            return Err(anyhow!(S3rmError::Cancelled));
+        }
+        Ok(())
+    }
 }
 ```
+
+**Note**: Uses `std::io::IsTerminal` (stable since Rust 1.70) instead of the `atty` crate. ANSI color codes are embedded directly as constants — no external color crate is needed.
 
 ## Data Models
 
@@ -1270,7 +1296,7 @@ pub struct RetryConfig {
 **Validates: Requirements 2.13, 2.14**
 
 ### Property 16: Dry-Run Mode Safety
-*For any* deletion operation with dry-run enabled, no actual deletions should occur, and the tool should display all objects that would be deleted.
+*For any* deletion operation with dry-run enabled, the full pipeline (listing, filtering) runs but the deletion layer simulates deletions without making actual S3 API calls. Each object that would be deleted is logged at info level with a `[dry-run]` prefix, and deletion statistics are output.
 **Validates: Requirements 3.1**
 
 ### Property 17: Confirmation Prompt Validation
@@ -1281,12 +1307,12 @@ pub struct RetryConfig {
 *For any* deletion operation with the force flag enabled, confirmation prompts should be skipped.
 **Validates: Requirements 3.4, 13.2**
 
-### Property 19: Deletion Summary Display
-*For any* deletion operation, the summary should include total object count and estimated storage size.
+### Property 19: Confirmation Prompt Target Display
+*For any* destructive deletion operation (not dry-run, not force), the confirmation prompt should display the target prefix (e.g. `s3://bucket/prefix`) with colored text so users can verify which objects will be affected. Object count and size estimation is available via dry-run mode.
 **Validates: Requirements 3.5**
 
-### Property 20: Threshold-Based Additional Confirmation (Optional)
-*For any* deletion operation where the object count exceeds a user-configured threshold (via --max-delete option), the tool should stop and require confirmation unless force flag is set. This property is optional and only applies when --max-delete is specified.
+### Property 20: Max-Delete Threshold Enforcement
+*For any* deletion operation where the --max-delete option is specified, the ObjectDeleter SHALL cancel the pipeline when the deletion count exceeds the specified limit. This is enforced at deletion time (not in the confirmation prompt).
 **Validates: Requirements 3.6**
 
 ### Property 21: Verbosity Level Configuration
@@ -1439,11 +1465,7 @@ pub enum Error {
     // User cancellation (not an error, exit code 0)
     #[error("Operation cancelled by user")]
     Cancelled,
-    
-    // Dry-run mode (not an error, exit code 0)
-    #[error("Dry-run mode - no deletions performed")]
-    DryRun,
-    
+
     // Partial failure (warning, exit code 3)
     #[error("Partial failure: {deleted} deleted, {failed} failed")]
     PartialFailure { deleted: u64, failed: u64 },
@@ -1477,7 +1499,7 @@ impl Error {
     // Get exit code for this error
     pub fn exit_code(&self) -> i32 {
         match self {
-            Error::Cancelled | Error::DryRun => 0,
+            Error::Cancelled => 0,
             Error::InvalidConfig(_) | Error::InvalidUri(_) | Error::InvalidRegex(_) => 2,
             Error::PartialFailure { .. } => 3,
             _ => 1,
@@ -1496,7 +1518,7 @@ impl Error {
 - Conversion functions (from_aws_sdk_error, from_lua_error, etc.) provide a clean way to convert from source errors
 - InvalidConfig, InvalidUri, InvalidRegex are treated as configuration errors (exit code 2)
 - Lua, I/O, and AWS SDK errors are treated separately for better error classification
-- Cancelled and DryRun are not real errors (exit code 0)
+- Cancelled is not a real error (exit code 0); dry-run mode does not produce an error — the pipeline runs normally with simulated deletions
 - PartialFailure is a warning (exit code 3)
 
 ### Error Handling Strategy
@@ -1975,9 +1997,9 @@ anyhow = "1.0"
 # Security (same as s3sync)
 zeroize = { version = "1.7", features = ["derive"] }
 
-# Terminal (same as s3sync)
-atty = "0.2"
-colored = "2.1"
+# Terminal
+# Uses std::io::IsTerminal (stable since Rust 1.70) instead of atty
+# Uses ANSI escape code constants instead of colored crate
 
 # Progress bar (same as s3sync)
 indicatif = "0.17"
@@ -2013,7 +2035,9 @@ s3rm-rs/
 │   ├── terminator.rs          # Terminator stage (from s3sync)
 │   ├── retry.rs               # RetryPolicy (reused from s3sync)
 │   ├── progress.rs            # Progress reporting (reused from s3sync)
-│   ├── safety.rs              # Safety checker: dry-run, confirmation, thresholds (NEW)
+│   ├── safety/
+│   │   ├── mod.rs             # SafetyChecker, PromptHandler trait (NEW)
+│   │   └── safety_properties.rs  # Property tests for safety features (NEW)
 │   ├── lua/
 │   │   ├── mod.rs
 │   │   ├── engine.rs          # LuaScriptCallbackEngine (from s3sync)

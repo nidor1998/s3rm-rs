@@ -1,8 +1,6 @@
 //! Property-based tests for safety features.
 //!
 //! Tests Properties 16-18 from the design document.
-//! Property 19 (summary display) removed — estimation handled by dry-run mode.
-//! Property 20 (threshold) — max-delete threshold enforced at deletion time in ObjectDeleter.
 
 #[cfg(test)]
 mod tests {
@@ -34,7 +32,7 @@ mod tests {
     }
 
     impl PromptHandler for MockPromptHandler {
-        fn read_confirmation(&self) -> Result<String> {
+        fn read_confirmation(&self, _target_display: &str, _use_color: bool) -> Result<String> {
             Ok(self.response.clone())
         }
 
@@ -47,7 +45,7 @@ mod tests {
     struct NonInteractivePromptHandler;
 
     impl PromptHandler for NonInteractivePromptHandler {
-        fn read_confirmation(&self) -> Result<String> {
+        fn read_confirmation(&self, _target_display: &str, _use_color: bool) -> Result<String> {
             unreachable!("should not be called in non-interactive mode")
         }
 
@@ -229,8 +227,6 @@ mod tests {
 
     #[test]
     fn dry_run_skips_confirmation_even_without_force() {
-        // Dry-run skips confirmation because no destructive action occurs.
-        // The prompt handler returns "no" to prove it's never consulted.
         let config = make_config(true, false, None, false);
         let handler = MockPromptHandler::new("no");
         let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));
@@ -251,12 +247,10 @@ mod tests {
 
     #[test]
     fn json_logging_skips_prompt() {
-        // Even with dry_run=false and force=false, JSON logging should skip prompts
         let config = make_config(false, false, None, true);
         let handler = MockPromptHandler::new("no");
         let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));
 
-        // JSON logging causes should_skip_prompt to return true → Ok(())
         let result = checker.check_before_deletion();
         assert!(result.is_ok());
     }
@@ -307,7 +301,6 @@ mod tests {
 
     #[test]
     fn checker_from_config_without_tracing_config() {
-        // When tracing_config is None, json_logging defaults to false
         let mut config = make_config(false, false, None, false);
         config.tracing_config = None;
         let handler = MockPromptHandler::new("yes");

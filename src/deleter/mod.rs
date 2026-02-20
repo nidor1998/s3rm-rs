@@ -354,16 +354,25 @@ impl ObjectDeleter {
 
         let batch = std::mem::take(&mut self.buffer);
 
-        // Build a lookup from key to object for resolving sizes after deletion.
-        let obj_by_key: HashMap<String, &S3Object> =
-            batch.iter().map(|o| (o.key().to_string(), o)).collect();
+        // Build a lookup from (key, version_id) to object for resolving sizes after deletion.
+        // Using composite key avoids collisions when multiple versions of the same key
+        // are in the same batch.
+        let obj_by_key: HashMap<(String, Option<String>), &S3Object> = batch
+            .iter()
+            .map(|o| {
+                let key = o.key().to_string();
+                let version_id = o.version_id().map(|v| v.to_string());
+                ((key, version_id), o)
+            })
+            .collect();
 
         match self.deleter.delete(&batch, &self.base.config).await {
             Ok(delete_result) => {
                 // Emit per-object stats and events for successes.
                 for dk in &delete_result.deleted {
+                    let lookup_key = (dk.key.clone(), dk.version_id.clone());
                     let size = obj_by_key
-                        .get(&dk.key)
+                        .get(&lookup_key)
                         .map(|o| o.size() as u64)
                         .unwrap_or(0);
 

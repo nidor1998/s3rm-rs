@@ -37,6 +37,31 @@ pub use single::SingleDeleter;
 // Deleter trait
 // ---------------------------------------------------------------------------
 
+/// Result of a deletion operation, reporting which keys succeeded and which failed.
+#[derive(Debug, Clone, Default)]
+pub struct DeleteResult {
+    /// Keys (with optional version IDs) that were successfully deleted.
+    pub deleted: Vec<DeletedKey>,
+    /// Keys that failed with error details.
+    pub failed: Vec<FailedKey>,
+}
+
+/// A successfully deleted key.
+#[derive(Debug, Clone)]
+pub struct DeletedKey {
+    pub key: String,
+    pub version_id: Option<String>,
+}
+
+/// A key that failed to delete.
+#[derive(Debug, Clone)]
+pub struct FailedKey {
+    pub key: String,
+    pub version_id: Option<String>,
+    pub error_code: String,
+    pub error_message: String,
+}
+
 /// Trait for deletion backends (batch or single mode).
 ///
 /// Both BatchDeleter and SingleDeleter implement this trait.
@@ -44,8 +69,8 @@ pub use single::SingleDeleter;
 pub trait Deleter: Send + Sync {
     /// Delete the given objects from S3.
     ///
-    /// Returns the number of successfully deleted objects.
-    async fn delete(&self, objects: &[S3Object], config: &Config) -> Result<usize>;
+    /// Returns detailed results indicating which objects were deleted and which failed.
+    async fn delete(&self, objects: &[S3Object], config: &Config) -> Result<DeleteResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -320,7 +345,7 @@ impl ObjectDeleter {
         Ok(())
     }
 
-    /// Flush the internal buffer by delegating to the Deleter backend
+    /// Delete buffered objects by delegating to the Deleter backend
     /// (BatchDeleter or SingleDeleter).
     async fn delete_buffered_objects(&mut self) -> Result<()> {
         if self.buffer.is_empty() {
@@ -329,12 +354,19 @@ impl ObjectDeleter {
 
         let batch = std::mem::take(&mut self.buffer);
 
+        // Build a lookup from key to object for resolving sizes after deletion.
+        let obj_by_key: HashMap<String, &S3Object> =
+            batch.iter().map(|o| (o.key().to_string(), o)).collect();
+
         match self.deleter.delete(&batch, &self.base.config).await {
-            Ok(deleted_count) => {
+            Ok(delete_result) => {
                 // Emit per-object stats and events for successes.
-                // increment_deleted increments the object counter by 1, so call per-object.
-                for obj in batch.iter().take(deleted_count) {
-                    let size = obj.size() as u64;
+                for dk in &delete_result.deleted {
+                    let size = obj_by_key
+                        .get(&dk.key)
+                        .map(|o| o.size() as u64)
+                        .unwrap_or(0);
+
                     self.deletion_stats_report
                         .lock()
                         .unwrap()
@@ -342,7 +374,7 @@ impl ObjectDeleter {
 
                     self.base
                         .send_stats(DeletionStatistics::DeleteComplete {
-                            key: obj.key().to_string(),
+                            key: dk.key.clone(),
                         })
                         .await;
                     self.base
@@ -350,8 +382,8 @@ impl ObjectDeleter {
                         .await;
 
                     let mut event_data = EventData::new(EventType::DELETE_COMPLETE);
-                    event_data.key = Some(obj.key().to_string());
-                    event_data.version_id = obj.version_id().map(|v| v.to_string());
+                    event_data.key = Some(dk.key.clone());
+                    event_data.version_id = dk.version_id.clone();
                     event_data.size = Some(size);
                     self.base
                         .config
@@ -360,20 +392,18 @@ impl ObjectDeleter {
                         .await;
                 }
 
-                // Record failures (partial batch failure)
-                for _ in 0..(batch.len() - deleted_count) {
+                // Emit per-object stats and events for failures.
+                for fk in &delete_result.failed {
                     self.deletion_stats_report
                         .lock()
                         .unwrap()
                         .increment_failed();
-                }
 
-                // Emit failure events for partial failures
-                for obj in batch.iter().skip(deleted_count) {
                     let mut event_data = EventData::new(EventType::DELETE_FAILED);
-                    event_data.key = Some(obj.key().to_string());
-                    event_data.version_id = obj.version_id().map(|v| v.to_string());
-                    event_data.error_message = Some("batch partial failure".to_string());
+                    event_data.key = Some(fk.key.clone());
+                    event_data.version_id = fk.version_id.clone();
+                    event_data.error_message =
+                        Some(format!("{}: {}", fk.error_code, fk.error_message));
                     self.base
                         .config
                         .event_manager
@@ -399,14 +429,12 @@ impl ObjectDeleter {
                     "delete worker has been cancelled with error."
                 );
 
-                for _ in 0..batch.len() {
+                for obj in &batch {
                     self.deletion_stats_report
                         .lock()
                         .unwrap()
                         .increment_failed();
-                }
 
-                for obj in &batch {
                     let mut event_data = EventData::new(EventType::DELETE_FAILED);
                     event_data.key = Some(obj.key().to_string());
                     event_data.version_id = obj.version_id().map(|v| v.to_string());

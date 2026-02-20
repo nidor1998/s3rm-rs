@@ -421,7 +421,7 @@ async fn batch_deleter_empty_list() {
     let config = make_test_config();
 
     let result = deleter.delete(&[], &config).await.unwrap();
-    assert_eq!(result, 0);
+    assert_eq!(result.deleted.len(), 0);
 }
 
 #[tokio::test]
@@ -434,7 +434,7 @@ async fn batch_deleter_single_object() {
 
     let objects = vec![make_s3_object("test/key.txt", 1024)];
     let result = deleter.delete(&objects, &config).await.unwrap();
-    assert_eq!(result, 1);
+    assert_eq!(result.deleted.len(), 1);
 
     let calls = mock.delete_objects_calls.lock().unwrap();
     assert_eq!(calls.len(), 1);
@@ -455,7 +455,7 @@ async fn batch_deleter_respects_batch_size_config() {
         .map(|i| make_s3_object(&format!("key/{i}"), 100))
         .collect();
     let result = deleter.delete(&objects, &config).await.unwrap();
-    assert_eq!(result, 5);
+    assert_eq!(result.deleted.len(), 5);
 
     let calls = mock.delete_objects_calls.lock().unwrap();
     // 5 objects / batch_size 2 = 3 batches (2, 2, 1)
@@ -480,7 +480,7 @@ async fn batch_deleter_max_batch_size_enforced() {
         .map(|i| make_s3_object(&format!("key/{i}"), 10))
         .collect();
     let result = deleter.delete(&objects, &config).await.unwrap();
-    assert_eq!(result, 1500);
+    assert_eq!(result.deleted.len(), 1500);
 
     let calls = mock.delete_objects_calls.lock().unwrap();
     assert_eq!(calls.len(), 2);
@@ -501,7 +501,7 @@ async fn batch_deleter_with_version_ids() {
         make_versioned_s3_object("key/b", "v2", 200),
     ];
     let result = deleter.delete(&objects, &config).await.unwrap();
-    assert_eq!(result, 2);
+    assert_eq!(result.deleted.len(), 2);
 
     let calls = mock.delete_objects_calls.lock().unwrap();
     assert_eq!(calls.len(), 1);
@@ -536,7 +536,8 @@ async fn batch_deleter_partial_failure() {
     ];
     let result = deleter.delete(&objects, &config).await.unwrap();
     // Only 2 of 3 should be counted as deleted
-    assert_eq!(result, 2);
+    assert_eq!(result.deleted.len(), 2);
+    assert_eq!(result.failed.len(), 1);
 }
 
 #[tokio::test]
@@ -563,7 +564,7 @@ async fn batch_deleter_includes_etag_when_if_match() {
     );
 
     let result = deleter.delete(&[obj], &config).await.unwrap();
-    assert_eq!(result, 1);
+    assert_eq!(result.deleted.len(), 1);
 
     // Verify the batch call was made (ETag is included in the ObjectIdentifier
     // by BatchDeleter, which the S3 API uses for conditional deletion)
@@ -587,7 +588,7 @@ async fn single_deleter_empty_list() {
     let config = make_test_config();
 
     let result = deleter.delete(&[], &config).await.unwrap();
-    assert_eq!(result, 0);
+    assert_eq!(result.deleted.len(), 0);
 }
 
 #[tokio::test]
@@ -604,7 +605,7 @@ async fn single_deleter_multiple_objects() {
         make_s3_object("key/c", 300),
     ];
     let result = deleter.delete(&objects, &config).await.unwrap();
-    assert_eq!(result, 3);
+    assert_eq!(result.deleted.len(), 3);
 
     let calls = mock.delete_object_calls.lock().unwrap();
     assert_eq!(calls.len(), 3);
@@ -623,7 +624,7 @@ async fn single_deleter_with_version_id() {
 
     let objects = vec![make_versioned_s3_object("key/versioned", "v42", 500)];
     let result = deleter.delete(&objects, &config).await.unwrap();
-    assert_eq!(result, 1);
+    assert_eq!(result.deleted.len(), 1);
 
     let calls = mock.delete_object_calls.lock().unwrap();
     assert_eq!(calls[0].key, "key/versioned");
@@ -1230,7 +1231,7 @@ proptest! {
             config.batch_size = batch_size;
 
             let result = deleter.delete(&objects, &config).await.unwrap();
-            prop_assert_eq!(result, obj_count);
+            prop_assert_eq!(result.deleted.len(), obj_count);
 
             let calls = mock.delete_objects_calls.lock().unwrap();
             let effective_batch = (batch_size as usize).min(batch::MAX_BATCH_SIZE);
@@ -1275,7 +1276,7 @@ proptest! {
             let config = make_test_config();
 
             let result = deleter.delete(&objects, &config).await.unwrap();
-            prop_assert_eq!(result, obj_count);
+            prop_assert_eq!(result.deleted.len(), obj_count);
 
             let calls = mock.delete_object_calls.lock().unwrap();
             prop_assert_eq!(calls.len(), obj_count);
@@ -1392,7 +1393,7 @@ proptest! {
 
             // Successes = total - fail_count
             let expected_successes = total - fail_count;
-            prop_assert_eq!(result, expected_successes);
+            prop_assert_eq!(result.deleted.len(), expected_successes);
 
             Ok(())
         })?;

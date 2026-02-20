@@ -10,7 +10,7 @@ use tracing::{debug, error};
 use crate::config::Config;
 use crate::types::S3Object;
 
-use super::Deleter;
+use super::{DeleteResult, DeletedKey, Deleter, FailedKey};
 
 /// Deletes objects one at a time using the S3 DeleteObject API.
 ///
@@ -28,8 +28,8 @@ impl SingleDeleter {
 
 #[async_trait]
 impl Deleter for SingleDeleter {
-    async fn delete(&self, objects: &[S3Object], _config: &Config) -> Result<usize> {
-        let mut total_deleted = 0usize;
+    async fn delete(&self, objects: &[S3Object], _config: &Config) -> Result<DeleteResult> {
+        let mut result = DeleteResult::default();
 
         for obj in objects {
             let key = obj.key();
@@ -41,15 +41,18 @@ impl Deleter for SingleDeleter {
                 "sending DeleteObject request."
             );
 
-            let result = self
+            let delete_result = self
                 .target
                 .delete_object(key, version_id.clone(), None)
                 .await;
 
-            match result {
+            match delete_result {
                 Ok(_) => {
-                    total_deleted += 1;
                     debug!(key = key, "DeleteObject succeeded.");
+                    result.deleted.push(DeletedKey {
+                        key: key.to_string(),
+                        version_id,
+                    });
                 }
                 Err(e) => {
                     error!(
@@ -58,11 +61,17 @@ impl Deleter for SingleDeleter {
                         error = e.to_string(),
                         "DeleteObject failed."
                     );
+                    result.failed.push(FailedKey {
+                        key: key.to_string(),
+                        version_id,
+                        error_code: "DeleteObjectError".to_string(),
+                        error_message: e.to_string(),
+                    });
                     return Err(e);
                 }
             }
         }
 
-        Ok(total_deleted)
+        Ok(result)
     }
 }

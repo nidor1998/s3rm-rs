@@ -11,7 +11,7 @@ use tracing::{debug, warn};
 use crate::config::Config;
 use crate::types::S3Object;
 
-use super::Deleter;
+use super::{DeleteResult, DeletedKey, Deleter, FailedKey};
 
 /// Maximum objects per batch DeleteObjects API call (S3 limit).
 pub const MAX_BATCH_SIZE: usize = 1000;
@@ -20,7 +20,7 @@ pub const MAX_BATCH_SIZE: usize = 1000;
 ///
 /// Groups objects into batches of up to `batch_size` (max 1000) and
 /// calls DeleteObjects for each batch. Partial failures are reported
-/// via logging and the returned count reflects only successful deletions.
+/// via logging and the returned result contains per-key details.
 pub struct BatchDeleter {
     target: crate::storage::Storage,
 }
@@ -33,13 +33,14 @@ impl BatchDeleter {
 
 #[async_trait]
 impl Deleter for BatchDeleter {
-    async fn delete(&self, objects: &[S3Object], config: &Config) -> Result<usize> {
+    async fn delete(&self, objects: &[S3Object], config: &Config) -> Result<DeleteResult> {
+        let mut result = DeleteResult::default();
+
         if objects.is_empty() {
-            return Ok(0);
+            return Ok(result);
         }
 
         let batch_size = (config.batch_size as usize).min(MAX_BATCH_SIZE);
-        let mut total_deleted = 0usize;
 
         for chunk in objects.chunks(batch_size) {
             let identifiers: Vec<ObjectIdentifier> = chunk
@@ -67,34 +68,46 @@ impl Deleter for BatchDeleter {
                 "sending DeleteObjects batch request."
             );
 
-            let result = self.target.delete_objects(identifiers).await?;
+            let response = self.target.delete_objects(identifiers).await?;
 
-            // Count successes (DeleteObjects returns the list of deleted objects)
-            let deleted_count = result.deleted().len();
-            total_deleted += deleted_count;
+            for deleted in response.deleted() {
+                result.deleted.push(DeletedKey {
+                    key: deleted.key().unwrap_or_default().to_string(),
+                    version_id: deleted.version_id().map(|v| v.to_string()),
+                });
+            }
 
-            // Log any errors from the batch
-            let errors = result.errors();
-            if !errors.is_empty() {
-                for err in errors {
-                    warn!(
-                        key = err.key().unwrap_or("unknown"),
-                        version_id = err.version_id().unwrap_or("none"),
-                        code = err.code().unwrap_or("unknown"),
-                        message = err.message().unwrap_or("no message"),
-                        "object failed in batch delete."
-                    );
-                }
+            let errors = response.errors();
+            for err in errors {
+                let key = err.key().unwrap_or("unknown").to_string();
+                let version_id = err.version_id().map(|v| v.to_string());
+                let code = err.code().unwrap_or("unknown").to_string();
+                let message = err.message().unwrap_or("no message").to_string();
+
+                warn!(
+                    key = key,
+                    version_id = version_id,
+                    code = code,
+                    message = message,
+                    "object failed in batch delete."
+                );
+
+                result.failed.push(FailedKey {
+                    key,
+                    version_id,
+                    error_code: code,
+                    error_message: message,
+                });
             }
 
             debug!(
-                deleted = deleted_count,
+                deleted = result.deleted.len(),
                 errors = errors.len(),
                 "DeleteObjects batch completed."
             );
         }
 
-        Ok(total_deleted)
+        Ok(result)
     }
 }
 

@@ -80,12 +80,12 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 
 #### Acceptance Criteria
 
-1. WHEN dry-run mode is enabled, THE S3rm_Tool SHALL display all objects that would be deleted without actually deleting them
-2. WHEN performing destructive operations without dry-run mode, THE S3rm_Tool SHALL prompt for user confirmation before proceeding
+1. WHEN dry-run mode is enabled, THE S3rm_Tool SHALL run the full pipeline (listing, filtering) but simulate deletions without making actual S3 API calls, logging each object that would be deleted at info level with a `[dry-run]` prefix, and outputting deletion statistics
+2. WHEN performing destructive operations without dry-run mode, THE S3rm_Tool SHALL prompt for user confirmation before proceeding, displaying the target prefix to make clear which objects will be deleted
 3. WHERE the confirmation prompt is active, THE S3rm_Tool SHALL require explicit "yes" input and reject abbreviated responses
 4. WHEN the force flag is provided, THE S3rm_Tool SHALL skip confirmation prompts
-5. THE S3rm_Tool SHALL display a summary of objects to be deleted including total count and estimated storage size
-6. WHERE the --max-delete option is specified, THE S3rm_Tool SHALL stop and require confirmation when deletion count would exceed the specified limit (similar to s3sync's --max-delete)
+5. THE S3rm_Tool SHALL display the target prefix (e.g. `s3://bucket/prefix`) with colored text in the confirmation prompt so users can verify which objects will be affected. Object count and size estimation is available via dry-run mode.
+6. WHERE the --max-delete option is specified, THE S3rm_Tool SHALL cancel the pipeline at deletion time when the deletion count exceeds the specified limit (enforced in ObjectDeleter, similar to s3sync's --max-delete)
 
 ### Requirement 4: Comprehensive Logging
 

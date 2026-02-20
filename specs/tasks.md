@@ -243,28 +243,30 @@ Phase 7: Deletion Components (Task 8)
     - _Requirements: 2.3, 2.4, 2.5, 2.11_
 
 
-- [ ] 9. Implement Safety Features (New)
+- [-] 9. Implement Safety Features (New)
   - [ ] 9.1 Implement SafetyChecker
     - Create safety/mod.rs with SafetyChecker struct
     - Implement check_before_deletion() method
-    - Handle dry-run mode (return DryRun error)
+    - Handle dry-run mode (skip confirmation — pipeline runs but deletion layer simulates)
+    - Display target prefix with colored text in confirmation prompt
     - Implement confirmation prompt (require exact "yes" input)
     - Skip prompts if force flag is set
     - Skip prompts if JSON logging is enabled (would corrupt output)
     - Skip prompts in non-TTY environments
     - Use println/print for prompts (not tracing)
-    - _Requirements: 3.1, 3.2, 3.3, 3.4, 13.1_
+    - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 13.1_
 
-  - [ ] 9.2 Implement max-delete threshold checking
-    - Add threshold check in SafetyChecker
-    - Stop and require confirmation when count exceeds limit
-    - Skip if force flag is set
+  - [ ] 9.2 Implement dry-run support in ObjectDeleter
+    - Skip actual S3 API calls when dry_run is enabled
+    - Simulate successful deletion for all objects in buffer
+    - Log each object at info level with `[dry-run]` prefix (key, version_id, size)
+    - Emit stats and events with dry_run flag set
+    - _Requirements: 3.1_
+
+  - [ ] 9.3 Implement max-delete threshold enforcement in ObjectDeleter
+    - Cancel pipeline when delete count exceeds --max-delete limit
+    - Already implemented in ObjectDeleter.process_object() via delete_counter
     - _Requirements: 3.6_
-
-  - [ ] 9.3 Implement deletion summary display
-    - Display total object count and estimated storage size
-    - Show before confirmation prompt
-    - _Requirements: 3.5_
 
   - [ ] 9.4 Write property test for dry-run mode safety
     - **Property 16: Dry-Run Mode Safety**
@@ -278,13 +280,17 @@ Phase 7: Deletion Components (Task 8)
     - **Property 18: Force Flag Behavior**
     - **Validates: Requirements 3.4, 13.2**
 
-  - [ ] 9.7 Write property test for deletion summary display
-    - **Property 19: Deletion Summary Display**
-    - **Validates: Requirements 3.5**
+  - [ ] 9.7 Write unit tests for dry-run in ObjectDeleter
+    - Test dry-run skips API calls and reports correct stats
+    - Test dry-run works in single mode (batch_size=1)
+    - Test dry-run preserves version IDs for versioned objects
+    - _Requirements: 3.1_
 
-  - [ ] 9.8 Write property test for threshold-based confirmation
-    - **Property 20: Threshold-Based Additional Confirmation**
-    - **Validates: Requirements 3.6**
+  - [ ] 9.8 Write unit tests for per-object info logging
+    - Test info-level logging with key, version_id, size for each deleted object
+    - Test `[dry-run]` prefix in dry-run mode
+    - Test normal mode logs without `[dry-run]` prefix
+    - _Requirements: 3.1, 3.5_
 
 
 - [ ] 10. Implement Deletion Pipeline (Adapted from s3sync)

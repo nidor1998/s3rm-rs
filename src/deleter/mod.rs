@@ -14,7 +14,6 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
-use aws_sdk_s3::operation::delete_object::DeleteObjectError;
 use aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput;
 use aws_sdk_s3::types::Tag;
 use aws_smithy_runtime_api::client::result::SdkError;
@@ -316,16 +315,12 @@ impl ObjectDeleter {
         }
 
         // --- Delegate deletion ---
-        if self.base.config.if_match {
-            // Per-object deletion with ETag (S3 DeleteObjects API does not
-            // support per-object If-Match headers).
-            self.delete_single_with_if_match(object).await?;
-        } else {
-            // Buffer the object for batch/single deletion via the deleter backend.
-            self.buffer.push(object);
-            if self.buffer.len() >= self.effective_batch_size {
-                self.flush_buffer().await?;
-            }
+        // Buffer the object for batch/single deletion via the deleter backend.
+        // When if_match is enabled, BatchDeleter includes per-object ETags in the
+        // DeleteObjects request for conditional deletion.
+        self.buffer.push(object);
+        if self.buffer.len() >= self.effective_batch_size {
+            self.flush_buffer().await?;
         }
 
         Ok(())
@@ -432,125 +427,6 @@ impl ObjectDeleter {
                 Err(anyhow!("delete worker has been cancelled with error."))
             }
         }
-    }
-
-    /// Delete a single object with If-Match ETag conditional deletion.
-    ///
-    /// S3 DeleteObjects (batch) API does not support per-object If-Match
-    /// headers, so if_match mode always uses direct per-object deletion.
-    async fn delete_single_with_if_match(&self, object: S3Object) -> Result<()> {
-        let key = object.key();
-        let target_etag = object.e_tag().map(|e| e.to_string());
-
-        let result = self
-            .base
-            .target
-            .delete_object(
-                key,
-                object.version_id().map(|v| v.to_string()),
-                target_etag.clone(),
-            )
-            .await;
-
-        if let Err(e) = result {
-            if is_precondition_failed_error(&e) {
-                self.base
-                    .send_stats(DeletionStatistics::DeleteWarning {
-                        key: key.to_string(),
-                    })
-                    .await;
-                self.base.set_warning();
-
-                let message = "delete precondition(if-match) failed. skipping.";
-                warn!(
-                    key = key,
-                    if_match = target_etag,
-                    error = e.to_string(),
-                    message
-                );
-
-                let mut event_data = EventData::new(EventType::DELETE_WARNING);
-                event_data.key = Some(key.to_string());
-                event_data.version_id = object.version_id().map(|v| v.to_string());
-                event_data.message = Some(message.to_string());
-                self.base
-                    .config
-                    .event_manager
-                    .trigger_event(event_data)
-                    .await;
-
-                if self.base.config.warn_as_error {
-                    self.base.cancellation_token.cancel();
-                    error!(
-                        worker_index = self.worker_index,
-                        "delete worker has been cancelled with error."
-                    );
-                    return Err(e);
-                }
-
-                self.deletion_stats_report
-                    .lock()
-                    .unwrap()
-                    .increment_failed();
-                return Ok(());
-            }
-
-            self.base.cancellation_token.cancel();
-            error!(
-                worker_index = self.worker_index,
-                error = e.to_string(),
-                "delete worker has been cancelled with error."
-            );
-
-            self.deletion_stats_report
-                .lock()
-                .unwrap()
-                .increment_failed();
-
-            let mut event_data = EventData::new(EventType::DELETE_FAILED);
-            event_data.key = Some(key.to_string());
-            event_data.version_id = object.version_id().map(|v| v.to_string());
-            event_data.error_message = Some(e.to_string());
-            self.base
-                .config
-                .event_manager
-                .trigger_event(event_data)
-                .await;
-
-            return Err(anyhow!("delete worker has been cancelled with error."));
-        }
-
-        // Success
-        let size = object.size() as u64;
-        self.deletion_stats_report
-            .lock()
-            .unwrap()
-            .increment_deleted(size);
-
-        self.base
-            .send_stats(DeletionStatistics::DeleteComplete {
-                key: key.to_string(),
-            })
-            .await;
-        self.base
-            .send_stats(DeletionStatistics::DeleteBytes(size))
-            .await;
-
-        let mut event_data = EventData::new(EventType::DELETE_COMPLETE);
-        event_data.key = Some(key.to_string());
-        event_data.version_id = object.version_id().map(|v| v.to_string());
-        event_data.size = Some(size);
-        self.base
-            .config
-            .event_manager
-            .trigger_event(event_data)
-            .await;
-
-        if self.base.send(object).await? == SendResult::Closed {
-            return Ok(());
-        }
-
-        Ok(())
     }
 
     // -----------------------------------------------------------------------
@@ -901,18 +777,6 @@ fn is_not_found_error(err: &anyhow::Error) -> bool {
         }
     }
 
-    false
-}
-
-/// Check if the error is a precondition-failed (412) error from DeleteObject.
-fn is_precondition_failed_error(err: &anyhow::Error) -> bool {
-    if let Some(SdkError::ServiceError(e)) =
-        err.downcast_ref::<SdkError<DeleteObjectError, Response<SdkBody>>>()
-    {
-        if let Some(code) = e.err().meta().code() {
-            return code == "PreconditionFailed";
-        }
-    }
     false
 }
 

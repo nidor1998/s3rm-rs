@@ -49,6 +49,13 @@ impl Deleter for BatchDeleter {
                     if let Some(vid) = obj.version_id() {
                         builder = builder.version_id(vid);
                     }
+                    // Include ETag for conditional deletion when if_match is enabled.
+                    // S3 DeleteObjects API supports per-object ETag conditions.
+                    if config.if_match {
+                        if let Some(etag) = obj.e_tag() {
+                            builder = builder.e_tag(etag);
+                        }
+                    }
                     builder.build().expect("ObjectIdentifier build failed")
                 })
                 .collect();

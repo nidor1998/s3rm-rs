@@ -539,6 +539,41 @@ async fn batch_deleter_partial_failure() {
     assert_eq!(result, 2);
 }
 
+#[tokio::test]
+async fn batch_deleter_includes_etag_when_if_match() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    let deleter = BatchDeleter::new(boxed);
+
+    let mut config = make_test_config();
+    config.if_match = true;
+
+    // Create a versioned object that has an etag
+    let obj = S3Object::Versioning(
+        ObjectVersion::builder()
+            .key("key/with-etag")
+            .version_id("v1")
+            .size(100)
+            .is_latest(true)
+            .storage_class(ObjectVersionStorageClass::Standard)
+            .last_modified(DateTime::from_secs(1000))
+            .e_tag("\"abc123\"")
+            .build(),
+    );
+
+    let result = deleter.delete(&[obj], &config).await.unwrap();
+    assert_eq!(result, 1);
+
+    // Verify the batch call was made (ETag is included in the ObjectIdentifier
+    // by BatchDeleter, which the S3 API uses for conditional deletion)
+    let calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].identifiers.len(), 1);
+    assert_eq!(calls[0].identifiers[0].key(), "key/with-etag");
+    assert_eq!(calls[0].identifiers[0].e_tag(), Some("\"abc123\""));
+}
+
 // ===========================================================================
 // Unit tests: SingleDeleter
 // ===========================================================================
@@ -1072,11 +1107,11 @@ async fn object_deleter_batch_size_1_uses_single_deleter() {
 }
 
 // ===========================================================================
-// Unit tests: ObjectDeleter with if_match (uses direct per-object deletion)
+// Unit tests: ObjectDeleter with if_match (batch deletion with ETags)
 // ===========================================================================
 
 #[tokio::test]
-async fn object_deleter_if_match_uses_direct_deletion() {
+async fn object_deleter_if_match_uses_batch_with_etags() {
     init_dummy_tracing_subscriber();
     let (stats_sender, _stats_receiver) = async_channel::unbounded();
     let (boxed, mock) = make_mock_storage_boxed(stats_sender);
@@ -1092,22 +1127,29 @@ async fn object_deleter_if_match_uses_direct_deletion() {
     let delete_counter = Arc::new(AtomicU64::new(0));
     let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
-    input_sender
-        .send(make_s3_object("if-match/obj.txt", 512))
-        .await
-        .unwrap();
+    // Send a versioned object with an ETag
+    let obj = S3Object::Versioning(
+        ObjectVersion::builder()
+            .key("if-match/obj.txt")
+            .version_id("v1")
+            .size(512)
+            .is_latest(true)
+            .storage_class(ObjectVersionStorageClass::Standard)
+            .last_modified(DateTime::from_secs(1000))
+            .e_tag("\"etag123\"")
+            .build(),
+    );
+    input_sender.send(obj).await.unwrap();
     drop(input_sender);
 
     deleter.delete().await.unwrap();
 
-    // if_match mode bypasses buffering, uses direct delete_object calls
-    let single_calls = mock.delete_object_calls.lock().unwrap();
-    assert_eq!(single_calls.len(), 1);
-    assert_eq!(single_calls[0].key, "if-match/obj.txt");
-
-    // No batch calls
+    // if_match goes through batch path — BatchDeleter includes ETags
     let batch_calls = mock.delete_objects_calls.lock().unwrap();
-    assert_eq!(batch_calls.len(), 0);
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].identifiers.len(), 1);
+    assert_eq!(batch_calls[0].identifiers[0].key(), "if-match/obj.txt");
+    assert_eq!(batch_calls[0].identifiers[0].e_tag(), Some("\"etag123\""));
 
     let report = stats_report.lock().unwrap();
     assert_eq!(report.stats_deleted_objects.load(Ordering::SeqCst), 1);

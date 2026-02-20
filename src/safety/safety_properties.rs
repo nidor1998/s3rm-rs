@@ -58,12 +58,7 @@ mod tests {
     // Test helpers
     // -----------------------------------------------------------------------
 
-    fn make_config(
-        dry_run: bool,
-        force: bool,
-        max_delete: Option<u64>,
-        json_tracing: bool,
-    ) -> Config {
+    fn make_config(dry_run: bool, force: bool, json_tracing: bool) -> Config {
         Config {
             target: StoragePath::S3 {
                 bucket: "test-bucket".to_string(),
@@ -99,7 +94,7 @@ mod tests {
             allow_lua_unsafe_vm: false,
             lua_vm_memory_limit: 0,
             if_match: false,
-            max_delete,
+            max_delete: None,
             filter_manager: FilterManager::new(),
             event_manager: EventManager::new(),
             batch_size: 1000,
@@ -123,15 +118,14 @@ mod tests {
         #[test]
         fn property_16_dry_run_skips_confirmation(
             force in proptest::bool::ANY,
-            max_delete in proptest::option::of(0u64..1000),
         ) {
             // Feature: s3rm-rs, Property 16: Dry-Run Mode Safety
             // **Validates: Requirements 3.1**
             //
-            // Regardless of force flag or max_delete, if dry_run is true,
+            // Regardless of force flag, if dry_run is true,
             // check_before_deletion MUST return Ok (no confirmation needed —
             // deletions will be simulated).
-            let config = make_config(true, force, max_delete, false);
+            let config = make_config(true, force, false);
             // Use "no" response to prove the prompt is never consulted.
             let handler = MockPromptHandler::new("no");
             let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));
@@ -162,7 +156,7 @@ mod tests {
             // Any input that is not exactly "yes" must result in Cancelled error.
             prop_assume!(input.trim() != "yes");
 
-            let config = make_config(false, false, None, false);
+            let config = make_config(false, false, false);
             let handler = MockPromptHandler::new(&input);
             let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));
 
@@ -173,21 +167,20 @@ mod tests {
             prop_assert_eq!(s3rm_err, &S3rmError::Cancelled);
         }
 
-        #[test]
-        fn property_17_exact_yes_is_accepted(
-            max_delete in proptest::option::of(1u64..100_000),
-        ) {
-            // Feature: s3rm-rs, Property 17: Confirmation Prompt Validation
-            // **Validates: Requirements 3.3**
-            //
-            // The exact string "yes" must always be accepted.
-            let config = make_config(false, false, max_delete, false);
-            let handler = MockPromptHandler::new("yes");
-            let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));
+    }
 
-            let result = checker.check_before_deletion();
-            prop_assert!(result.is_ok());
-        }
+    #[test]
+    fn property_17_exact_yes_is_accepted() {
+        // Feature: s3rm-rs, Property 17: Confirmation Prompt Validation
+        // **Validates: Requirements 3.3**
+        //
+        // The exact string "yes" must always be accepted.
+        let config = make_config(false, false, false);
+        let handler = MockPromptHandler::new("yes");
+        let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));
+
+        let result = checker.check_before_deletion();
+        assert!(result.is_ok());
     }
 
     // -----------------------------------------------------------------------
@@ -203,15 +196,14 @@ mod tests {
 
         #[test]
         fn property_18_force_flag_skips_confirmation(
-            max_delete in proptest::option::of(0u64..1000),
             json_tracing in proptest::bool::ANY,
         ) {
             // Feature: s3rm-rs, Property 18: Force Flag Behavior
             // **Validates: Requirements 3.4, 13.2**
             //
             // When force=true and dry_run=false, check_before_deletion MUST
-            // return Ok regardless of max_delete or json_tracing.
-            let config = make_config(false, true, max_delete, json_tracing);
+            // return Ok regardless of json_tracing.
+            let config = make_config(false, true, json_tracing);
             // Use a handler that would fail if called — force should prevent it.
             let handler = MockPromptHandler::new("no");
             let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));
@@ -227,7 +219,7 @@ mod tests {
 
     #[test]
     fn dry_run_skips_confirmation_even_without_force() {
-        let config = make_config(true, false, None, false);
+        let config = make_config(true, false, false);
         let handler = MockPromptHandler::new("no");
         let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));
 
@@ -237,7 +229,7 @@ mod tests {
 
     #[test]
     fn dry_run_with_force_also_skips_confirmation() {
-        let config = make_config(true, true, None, false);
+        let config = make_config(true, true, false);
         let handler = MockPromptHandler::new("no");
         let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));
 
@@ -247,7 +239,7 @@ mod tests {
 
     #[test]
     fn json_logging_skips_prompt() {
-        let config = make_config(false, false, None, true);
+        let config = make_config(false, false, true);
         let handler = MockPromptHandler::new("no");
         let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));
 
@@ -257,7 +249,7 @@ mod tests {
 
     #[test]
     fn non_interactive_environment_skips_prompt() {
-        let config = make_config(false, false, None, false);
+        let config = make_config(false, false, false);
         let checker =
             SafetyChecker::with_prompt_handler(&config, Box::new(NonInteractivePromptHandler));
 
@@ -269,7 +261,7 @@ mod tests {
     fn abbreviated_yes_responses_rejected() {
         let rejected_inputs = vec!["y", "Y", "YES", "Yes", "ye", "yep", "yeah", "ok", ""];
         for input in rejected_inputs {
-            let config = make_config(false, false, None, false);
+            let config = make_config(false, false, false);
             let handler = MockPromptHandler::new(input);
             let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));
 
@@ -291,7 +283,7 @@ mod tests {
 
     #[test]
     fn exact_yes_accepted() {
-        let config = make_config(false, false, None, false);
+        let config = make_config(false, false, false);
         let handler = MockPromptHandler::new("yes");
         let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));
 
@@ -301,7 +293,7 @@ mod tests {
 
     #[test]
     fn checker_from_config_without_tracing_config() {
-        let mut config = make_config(false, false, None, false);
+        let mut config = make_config(false, false, false);
         config.tracing_config = None;
         let handler = MockPromptHandler::new("yes");
         let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));

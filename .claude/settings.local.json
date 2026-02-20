@@ -59,7 +59,9 @@
       "Bash(gh pr ready:*)",
       "mcp__serena__search_for_pattern",
       "mcp__filesystem__search_files",
-      "mcp__filesystem__read_text_file"
+      "mcp__filesystem__read_text_file",
+      "Bash(gh pr list:*)",
+      "Bash(gh issue list:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

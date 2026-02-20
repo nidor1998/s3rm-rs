@@ -169,7 +169,7 @@ cargo fmt
 ### Specification Files
 - @specs/requirements.md - User stories and acceptance criteria
 - specs/design.md - Architecture and component design
-- @specs/tasks.md - Implementation task list
+- specs/tasks.md - Implementation task list
 
 ### Steering Documents
 - @steering/tech.md - Technology stack and common commands

@@ -10,8 +10,58 @@ use tokio::sync::Semaphore;
 
 /// Main configuration for the s3rm-rs deletion pipeline.
 ///
+/// Holds all settings needed to configure and run a [`DeletionPipeline`](crate::DeletionPipeline):
+/// target bucket/prefix, AWS credentials, worker pool size, filter rules,
+/// safety flags (dry-run, force, max-delete), and callback registrations.
+///
 /// Adapted from s3sync's Config, removing source-specific and sync-specific options.
 /// Only target-related configuration is retained since s3rm-rs operates on a single S3 target.
+///
+/// ## Programmatic Construction
+///
+/// Build a `Config` directly when using the library API:
+///
+/// ```no_run
+/// use s3rm_rs::config::{Config, FilterConfig, ForceRetryConfig, ClientConfig, RetryConfig, CLITimeoutConfig, TracingConfig};
+/// use s3rm_rs::types::{StoragePath, S3Credentials, ClientConfigLocation};
+/// use s3rm_rs::{FilterManager, EventManager};
+/// use std::sync::Arc;
+///
+/// let config = Config {
+///     target: StoragePath::S3 {
+///         bucket: "my-bucket".into(),
+///         prefix: "logs/2024/".into(),
+///     },
+///     worker_size: 100,
+///     batch_size: 1000,
+///     dry_run: true,
+///     force: true,
+///     delete_all_versions: false,
+///     max_delete: Some(10_000),
+///     filter_config: FilterConfig::default(),
+///     filter_manager: FilterManager::new(),
+///     event_manager: EventManager::new(),
+///     // ... other fields
+///     # show_no_progress: false,
+///     # target_client_config: None,
+///     # force_retry_config: ForceRetryConfig { force_retry_count: 3, force_retry_interval_milliseconds: 1000 },
+///     # tracing_config: None,
+///     # warn_as_error: false,
+///     # rate_limit_objects: None,
+///     # max_parallel_listings: 10,
+///     # object_listing_queue_size: 1000,
+///     # max_parallel_listing_max_depth: 5,
+///     # allow_parallel_listings_in_express_one_zone: false,
+///     # max_keys: 1000,
+///     # auto_complete_shell: None,
+///     # event_callback_lua_script: None,
+///     # filter_callback_lua_script: None,
+///     # allow_lua_os_library: false,
+///     # allow_lua_unsafe_vm: false,
+///     # lua_vm_memory_limit: 50 * 1024 * 1024,
+///     # if_match: false,
+/// };
+/// ```
 #[derive(Debug, Clone)]
 pub struct Config {
     pub target: StoragePath,

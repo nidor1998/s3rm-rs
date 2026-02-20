@@ -402,7 +402,7 @@ Phase 11: Library API (Task 12)
     - **Validates: Requirements 12.8**
 
 
-- [ ] 13. Implement CLI (Adapted from s3sync)
+- [-] 13. Implement CLI (Adapted from s3sync)
   - [ ] 13.1 Define CLI arguments with clap
     - Create config/args.rs with CliArgs struct
     - Define target argument (s3://bucket/prefix)

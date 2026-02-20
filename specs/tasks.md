@@ -8,7 +8,7 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-11 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, and progress reporting established.
+**Current Achievement**: Tasks 1-12 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, and library API established.
 
 ## Current Status
 
@@ -24,6 +24,7 @@ Phase 7: Deletion Components (Task 8)
 Phase 8: Safety Features (Task 9)
 Phase 9: Deletion Pipeline (Task 10)
 Phase 10: Progress Reporting (Task 11)
+Phase 11: Library API (Task 12)
 
 ## Tasks
 
@@ -361,8 +362,8 @@ Phase 10: Progress Reporting (Task 11)
     - **Validates: Requirements 7.6, 7.7**
 
 
-- [-] 12. Implement Library API (Public Interface)
-  - [ ] 12.1 Create lib.rs with public API
+- [x] 12. Implement Library API (Public Interface)
+  - [x] 12.1 Create lib.rs with public API
     - Export DeletionPipeline, Config, ParsedArgs
     - Export parse_from_args() function
     - Export create_pipeline_cancellation_token() function
@@ -378,25 +379,25 @@ Phase 10: Progress Reporting (Task 11)
     - Support registration via Config — done via FilterManager and EventManager in callback/
     - _Requirements: 12.5, 12.6_
 
-  - [ ] 12.3 Add rustdoc documentation
+  - [x] 12.3 Add rustdoc documentation
     - Document all public types and functions
     - Include usage examples in doc comments
     - Document library-first architecture
     - _Requirements: 12.9_
 
-  - [ ] 12.4 Write property test for library API configuration
+  - [x] 12.4 Write property test for library API configuration
     - **Property 44: Library API Configuration**
     - **Validates: Requirements 12.4**
 
-  - [ ] 12.5 Write property test for library callback registration
+  - [x] 12.5 Write property test for library callback registration
     - **Property 45: Library Callback Registration**
     - **Validates: Requirements 12.5, 12.6**
 
-  - [ ] 12.6 Write property test for library Lua callback support
+  - [x] 12.6 Write property test for library Lua callback support
     - **Property 46: Library Lua Callback Support**
     - **Validates: Requirements 12.7**
 
-  - [ ] 12.7 Write property test for library async result handling
+  - [x] 12.7 Write property test for library async result handling
     - **Property 47: Library Async Result Handling**
     - **Validates: Requirements 12.8**
 
@@ -735,7 +736,7 @@ Phase 10: Progress Reporting (Task 11)
   - _Requirements: All requirements (comprehensive coverage)_
 
 
-**Implemented Property Tests**: Properties 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 31, 32 (17 of 49).
+**Implemented Property Tests**: Properties 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 31, 32, 44, 45, 46, 47 (21 of 49).
 
 - [ ] 27. Documentation and Examples
   - [ ] 27.1 Write README.md
@@ -912,7 +913,7 @@ Phase 10: Progress Reporting (Task 11)
 
 ## Implementation Status Summary
 
-Tasks 1-11 complete and merged to init_build.
+Tasks 1-12 complete and merged to init_build.
 
 **Already implemented across Tasks 1-11** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)
@@ -928,7 +929,7 @@ Tasks 1-11 complete and merged to init_build.
 - Terminator stage for draining final pipeline output (Task 10)
 - Progress reporter with indicatif, UI config helpers, moving averages (Task 11)
 - CI pipeline for all target platforms (Task 1)
-- 17 property tests implemented (Properties 1-3, 5-11, 14-18, 31, 32)
+- 21 property tests implemented (Properties 1-3, 5-11, 14-18, 31, 32, 44-47)
 
 **Sub-tasks already completed in later task groups** (done during Tasks 1-10):
 - 12.2: Callback traits for Rust API (done in Tasks 7-8)
@@ -945,8 +946,7 @@ Tasks 1-11 complete and merged to init_build.
 - 24.2-24.6: Unit tests for filters, deletion, safety, versioning, errors (done in Tasks 3-9)
 - 25.1-25.2: Property-based testing infrastructure (done in Tasks 3-9)
 
-**Remaining work** (Tasks 12-13 are the critical path):
-- Task 12: Library API re-exports and documentation (callback traits done, needs DeletionPipeline re-exports)
+**Remaining work** (Task 13 is the critical path):
 - Task 13: CLI argument parsing with clap (main.rs is a stub)
 - Tasks 14-22: Remaining property tests and verification tasks (implementation sub-tasks mostly done)
 - Tasks 23-31: Quality, documentation, E2E testing, release

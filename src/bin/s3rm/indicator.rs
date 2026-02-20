@@ -89,8 +89,7 @@ pub fn show_indicator(
                     let elapsed = start_time.elapsed();
                     let elapsed_secs_f64 = elapsed.as_secs_f64();
 
-                    let mut objects_per_sec =
-                        (total_delete_count as f64 / elapsed_secs_f64) as u64;
+                    let mut objects_per_sec = (total_delete_count as f64 / elapsed_secs_f64) as u64;
 
                     if elapsed_secs_f64 < REFRESH_INTERVAL as f64 {
                         objects_per_sec = total_delete_count;

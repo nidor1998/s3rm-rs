@@ -241,6 +241,13 @@ impl DeletionPipeline {
             error!("terminator task panicked: {}", e);
             self.record_error(anyhow::anyhow!("terminator task panicked: {}", e));
         }
+
+        // Promote warnings to errors if configured (checked once after all workers complete)
+        if self.config.warn_as_error && self.has_warning.load(Ordering::SeqCst) {
+            self.record_error(anyhow::anyhow!(
+                "warnings promoted to errors (--warn-as-error)"
+            ));
+        }
     }
 
     /// Record an error and set the error flag.
@@ -529,8 +536,6 @@ impl DeletionPipeline {
             let has_error = self.has_error.clone();
             let error_list = self.errors.clone();
             let cancellation_token = self.cancellation_token.clone();
-            let warn_as_error = self.config.warn_as_error;
-            let has_warning = self.has_warning.clone();
 
             tokio::spawn(async move {
                 let join_result = tokio::spawn(async move { object_deleter.delete().await }).await;
@@ -559,14 +564,6 @@ impl DeletionPipeline {
                             .unwrap()
                             .push_back(anyhow::anyhow!("delete worker panicked: {}", e));
                     }
-                }
-
-                // Promote warnings to errors if configured
-                if warn_as_error && has_warning.load(Ordering::SeqCst) {
-                    has_error.store(true, Ordering::SeqCst);
-                    error_list.lock().unwrap().push_back(anyhow::anyhow!(
-                        "warnings promoted to errors (--warn-as-error)"
-                    ));
                 }
             });
         }

@@ -53,7 +53,8 @@
       "mcp__git__git_checkout",
       "mcp__git__git_add",
       "mcp__git__git_commit",
-      "Bash(gh pr view:*)"
+      "Bash(gh pr view:*)",
+      "Bash(ls:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

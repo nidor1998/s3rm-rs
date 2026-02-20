@@ -103,28 +103,31 @@ The library exposes a high-level async API for deletion operations, following s3
 // Main deletion pipeline (similar to s3sync's Pipeline)
 pub struct DeletionPipeline {
     config: Config,
-    cancellation_token: CancellationToken,
+    cancellation_token: PipelineCancellationToken,
     // Internal state
 }
 
 impl DeletionPipeline {
-    pub async fn new(config: Config, cancellation_token: CancellationToken) -> Self;
-    
+    pub async fn new(config: Config, cancellation_token: PipelineCancellationToken) -> Self;
+
     // Run the deletion pipeline (similar to s3sync's pipeline.run())
     pub async fn run(&mut self);
-    
+
     // Check for errors
     pub fn has_error(&self) -> bool;
-    pub fn get_errors_and_consume(&mut self) -> Option<Vec<Error>>;
-    
+    pub fn get_errors_and_consume(&self) -> Option<Vec<Error>>;
+
     // Check for warnings
     pub fn has_warning(&self) -> bool;
-    
-    // Get deletion statistics
-    pub async fn get_deletion_stats(&self) -> DeletionStats;
-    
+
+    // Get the stats receiver for progress reporting
+    pub fn get_stats_receiver(&self) -> Receiver<DeletionStatistics>;
+
+    // Get deletion statistics (synchronous — reads atomic counters)
+    pub fn get_deletion_stats(&self) -> DeletionStats;
+
     // Close stats sender (to save memory if not needed)
-    pub fn close_stats_sender(&mut self);
+    pub fn close_stats_sender(&self);
 }
 
 // Configuration (similar to s3sync's Config)
@@ -149,7 +152,8 @@ where
     T: Into<String>;
 
 // Cancellation token (similar to s3sync)
-pub fn create_pipeline_cancellation_token() -> CancellationToken;
+pub type PipelineCancellationToken = tokio_util::sync::CancellationToken;
+pub fn create_pipeline_cancellation_token() -> PipelineCancellationToken;
 
 // Example usage (matching s3sync pattern):
 // let args = vec![
@@ -167,7 +171,7 @@ pub fn create_pipeline_cancellation_token() -> CancellationToken;
 // if pipeline.has_error() {
 //     println!("{:?}", pipeline.get_errors_and_consume().unwrap()[0]);
 // }
-// let stats = pipeline.get_deletion_stats().await;
+// let stats = pipeline.get_deletion_stats();
 
 // Deletion statistics
 pub struct DeletionStats {
@@ -207,48 +211,52 @@ The core orchestrator that coordinates all deletion operations using s3sync's st
 pub struct DeletionPipeline {
     config: Config,
     target: Storage,  // from s3sync
-    target_key_map: Option<ObjectKeyMap>,  // for tracking deleted objects
-    cancellation_token: CancellationToken,
+    cancellation_token: PipelineCancellationToken,
     stats_receiver: Receiver<DeletionStatistics>,
     has_error: Arc<AtomicBool>,
     has_warning: Arc<AtomicBool>,
-    errors: Arc<Mutex<VecDeque<Error>>>,
+    errors: Arc<Mutex<VecDeque<anyhow::Error>>>,
     ready: bool,
     deletion_stats_report: Arc<Mutex<DeletionStatsReport>>,
 }
 
 impl DeletionPipeline {
-    pub async fn new(config: Config, cancellation_token: CancellationToken) -> Self {
+    pub async fn new(config: Config, cancellation_token: PipelineCancellationToken) -> Self {
         // Initialize storage (reuse s3sync's storage factory)
         // Create stats channel
         // Initialize error tracking
         // Reuse s3sync's initialization pattern
     }
-    
+
     pub async fn run(&mut self) {
-        // 1. Check prerequisites (confirmation prompt, versioning)
+        // 1. Fire PIPELINE_START event
+        // 2. Check prerequisites (confirmation prompt, versioning)
         //    Note: dry-run does NOT abort — the pipeline runs fully
         //    but the deletion layer simulates deletions
-        // 2. List objects (using s3sync's parallel lister)
-        // 3. Filter objects (using s3sync's filter stages)
-        // 4. Delete objects (using deletion workers; dry-run skips S3 API calls)
-        // 5. Terminate pipeline
+        // 3. List objects (using s3sync's parallel lister)
+        // 4. Filter objects (using s3sync's filter stages)
+        // 5. Delete objects (using deletion workers; dry-run skips S3 API calls)
+        // 6. Terminate pipeline
+        // 7. Fire PIPELINE_END / PIPELINE_ERROR events
         // Note: All stages connected by async channels
     }
-    
+
     // Error handling (from s3sync)
     pub fn has_error(&self) -> bool;
-    pub fn get_errors_and_consume(&mut self) -> Option<Vec<Error>>;
+    pub fn get_errors_and_consume(&self) -> Option<Vec<anyhow::Error>>;
     pub fn has_warning(&self) -> bool;
-    
-    // Statistics (from s3sync pattern)
-    pub async fn get_deletion_stats(&self) -> DeletionStats;
-    pub fn close_stats_sender(&mut self);
-    
+
+    // Stats receiver for progress reporting
+    pub fn get_stats_receiver(&self) -> Receiver<DeletionStatistics>;
+
+    // Statistics (synchronous — reads atomic counters)
+    pub fn get_deletion_stats(&self) -> DeletionStats;
+    pub fn close_stats_sender(&self);
+
     // Internal stage creation (from s3sync)
     fn create_spsc_stage(&self, ...) -> (Stage, Receiver<S3Object>);
     fn create_mpmc_stage(&self, ...) -> Stage;
-    
+
     // Pipeline stages (adapted from s3sync)
     fn list_target(&self) -> Receiver<S3Object>;
     fn filter_objects(&self, objects: Receiver<S3Object>) -> Receiver<S3Object>;
@@ -307,12 +315,12 @@ graph LR
 ```rust
 // Adapted from s3sync - remove source storage for deletion
 pub struct Stage {
-    config: Config,
-    target: Box<dyn Storage>,  // Only target needed for deletion
-    receiver: Option<Receiver<S3Object>>,
-    sender: Option<Sender<S3Object>>,
-    cancellation_token: CancellationToken,
-    has_warning: Arc<AtomicBool>,
+    pub config: Config,
+    pub target: Storage,  // Box<dyn StorageTrait + Send + Sync>
+    pub receiver: Option<Receiver<S3Object>>,
+    pub sender: Option<Sender<S3Object>>,
+    pub cancellation_token: PipelineCancellationToken,
+    pub has_warning: Arc<AtomicBool>,
 }
 
 impl Stage {
@@ -340,8 +348,10 @@ pub struct ObjectLister {
 impl ObjectLister {
     pub fn new(stage: Stage) -> Self;
     
-    pub async fn list_target(&self, max_keys: Option<i32>) -> Result<(), Error> {
+    pub async fn list_target(&self, max_keys: i32) -> Result<()> {
         // List objects from target storage
+        // If delete_all_versions → calls list_object_versions()
+        // Otherwise → calls list_objects()
         // Send objects to stage.sender channel
         // Support parallel pagination
         // Reuse s3sync's implementation
@@ -356,47 +366,37 @@ impl ObjectLister {
 // Note: Content-type, metadata, and tagging filters are NOT separate stages
 // They are implemented within ObjectDeleter (see below)
 
+#[async_trait]
 pub trait ObjectFilter {
-    async fn filter(&self) -> Result<(), Error>;
+    async fn filter(&self) -> Result<()>;  // anyhow::Result
 }
 
-// Time filters
-pub struct MtimeBeforeFilter {
-    stage: Stage,
-    threshold: Option<DateTime<Utc>>,
+// Shared base implementation for all filters
+pub struct ObjectFilterBase<'a> {
+    name: &'a str,
+    base: Stage,
 }
 
-pub struct MtimeAfterFilter {
-    stage: Stage,
-    threshold: Option<DateTime<Utc>>,
+impl<'a> ObjectFilterBase<'a> {
+    pub async fn filter<F>(&self, filter_fn: F) -> Result<()>
+    where
+        F: Fn(&S3Object, &FilterConfig) -> bool;
 }
 
-// Size filters
-pub struct SmallerSizeFilter {
-    stage: Stage,
-    threshold: Option<u64>,
-}
+// Time filters (use ObjectFilterBase internally)
+pub struct MtimeBeforeFilter { /* ObjectFilterBase + Stage */ }
+pub struct MtimeAfterFilter  { /* ObjectFilterBase + Stage */ }
 
-pub struct LargerSizeFilter {
-    stage: Stage,
-    threshold: Option<u64>,
-}
+// Size filters (use ObjectFilterBase internally)
+pub struct SmallerSizeFilter { /* ObjectFilterBase + Stage */ }
+pub struct LargerSizeFilter  { /* ObjectFilterBase + Stage */ }
 
-// Regex filters (for key patterns only)
-pub struct IncludeRegexFilter {
-    stage: Stage,
-    pattern: Option<Regex>,
-}
+// Regex filters for key patterns (use ObjectFilterBase internally)
+pub struct IncludeRegexFilter { /* ObjectFilterBase + Stage */ }
+pub struct ExcludeRegexFilter { /* ObjectFilterBase + Stage */ }
 
-pub struct ExcludeRegexFilter {
-    stage: Stage,
-    pattern: Option<Regex>,
-}
-
-// User-defined filter (Lua callbacks)
-pub struct UserDefinedFilter {
-    stage: Stage,
-}
+// User-defined filter (Lua/Rust callbacks via FilterManager)
+pub struct UserDefinedFilter { /* Stage */ }
 
 impl ObjectFilter for MtimeBeforeFilter {
     async fn filter(&self) -> Result<(), Error> {
@@ -423,81 +423,65 @@ impl ObjectFilter for MtimeBeforeFilter {
 
 ```rust
 pub struct ObjectDeleter {
-    stage: Stage,
-    worker_index: usize,
+    worker_index: u16,
+    base: Stage,
     deletion_stats_report: Arc<Mutex<DeletionStatsReport>>,
-    target_key_map: Option<ObjectKeyMap>,
-    deleter: Box<dyn Deleter>,  // BatchDeleter or SingleDeleter
+    delete_counter: Arc<AtomicU64>,         // shared counter for --max-delete enforcement
+    deleter: Box<dyn Deleter>,              // BatchDeleter or SingleDeleter
+    buffer: Vec<S3Object>,                  // objects pending deletion, flushed at batch boundaries
+    effective_batch_size: usize,            // min(config.batch_size, MAX_BATCH_SIZE)
 }
 
 impl ObjectDeleter {
     pub fn new(
-        stage: Stage,
-        worker_index: usize,
+        base: Stage,
+        worker_index: u16,
         deletion_stats_report: Arc<Mutex<DeletionStatsReport>>,
-        target_key_map: Option<ObjectKeyMap>,
+        delete_counter: Arc<AtomicU64>,
     ) -> Self;
-    
-    pub async fn delete(&self) -> Result<(), Error> {
-        // Read objects from stage.receiver (MPMC channel)
+
+    /// Main entry point: read objects from channel, filter, and delete.
+    pub async fn delete(&mut self) -> Result<()> {
+        // Read objects from base.receiver (MPMC channel)
         // For each object:
-        //   1. Apply content-type filters (if configured)
+        //   1. Check --max-delete threshold (cancel pipeline if exceeded)
+        //   2. Apply content-type filters (if configured)
         //      - Call HeadObject to get content-type
         //      - Check against include/exclude content-type regex
-        //   2. Apply metadata filters (if configured)
+        //   3. Apply metadata filters (if configured)
         //      - Call HeadObject to get metadata
         //      - Check against include/exclude metadata regex
-        //   3. Apply tagging filters (if configured)
+        //   4. Apply tagging filters (if configured)
         //      - Call GetObjectTagging to get tags
         //      - Check against include/exclude tag regex
-        //   4. If all filters pass, delete using configured deleter
-        // Update statistics
-        // Write results to stage.sender
-        // Pattern adapted from s3sync's ObjectSyncer::sync_or_delete_object
+        //   5. Buffer objects; flush to deleter when buffer reaches effective_batch_size
+        //   6. In dry-run mode: simulate deletion, log with [dry-run] prefix
+        // Update statistics and fire events
+        // Write results to base.sender
     }
-    
-    // Content-type filtering (adapted from s3sync)
-    async fn decide_delete_by_include_content_type_regex(
-        &self,
-        key: &str,
-        content_type: Option<&str>,
-    ) -> bool;
-    
-    async fn decide_delete_by_exclude_content_type_regex(
-        &self,
-        key: &str,
-        content_type: Option<&str>,
-    ) -> bool;
-    
-    // Metadata filtering (adapted from s3sync)
-    async fn decide_delete_by_include_metadata_regex(
-        &self,
-        key: &str,
-        metadata: Option<&HashMap<String, String>>,
-    ) -> bool;
-    
-    async fn decide_delete_by_exclude_metadata_regex(
-        &self,
-        key: &str,
-        metadata: Option<&HashMap<String, String>>,
-    ) -> bool;
-    
-    // Tagging filtering (adapted from s3sync)
-    async fn decide_delete_by_include_tag_regex(
-        &self,
-        key: &str,
-        tags: Option<&[Tag]>,
-    ) -> bool;
-    
-    async fn decide_delete_by_exclude_tag_regex(
-        &self,
-        key: &str,
-        tags: Option<&[Tag]>,
-    ) -> bool;
 }
 
+/// Result of a deletion operation.
+pub struct DeleteResult {
+    pub deleted: Vec<DeletedKey>,
+    pub failed: Vec<FailedKey>,
+}
+
+pub struct DeletedKey {
+    pub key: String,
+    pub version_id: Option<String>,
+}
+
+pub struct FailedKey {
+    pub key: String,
+    pub version_id: Option<String>,
+    pub error_code: String,
+    pub error_message: String,
+}
+
+#[async_trait]
 pub trait Deleter: Send + Sync {
-    async fn delete(&self, objects: Vec<S3Object>) -> Result<Vec<DeletionOutcome>, Error>;
+    async fn delete(&self, objects: &[S3Object], config: &Config) -> Result<DeleteResult>;
 }
 ```
 
@@ -514,19 +498,21 @@ pub trait Deleter: Send + Sync {
 
 ```rust
 pub struct BatchDeleter {
-    client: S3Client,  // from s3sync
-    batch_size: usize,  // max 1000
-    retry_policy: RetryPolicy,  // from s3sync
+    target: Storage,  // S3 storage with rate limiting and retry
 }
 
+pub const MAX_BATCH_SIZE: usize = 1000;
+
+#[async_trait]
 impl Deleter for BatchDeleter {
-    async fn delete(&self, objects: Vec<S3Object>) -> Result<Vec<DeletionOutcome>, Error> {
-        // Group objects into batches of up to 1000
-        // Call DeleteObjects API
+    async fn delete(&self, objects: &[S3Object], config: &Config) -> Result<DeleteResult> {
+        // Group objects into batches of up to MAX_BATCH_SIZE (1000)
+        // Build ObjectIdentifier list with version IDs and optional ETags (if_match)
+        // Call DeleteObjects API via target storage
         // Handle partial failures:
         //   - Extract successfully deleted objects
-        //   - Retry failed objects in new batch
-        // Return outcomes for all objects
+        //   - Track failed objects with error codes
+        // Return DeleteResult with deleted and failed lists
     }
 }
 ```
@@ -541,32 +527,34 @@ impl Deleter for BatchDeleter {
 
 ```rust
 pub struct SingleDeleter {
-    client: S3Client,  // from s3sync
-    retry_policy: RetryPolicy,  // from s3sync
+    target: Storage,  // S3 storage with rate limiting and retry
 }
 
+#[async_trait]
 impl Deleter for SingleDeleter {
-    async fn delete(&self, objects: Vec<S3Object>) -> Result<Vec<DeletionOutcome>, Error> {
+    async fn delete(&self, objects: &[S3Object], config: &Config) -> Result<DeleteResult> {
         // Delete objects one at a time using DeleteObject API
-        // Apply retry policy for each deletion
-        // Return outcomes for all objects
+        // Include version_id and optional ETag (if_match) per object
+        // Retry via target storage's built-in retry logic
+        // Continue processing remaining objects on individual failures
+        // Return DeleteResult with deleted and failed lists
     }
 }
 ```
 
-Used when batch deletion is not desired or for special cases.
+Used when batch_size is 1 or for Express One Zone storage.
 
 ### 9. Terminator (Reused from s3sync)
 
 ```rust
 // Reused from s3sync with no modifications
-pub struct Terminator {
-    receiver: Receiver<S3Object>,
+pub struct Terminator<T> {
+    receiver: Receiver<T>,
 }
 
-impl Terminator {
-    pub fn new(receiver: Receiver<S3Object>) -> Self;
-    
+impl<T> Terminator<T> {
+    pub fn new(receiver: Receiver<T>) -> Self;
+
     pub async fn terminate(&self) {
         // Consume all remaining objects from channel
         // Close channel
@@ -581,19 +569,38 @@ The Terminator consumes the final stage output and ensures clean pipeline shutdo
 
 ```rust
 // Reused from s3sync with no modifications
-pub trait Storage: Send + Sync + DynClone {
-    async fn is_versioning_enabled(&self) -> Result<bool, Error>;
+#[async_trait]
+pub trait StorageTrait: DynClone {
+    fn is_express_onezone_storage(&self) -> bool;
+
+    async fn list_objects(&self, sender: &Sender<S3Object>, max_keys: i32) -> Result<()>;
+    async fn list_object_versions(&self, sender: &Sender<S3Object>, max_keys: i32) -> Result<()>;
+
+    async fn head_object(&self, key: &str, version_id: Option<String>) -> Result<HeadObjectOutput>;
+    async fn get_object_tagging(&self, key: &str, version_id: Option<String>) -> Result<GetObjectTaggingOutput>;
+
+    async fn delete_object(&self, key: &str, version_id: Option<String>, if_match: Option<String>) -> Result<DeleteObjectOutput>;
+    async fn delete_objects(&self, objects: Vec<ObjectIdentifier>) -> Result<DeleteObjectsOutput>;
+
+    async fn is_versioning_enabled(&self) -> Result<bool>;
+
+    fn get_client(&self) -> Option<Arc<Client>>;
     fn get_stats_sender(&self) -> Sender<DeletionStatistics>;
-    // Other storage operations
+    async fn send_stats(&self, stats: DeletionStatistics);
+    fn set_warning(&self);
 }
+
+// Type alias for boxed storage (S3 storage only — no local storage needed)
+pub type Storage = Box<dyn StorageTrait + Send + Sync>;
 
 pub async fn create_storage(
     config: Config,
-    cancellation_token: CancellationToken,
+    cancellation_token: PipelineCancellationToken,
     stats_sender: Sender<DeletionStatistics>,
     has_warning: Arc<AtomicBool>,
-) -> Box<dyn Storage> {
+) -> Storage {
     // Create S3 storage only (s3rm-rs only deletes from S3)
+    // Includes rate limiting, force retry, and parallel listing support
     // Reuse s3sync's S3 storage implementation
 }
 ```
@@ -1147,10 +1154,10 @@ impl S3Target {
 }
 
 // Cancellation token (reused from s3sync)
-pub type CancellationToken = tokio_util::sync::CancellationToken;
+pub type PipelineCancellationToken = tokio_util::sync::CancellationToken;
 
-pub fn create_pipeline_cancellation_token() -> CancellationToken {
-    CancellationToken::new()
+pub fn create_pipeline_cancellation_token() -> PipelineCancellationToken {
+    PipelineCancellationToken::new()
 }
 ```
 
@@ -1532,8 +1539,8 @@ impl S3rmError {
 
 **New for s3rm**:
 - Partial failure handling (some objects deleted, some failed)
-- Dry-run error (not a real error, just stops execution with exit code 0)
 - Cancellation error (user declined confirmation, exit code 0)
+- Note: Dry-run is NOT an error — the pipeline runs normally with simulated deletions
 
 ### Retry Strategy
 
@@ -2002,9 +2009,11 @@ zeroize_derive = "1.4.3"
 # Logging (same as s3sync)
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json", "local-time"] }
+log = "0.4.29"
 
 # Progress bar (same as s3sync)
 indicatif = "0.18.3"
+simple_moving_average = "1.0.2"
 
 # Terminal
 # Uses std::io::IsTerminal (stable since Rust 1.70) instead of atty
@@ -2014,12 +2023,24 @@ indicatif = "0.18.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
+# Utilities
+dyn-clone = "1.0.20"
+futures = "0.3.31"
+futures-util = "0.3.31"
+url = "2.5.8"
+urlencoding = "2.1.3"
+cfg-if = "1.0.4"
+bitflags = "2.10.0"
+rusty-fork = "0.3.1"
+
 # Lua (same as s3sync, optional feature)
 mlua = { version = "0.11.6", features = ["lua54", "async", "send", "vendored"], optional = true }
 
 [dev-dependencies]
 proptest = "1.6"
 tokio-test = "0.4"
+once_cell = "1.21.3"
+uuid = { version = "1.20.0", features = ["v4"] }
 ```
 
 ### File Structure
@@ -2027,28 +2048,30 @@ tokio-test = "0.4"
 ```
 s3rm-rs/
 ├── src/
-│   ├── lib.rs                 # Public API exports
+│   ├── lib.rs                 # Public API exports (all modules re-exported)
+│   ├── pipeline.rs            # DeletionPipeline orchestrator (adapted from s3sync)
 │   ├── stage.rs               # Stage struct for pipeline stages (from s3sync)
 │   ├── lister.rs              # ObjectLister (reused from s3sync)
+│   ├── terminator.rs          # Terminator<T> stage (from s3sync)
 │   ├── config/
 │   │   └── mod.rs             # Config, ClientConfig, FilterConfig, etc. (adapted from s3sync)
 │   ├── types/
 │   │   ├── mod.rs             # S3Object, DeletionStatistics, StoragePath, S3Credentials, etc.
 │   │   ├── error.rs           # S3rmError enum with exit codes
 │   │   ├── filter_callback.rs # FilterCallback async trait
-│   │   ├── event_callback.rs  # EventCallback async trait, EventData
+│   │   ├── event_callback.rs  # EventCallback async trait, EventType bitflags, EventData
 │   │   └── token.rs           # PipelineCancellationToken type alias
 │   ├── callback/
 │   │   ├── mod.rs             # Callback module exports
 │   │   ├── filter_manager.rs  # FilterManager (Rust + Lua filter dispatch)
-│   │   └── event_manager.rs   # EventManager (Rust + Lua event dispatch)
+│   │   └── event_manager.rs   # EventManager (Rust + Lua event dispatch with PipelineStats)
 │   ├── storage/
-│   │   ├── mod.rs             # StorageTrait, StorageFactory, Storage type alias (from s3sync)
+│   │   ├── mod.rs             # StorageTrait, create_storage(), Storage type alias (from s3sync)
 │   │   └── s3/
 │   │       ├── mod.rs         # S3Storage implementation with force retry loop (from s3sync)
 │   │       └── client_builder.rs  # AWS client builder (from s3sync)
 │   ├── filters/
-│   │   ├── mod.rs             # ObjectFilter trait (from s3sync)
+│   │   ├── mod.rs             # ObjectFilter trait, ObjectFilterBase (from s3sync)
 │   │   ├── include_regex.rs   # IncludeRegexFilter (from s3sync)
 │   │   ├── exclude_regex.rs   # ExcludeRegexFilter (from s3sync)
 │   │   ├── larger_size.rs     # LargerSizeFilter (from s3sync)
@@ -2058,12 +2081,12 @@ s3rm-rs/
 │   │   ├── user_defined.rs    # UserDefinedFilter / Lua filter stage (from s3sync)
 │   │   └── filter_properties.rs  # Property tests for filters
 │   ├── deleter/
-│   │   ├── mod.rs             # ObjectDeleter and Deleter trait (NEW)
+│   │   ├── mod.rs             # ObjectDeleter, Deleter trait, DeleteResult types (NEW)
 │   │   ├── batch.rs           # BatchDeleter (NEW)
 │   │   ├── single.rs          # SingleDeleter (NEW)
 │   │   └── tests.rs           # Unit + property tests for deletion components
 │   ├── safety/
-│   │   ├── mod.rs             # SafetyChecker, confirmation prompts (NEW)
+│   │   ├── mod.rs             # SafetyChecker, PromptHandler trait, confirmation prompts (NEW)
 │   │   └── safety_properties.rs  # Property tests for safety features (NEW)
 │   ├── lua/
 │   │   ├── mod.rs             # Lua module exports
@@ -2080,7 +2103,7 @@ s3rm-rs/
 └── README.md
 ```
 
-**Notes**: Tests are co-located with source code (e.g., `deleter/tests.rs`, `filters/filter_properties.rs`, `lua/lua_properties.rs`, `safety/safety_properties.rs`). Property tests and unit tests share the same test files. Pipeline orchestrator (`pipeline.rs`), progress reporter (`progress.rs`), and terminator (`terminator.rs`) are not yet implemented.
+**Notes**: Tests are co-located with source code (e.g., `deleter/tests.rs`, `filters/filter_properties.rs`, `lua/lua_properties.rs`, `safety/safety_properties.rs`). Property tests and unit tests share the same test files. Pipeline orchestrator (`pipeline.rs`) and terminator (`terminator.rs`) are implemented. Progress reporter is not yet implemented. CLI main.rs is a stub.
 
 ### Development Phases
 

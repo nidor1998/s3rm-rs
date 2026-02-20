@@ -512,10 +512,10 @@ Phase 9: Deletion Pipeline (Task 10)
     - **Property 30: Failure Tracking and Continuation**
     - **Validates: Requirements 6.4, 6.5**
 
-  - [ ] 15.5 Write unit tests for error handling
-    - Test retryable error classification
-    - Test non-retryable error handling
-    - Test partial failure scenarios
+  - [x] 15.5 Write unit tests for error handling
+    - DeletionError::is_retryable() tested — 16 unit tests in types/error.rs (Task 3)
+    - S3rmError::exit_code() tested for all variants (Task 3)
+    - Partial failure scenarios tested in deleter/tests.rs (Task 8)
     - _Requirements: 6.1, 6.2, 6.4_
 
 
@@ -929,9 +929,24 @@ Tasks 1-10 complete and merged to init_build.
 - CI pipeline for all target platforms (Task 1)
 - 15 property tests implemented (Properties 1-3, 5-11, 14-18)
 
+**Sub-tasks already completed in later task groups** (done during Tasks 1-10):
+- 12.2: Callback traits for Rust API (done in Tasks 7-8)
+- 14.1: Version handling in ObjectDeleter (done in Tasks 3, 5, 8)
+- 15.1: Retry policy integration (done in Task 2)
+- 15.2: Failure tracking (done in Tasks 3, 8)
+- 15.5: Error handling unit tests (done in Tasks 3, 8)
+- 16.1-16.2: If-Match support and conditional failure handling (done in Tasks 2, 3, 8)
+- 17.1-17.2: Tracing integration and error logging (done in Tasks 2, 8, 9)
+- 18.1-18.2: AWS credential loading and custom endpoint support (done in Task 2)
+- 19.1: Rate limiter integration (done in Task 2)
+- 20.2-20.3: Terminal detection and cross-platform builds (done in Tasks 1, 9)
+- 21.1: Non-interactive environment detection (done in Task 9)
+- 24.2-24.6: Unit tests for filters, deletion, safety, versioning, errors (done in Tasks 3-9)
+- 25.1-25.2: Property-based testing infrastructure (done in Tasks 3-9)
+
 **Remaining work** (Tasks 11-13 are the critical path):
 - Task 11: Progress reporting with indicatif
-- Task 12: Library API re-exports (callback traits done, needs DeletionPipeline)
+- Task 12: Library API re-exports and documentation (callback traits done, needs DeletionPipeline re-exports)
 - Task 13: CLI argument parsing with clap (main.rs is a stub)
-- Tasks 14-22: Remaining property tests and verification tasks
+- Tasks 14-22: Remaining property tests and verification tasks (implementation sub-tasks mostly done)
 - Tasks 23-31: Quality, documentation, E2E testing, release

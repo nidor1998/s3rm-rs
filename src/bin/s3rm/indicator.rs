@@ -89,23 +89,20 @@ pub fn show_indicator(
                     let elapsed = start_time.elapsed();
                     let elapsed_secs_f64 = elapsed.as_secs_f64();
 
-                    let mut objects_per_sec = (total_delete_count as f64 / elapsed_secs_f64) as u64;
-                    let mut bytes_per_sec = (total_delete_bytes as f64 / elapsed_secs_f64) as u64;
+                    let mut objects_per_sec =
+                        (total_delete_count as f64 / elapsed_secs_f64) as u64;
 
                     if elapsed_secs_f64 < REFRESH_INTERVAL as f64 {
                         objects_per_sec = total_delete_count;
-                        bytes_per_sec = total_delete_bytes;
                     }
                     if dry_run {
                         objects_per_sec = 0;
-                        bytes_per_sec = 0;
                     }
 
                     if log_deletion_summary {
                         info!(
                             message = "deletion summary",
                             deleted_bytes = total_delete_bytes,
-                            deleted_bytes_per_sec = bytes_per_sec,
                             deleted_objects = total_delete_count,
                             deleted_objects_per_sec = objects_per_sec,
                             skipped = total_skip_count,

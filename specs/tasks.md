@@ -342,7 +342,7 @@ Phase 9: Deletion Pipeline (Task 10)
     - _Requirements: 1.3, 1.8_
 
 
-- [ ] 11. Implement Progress Reporting (Reuse from s3sync)
+- [-] 11. Implement Progress Reporting (Reuse from s3sync)
   - [ ] 11.1 Copy progress reporter
     - Copy progress/mod.rs with show_indicator() function
     - Use indicatif for progress bar

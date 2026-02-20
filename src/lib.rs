@@ -66,9 +66,11 @@ pub mod filters;
 pub mod lister;
 #[cfg(feature = "lua_support")]
 pub mod lua;
+pub mod pipeline;
 pub mod safety;
 pub mod stage;
 pub mod storage;
+pub mod terminator;
 pub mod types;
 
 #[cfg(test)]

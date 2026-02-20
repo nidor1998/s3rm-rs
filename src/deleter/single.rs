@@ -28,22 +28,28 @@ impl SingleDeleter {
 
 #[async_trait]
 impl Deleter for SingleDeleter {
-    async fn delete(&self, objects: &[S3Object], _config: &Config) -> Result<DeleteResult> {
+    async fn delete(&self, objects: &[S3Object], config: &Config) -> Result<DeleteResult> {
         let mut result = DeleteResult::default();
 
         for obj in objects {
             let key = obj.key();
             let version_id = obj.version_id().map(|v| v.to_string());
+            let if_match = if config.if_match {
+                obj.e_tag().map(|etag| etag.to_string())
+            } else {
+                None
+            };
 
             debug!(
                 key = key,
                 version_id = version_id,
+                if_match = if_match,
                 "sending DeleteObject request."
             );
 
             let delete_result = self
                 .target
-                .delete_object(key, version_id.clone(), None)
+                .delete_object(key, version_id.clone(), if_match)
                 .await;
 
             match delete_result {

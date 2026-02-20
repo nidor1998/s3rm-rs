@@ -8,7 +8,7 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-10 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, and deletion pipeline established.
+**Current Achievement**: Tasks 1-11 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, and progress reporting established.
 
 ## Current Status
 
@@ -23,6 +23,7 @@ Phase 6: Lua Integration (Task 7)
 Phase 7: Deletion Components (Task 8)
 Phase 8: Safety Features (Task 9)
 Phase 9: Deletion Pipeline (Task 10)
+Phase 10: Progress Reporting (Task 11)
 
 ## Tasks
 
@@ -87,7 +88,7 @@ Phase 9: Deletion Pipeline (Task 10)
 
   - [x] 3.4 Create deletion event types
     - Implement DeletionEvent enum (PipelineStart, ObjectDeleted, ObjectFailed, PipelineEnd, PipelineError)
-    - _Requirements: 7.7, 7.8_
+    - _Requirements: 7.6, 7.7_
 
   - [x] 3.5 Create S3Target type
     - Implement S3Target struct (bucket, prefix, endpoint, region)
@@ -177,7 +178,7 @@ Phase 9: Deletion Pipeline (Task 10)
   - [x] 7.3 Copy Lua event callback
     - Copy lua/callbacks.rs with LuaEventCallback
     - Implement EventCallback trait
-    - _Requirements: 7.7, 7.8, 2.12_
+    - _Requirements: 7.6, 7.7, 2.12_
 
   - [x] 7.4 Write property test for Lua filter callbacks
     - **Property 11: Lua Filter Callback Execution**
@@ -342,23 +343,22 @@ Phase 9: Deletion Pipeline (Task 10)
     - _Requirements: 1.3, 1.8_
 
 
-- [ ] 11. Implement Progress Reporting (Reuse from s3sync)
-  - [ ] 11.1 Copy progress reporter
+- [x] 11. Implement Progress Reporting (Reuse from s3sync)
+  - [x] 11.1 Copy progress reporter
     - Copy progress/mod.rs with show_indicator() function
     - Use indicatif for progress bar
     - Calculate moving averages for throughput
-    - Display ETA based on current rate
     - Display final summary with statistics
     - Support quiet mode
-    - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6_
+    - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5_
 
-  - [ ] 11.2 Write property test for progress reporting
+  - [x] 11.2 Write property test for progress reporting
     - **Property 31: Progress Reporting**
-    - **Validates: Requirements 7.1, 7.3, 7.4, 7.5**
+    - **Validates: Requirements 7.1, 7.3, 7.4**
 
-  - [ ] 11.3 Write property test for event callback invocation
+  - [x] 11.3 Write property test for event callback invocation
     - **Property 32: Event Callback Invocation**
-    - **Validates: Requirements 7.7, 7.8**
+    - **Validates: Requirements 7.6, 7.7**
 
 
 - [ ] 12. Implement Library API (Public Interface)
@@ -568,7 +568,7 @@ Phase 9: Deletion Pipeline (Task 10)
 
   - [ ] 17.5 Write property test for color output control
     - **Property 23: Color Output Control**
-    - **Validates: Requirements 4.8, 4.9, 7.6, 13.7**
+    - **Validates: Requirements 4.8, 4.9, 7.5, 13.7**
 
   - [ ] 17.6 Write property test for error logging
     - **Property 24: Error Logging**
@@ -735,7 +735,7 @@ Phase 9: Deletion Pipeline (Task 10)
   - _Requirements: All requirements (comprehensive coverage)_
 
 
-**Implemented Property Tests**: Properties 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18 (15 of 49).
+**Implemented Property Tests**: Properties 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 31, 32 (17 of 49).
 
 - [ ] 27. Documentation and Examples
   - [ ] 27.1 Write README.md
@@ -761,7 +761,7 @@ Phase 9: Deletion Pipeline (Task 10)
     - Create example Lua event callback script (examples/event.lua)
     - Create example Rust library usage (examples/library_usage.rs)
     - Document each example with comments
-    - _Requirements: 2.8, 7.7, 12.1_
+    - _Requirements: 2.8, 7.6, 12.1_
 
   - [ ] 27.4 Write CHANGELOG.md
     - Document initial release features
@@ -912,7 +912,7 @@ Phase 9: Deletion Pipeline (Task 10)
 
 ## Implementation Status Summary
 
-Tasks 1-10 complete and merged to init_build.
+Tasks 1-11 complete and merged to init_build.
 
 **Already implemented across Tasks 1-10** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)

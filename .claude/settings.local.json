@@ -56,7 +56,8 @@
       "Bash(gh pr view:*)",
       "Bash(ls:*)",
       "WebFetch(domain:github.com)",
-      "Bash(gh pr ready:*)"
+      "Bash(gh pr ready:*)",
+      "mcp__serena__search_for_pattern"
     ]
   },
   "enableAllProjectMcpServers": true,

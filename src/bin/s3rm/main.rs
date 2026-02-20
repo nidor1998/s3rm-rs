@@ -1,6 +1,10 @@
 use anyhow::Result;
 
+pub mod indicator;
+#[cfg(test)]
+mod indicator_properties;
 mod tracing;
+pub mod ui_config;
 
 /// s3rm - Extremely fast Amazon S3 object deletion tool.
 ///

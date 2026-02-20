@@ -52,7 +52,8 @@
       "mcp__git__git_create_branch",
       "mcp__git__git_checkout",
       "mcp__git__git_add",
-      "mcp__git__git_commit"
+      "mcp__git__git_commit",
+      "Bash(gh pr view:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

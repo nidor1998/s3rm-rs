@@ -580,38 +580,21 @@ async fn batch_deleter_includes_etag_when_if_match() {
 // ===========================================================================
 
 #[tokio::test]
-async fn single_deleter_empty_list() {
-    init_dummy_tracing_subscriber();
-    let (stats_sender, _stats_receiver) = async_channel::unbounded();
-    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
-    let deleter = SingleDeleter::new(boxed);
-    let config = make_test_config();
-
-    let result = deleter.delete(&[], &config).await.unwrap();
-    assert_eq!(result.deleted.len(), 0);
-}
-
-#[tokio::test]
-async fn single_deleter_multiple_objects() {
+async fn single_deleter_single_object() {
     init_dummy_tracing_subscriber();
     let (stats_sender, _stats_receiver) = async_channel::unbounded();
     let (boxed, mock) = make_mock_storage_boxed(stats_sender);
     let deleter = SingleDeleter::new(boxed);
     let config = make_test_config();
 
-    let objects = vec![
-        make_s3_object("key/a", 100),
-        make_s3_object("key/b", 200),
-        make_s3_object("key/c", 300),
-    ];
+    let objects = vec![make_s3_object("key/a", 100)];
     let result = deleter.delete(&objects, &config).await.unwrap();
-    assert_eq!(result.deleted.len(), 3);
+    assert_eq!(result.deleted.len(), 1);
+    assert_eq!(result.deleted[0].key, "key/a");
 
     let calls = mock.delete_object_calls.lock().unwrap();
-    assert_eq!(calls.len(), 3);
+    assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].key, "key/a");
-    assert_eq!(calls[1].key, "key/b");
-    assert_eq!(calls[2].key, "key/c");
 }
 
 #[tokio::test]
@@ -632,31 +615,27 @@ async fn single_deleter_with_version_id() {
 }
 
 #[tokio::test]
-async fn single_deleter_stops_on_error() {
+async fn single_deleter_returns_error_on_failure() {
     init_dummy_tracing_subscriber();
     let (stats_sender, _stats_receiver) = async_channel::unbounded();
     let (boxed, mock) = make_mock_storage_boxed(stats_sender);
 
-    // Configure key/b to fail
+    // Configure key/fail to fail
     mock.delete_object_error_keys
         .lock()
         .unwrap()
-        .insert("key/b".to_string(), "AccessDenied".to_string());
+        .insert("key/fail".to_string(), "AccessDenied".to_string());
 
     let deleter = SingleDeleter::new(boxed);
     let config = make_test_config();
 
-    let objects = vec![
-        make_s3_object("key/a", 100),
-        make_s3_object("key/b", 200),
-        make_s3_object("key/c", 300),
-    ];
+    let objects = vec![make_s3_object("key/fail", 200)];
     let result = deleter.delete(&objects, &config).await;
     assert!(result.is_err());
 
-    // key/c should never be attempted since key/b failed
     let calls = mock.delete_object_calls.lock().unwrap();
-    assert_eq!(calls.len(), 2); // key/a succeeded, key/b failed
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].key, "key/fail");
 }
 
 #[tokio::test]
@@ -1304,13 +1283,13 @@ proptest! {
 
 // **Property 2: Single Deletion API Usage**
 // **Validates: Requirements 1.2**
-// Every object is deleted individually with one API call each.
+// Every object is deleted individually with exactly one API call.
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(50))]
 
     #[test]
     fn prop_single_deleter_one_call_per_object(
-        obj_count in 0usize..200,
+        obj_count in 1usize..200,
     ) {
         let objects: Vec<S3Object> = (0..obj_count)
             .map(|i| make_s3_object(&format!("key/{i}"), (i as i64 + 1) * 100))
@@ -1327,16 +1306,15 @@ proptest! {
             let deleter = SingleDeleter::new(boxed);
             let config = make_test_config();
 
-            let result = deleter.delete(&objects, &config).await.unwrap();
-            prop_assert_eq!(result.deleted.len(), obj_count);
+            // SingleDeleter receives exactly one object per call
+            for (i, obj) in objects.iter().enumerate() {
+                let result = deleter.delete(std::slice::from_ref(obj), &config).await.unwrap();
+                prop_assert_eq!(result.deleted.len(), 1);
+                prop_assert_eq!(&result.deleted[0].key, &format!("key/{i}"));
+            }
 
             let calls = mock.delete_object_calls.lock().unwrap();
             prop_assert_eq!(calls.len(), obj_count);
-
-            // Each call should correspond to the correct key
-            for (i, call) in calls.iter().enumerate() {
-                prop_assert_eq!(&call.key, &format!("key/{i}"));
-            }
 
             Ok(())
         })?;

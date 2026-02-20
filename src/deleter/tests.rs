@@ -332,7 +332,7 @@ fn format_metadata_multiple_entries_sorted() {
     meta.insert("alpha".to_string(), "a_val".to_string());
     meta.insert("middle".to_string(), "m_val".to_string());
     let result = format_metadata(&meta);
-    assert_eq!(result, "alpha=a_val&middle=m_val&zebra=z_val");
+    assert_eq!(result, "alpha=a_val,middle=m_val,zebra=z_val");
 }
 
 #[test]
@@ -340,8 +340,8 @@ fn format_metadata_special_chars_encoded() {
     let mut meta = HashMap::new();
     meta.insert("key with spaces".to_string(), "val&ue".to_string());
     let result = format_metadata(&meta);
-    assert!(result.contains("key%20with%20spaces"));
-    assert!(result.contains("val%26ue"));
+    // s3sync only encodes values, not keys
+    assert!(result.contains("key with spaces=val%26ue"));
 }
 
 // ===========================================================================
@@ -1420,8 +1420,8 @@ proptest! {
 
         let result = format_metadata(&meta);
 
-        // Verify that the pairs are sorted
-        let parts: Vec<&str> = result.split('&').filter(|s| !s.is_empty()).collect();
+        // Verify that the pairs are sorted (comma-separated, matching s3sync)
+        let parts: Vec<&str> = result.split(',').filter(|s| !s.is_empty()).collect();
         for window in parts.windows(2) {
             prop_assert!(window[0] <= window[1], "Not sorted: {} > {}", window[0], window[1]);
         }

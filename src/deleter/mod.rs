@@ -711,42 +711,68 @@ impl ObjectDeleter {
 // Formatting helpers (adapted from s3sync)
 // ---------------------------------------------------------------------------
 
-/// Format metadata key-value pairs as a URL-query-style string for regex matching.
+/// Format metadata key-value pairs as a sorted comma-separated string for regex matching.
 ///
-/// Adapted from s3sync's `format_metadata` function.
+/// Reused from s3sync's `format_metadata` function in `src/types/mod.rs`.
 pub fn format_metadata(metadata: &HashMap<String, String>) -> String {
-    let mut pairs: Vec<String> = metadata
+    let mut sorted_keys: Vec<&String> = metadata.keys().collect();
+    sorted_keys.sort();
+
+    sorted_keys
         .iter()
-        .map(|(k, v)| format!("{}={}", encode(k), encode(v)))
-        .collect();
-    pairs.sort();
-    pairs.join("&")
+        .map(|key| {
+            let value = encode(&metadata[*key]).to_string();
+            format!("{key}={value}")
+        })
+        .collect::<Vec<String>>()
+        .join(",")
 }
 
-/// Format tag key-value pairs as a URL-query-style string for regex matching.
+/// Format tag key-value pairs as an ampersand-separated string for regex matching.
 ///
-/// Adapted from s3sync's `format_tags` function.
+/// Reused from s3sync's `format_tags` function in `src/types/mod.rs`.
 pub fn format_tags(tags: &[Tag]) -> String {
-    let mut pairs: Vec<String> = tags
+    let mut tags = tags
         .iter()
-        .map(|tag| format!("{}={}", encode(tag.key()), encode(tag.value())))
-        .collect();
-    pairs.sort();
-    pairs.join("&")
+        .map(|tag| (tag.key(), tag.value()))
+        .collect::<Vec<_>>();
+
+    tags.sort_by(|a, b| a.0.cmp(b.0));
+
+    tags.iter()
+        .map(|(key, value)| {
+            let escaped_key = encode(key).to_string();
+            let encoded_value = encode(value).to_string();
+            format!("{escaped_key}={encoded_value}")
+        })
+        .collect::<Vec<String>>()
+        .join("&")
 }
 
 /// Generate a tagging string from GetObjectTaggingOutput for display/logging.
+///
+/// Reused from s3sync's `generate_tagging_string` function in `src/pipeline/syncer.rs`.
 pub fn generate_tagging_string(
     get_object_tagging_output: &Option<GetObjectTaggingOutput>,
 ) -> Option<String> {
-    get_object_tagging_output.as_ref().map(|output| {
-        output
-            .tag_set()
-            .iter()
-            .map(|tag| format!("{}={}", encode(tag.key()), encode(tag.value())))
-            .collect::<Vec<_>>()
-            .join("&")
-    })
+    if get_object_tagging_output.is_none() {
+        return None;
+    }
+
+    let mut tags_key_value_string = String::new();
+    for tag in get_object_tagging_output.clone().unwrap().tag_set() {
+        let tag_string = format!(
+            "{}={}",
+            encode(tag.key()),
+            encode(tag.value()),
+        );
+        if !tags_key_value_string.is_empty() {
+            tags_key_value_string.push('&');
+        }
+        tags_key_value_string.push_str(&tag_string);
+    }
+
+    Some(tags_key_value_string)
 }
 
 // ---------------------------------------------------------------------------

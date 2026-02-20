@@ -531,6 +531,9 @@ impl DeletionPipeline {
                 // Promote warnings to errors if configured
                 if warn_as_error && has_warning.load(Ordering::SeqCst) {
                     has_error.store(true, Ordering::SeqCst);
+                    error_list.lock().unwrap().push_back(anyhow::anyhow!(
+                        "warnings promoted to errors (--warn-as-error)"
+                    ));
                 }
             });
         }

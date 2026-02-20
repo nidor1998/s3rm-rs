@@ -9,7 +9,6 @@ use s3rm_rs::config::Config;
 ///
 /// Returns `false` when:
 /// - `show_no_progress` is set (quiet mode)
-/// - Tracing is not configured
 /// - Verbosity is above Warn (tracing takes over the terminal)
 /// - JSON logging is enabled (progress text would corrupt JSON output)
 pub fn is_progress_indicator_needed(config: &Config) -> bool {
@@ -32,7 +31,6 @@ pub fn is_progress_indicator_needed(config: &Config) -> bool {
 ///
 /// Returns `false` when:
 /// - `show_no_progress` is set (quiet mode)
-/// - Tracing is not configured
 /// - JSON logging is enabled (result would corrupt JSON output)
 pub fn is_show_result_needed(config: &Config) -> bool {
     if config.show_no_progress {

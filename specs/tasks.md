@@ -294,7 +294,7 @@ Phase 8: Safety Features (Task 9)
     - _Requirements: 3.1, 3.5_
 
 
-- [ ] 10. Implement Deletion Pipeline (Adapted from s3sync)
+- [-] 10. Implement Deletion Pipeline (Adapted from s3sync)
   - [ ] 10.1 Create DeletionPipeline struct
     - Create pipeline/mod.rs with DeletionPipeline
     - Include config, target storage, cancellation_token, stats_receiver, error tracking

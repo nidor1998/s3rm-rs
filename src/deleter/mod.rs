@@ -429,23 +429,6 @@ impl ObjectDeleter {
                     "delete worker has been cancelled with error."
                 );
 
-                for obj in &batch {
-                    self.deletion_stats_report
-                        .lock()
-                        .unwrap()
-                        .increment_failed();
-
-                    let mut event_data = EventData::new(EventType::DELETE_FAILED);
-                    event_data.key = Some(obj.key().to_string());
-                    event_data.version_id = obj.version_id().map(|v| v.to_string());
-                    event_data.error_message = Some(e.to_string());
-                    self.base
-                        .config
-                        .event_manager
-                        .trigger_event(event_data)
-                        .await;
-                }
-
                 Err(anyhow!("delete worker has been cancelled with error."))
             }
         }

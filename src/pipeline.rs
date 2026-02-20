@@ -462,10 +462,10 @@ impl DeletionPipeline {
         }
 
         // UserDefinedFilter (Lua/Rust callback)
-        // Always insert this stage - it passes objects through if no callback registered.
+        // Only insert this stage when a filter callback is registered.
         // UserDefinedFilter has its own filter() method (not ObjectFilter trait),
         // so we spawn it directly instead of via spawn_filter().
-        {
+        if self.config.filter_manager.is_callback_registered() {
             let (stage, new_receiver) =
                 self.create_spsc_stage(Some(previous_stage_receiver), self.has_warning.clone());
 

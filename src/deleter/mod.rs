@@ -128,7 +128,7 @@ impl ObjectDeleter {
                             self.process_object(object).await?;
                         },
                         Err(_) => {
-                            self.flush_buffer().await?;
+                            self.delete_buffered_objects().await?;
                             debug!(worker_index = self.worker_index, "delete worker has been completed.");
                             break;
                         }
@@ -314,7 +314,7 @@ impl ObjectDeleter {
         // DeleteObjects request for conditional deletion.
         self.buffer.push(object);
         if self.buffer.len() >= self.effective_batch_size {
-            self.flush_buffer().await?;
+            self.delete_buffered_objects().await?;
         }
 
         Ok(())
@@ -322,7 +322,7 @@ impl ObjectDeleter {
 
     /// Flush the internal buffer by delegating to the Deleter backend
     /// (BatchDeleter or SingleDeleter).
-    async fn flush_buffer(&mut self) -> Result<()> {
+    async fn delete_buffered_objects(&mut self) -> Result<()> {
         if self.buffer.is_empty() {
             return Ok(());
         }

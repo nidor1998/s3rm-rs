@@ -29,7 +29,7 @@ Phase 10: Progress Reporting (Task 11)
 
 - [x] 1. Project Setup and Foundation
   - Create Cargo workspace with s3rm-rs library and binary
-  - Configure dependencies matching s3sync versions (AWS SDK 1.122.0, tokio 1.49, clap 4.5, mlua 0.11, proptest 1.10)
+  - Configure dependencies matching s3sync versions (AWS SDK 1.122.0, tokio 1.49, clap 4.5, mlua 0.11, proptest 1.6)
   - Set up project structure with lib.rs and main.rs
   - Configure CI pipeline for multi-platform builds (Linux x86_64/ARM64, Windows, macOS)
   - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
@@ -82,7 +82,7 @@ Phase 10: Progress Reporting (Task 11)
   - [x] 3.3 Create deletion outcome and error types
     - Implement DeletionOutcome enum (Success, Failed)
     - Implement DeletionError enum (NotFound, AccessDenied, PreconditionFailed, Throttled, NetworkError, ServiceError)
-    - Implement Error enum with thiserror (AwsSdk, InvalidConfig, InvalidUri, InvalidRegex, LuaScript, Io, Cancelled, DryRun, PartialFailure, Pipeline)
+    - Implement Error enum with thiserror (AwsSdk, InvalidConfig, InvalidUri, InvalidRegex, LuaScript, Io, Cancelled, PartialFailure, Pipeline)
     - Include exit_code() and is_retryable() methods
     - _Requirements: 6.4, 6.5, 10.5, 13.4_
 
@@ -914,7 +914,7 @@ Phase 10: Progress Reporting (Task 11)
 
 Tasks 1-11 complete and merged to init_build.
 
-**Already implemented across Tasks 1-10** (infrastructure available for remaining tasks):
+**Already implemented across Tasks 1-11** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)
 - All core data types: S3Object, DeletionStats, DeletionError, DeletionEvent, S3Target (Task 3)
 - Storage trait, S3 storage with versioning, conditional deletion, rate limiting (Task 4)
@@ -926,8 +926,9 @@ Tasks 1-11 complete and merged to init_build.
 - SafetyChecker with dry-run, confirmation prompts, force flag, non-TTY detection, max-delete threshold (Task 9)
 - DeletionPipeline orchestrator connecting all stages: list → filter → delete → terminate (Task 10)
 - Terminator stage for draining final pipeline output (Task 10)
+- Progress reporter with indicatif, UI config helpers, moving averages (Task 11)
 - CI pipeline for all target platforms (Task 1)
-- 15 property tests implemented (Properties 1-3, 5-11, 14-18)
+- 17 property tests implemented (Properties 1-3, 5-11, 14-18, 31, 32)
 
 **Sub-tasks already completed in later task groups** (done during Tasks 1-10):
 - 12.2: Callback traits for Rust API (done in Tasks 7-8)
@@ -944,8 +945,7 @@ Tasks 1-11 complete and merged to init_build.
 - 24.2-24.6: Unit tests for filters, deletion, safety, versioning, errors (done in Tasks 3-9)
 - 25.1-25.2: Property-based testing infrastructure (done in Tasks 3-9)
 
-**Remaining work** (Tasks 11-13 are the critical path):
-- Task 11: Progress reporting with indicatif
+**Remaining work** (Tasks 12-13 are the critical path):
 - Task 12: Library API re-exports and documentation (callback traits done, needs DeletionPipeline re-exports)
 - Task 13: CLI argument parsing with clap (main.rs is a stub)
 - Tasks 14-22: Remaining property tests and verification tasks (implementation sub-tasks mostly done)

@@ -135,7 +135,7 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 
 #### Acceptance Criteria
 
-1. WHEN deletions are in progress, THE S3rm_Tool SHALL display a progress indicator showing objects deleted and percentage complete
+1. WHEN deletions are in progress, THE S3rm_Tool SHALL display a progress indicator showing objects deleted, deletion rate, and byte count
 2. THE S3rm_Tool SHALL update progress statistics at least once per second
 3. WHEN operations complete, THE S3rm_Tool SHALL display summary statistics including total objects deleted, duration, and throughput
 4. THE S3rm_Tool SHALL support quiet mode that suppresses progress output for scripting scenarios

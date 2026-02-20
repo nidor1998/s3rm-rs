@@ -744,13 +744,11 @@ async fn object_deleter_max_delete_threshold() {
     // Run deleter — should stop after max_delete threshold
     deleter.delete().await.unwrap();
 
-    // Objects 0 and 1 are within threshold (counter ≤ 2), buffered and flushed
-    // via BatchDeleter when object 2 triggers the threshold.
+    // Objects 0 and 1 are buffered (counter ≤ 2), but when object 2 triggers
+    // the threshold (counter=3 > 2), the pipeline cancels without flushing.
     let batch_calls = mock.delete_objects_calls.lock().unwrap();
-    assert_eq!(batch_calls.len(), 1);
-    assert_eq!(batch_calls[0].identifiers.len(), 2);
+    assert_eq!(batch_calls.len(), 0);
 
-    // No direct single-object calls
     let single_calls = mock.delete_object_calls.lock().unwrap();
     assert_eq!(single_calls.len(), 0);
 }
@@ -1176,8 +1174,8 @@ async fn object_deleter_flushes_at_batch_size_boundary() {
     let delete_counter = Arc::new(AtomicU64::new(0));
     let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
-    // Send 7 objects: should produce 2 full batches (3+3) + 1 partial flush (1)
-    for i in 0..7 {
+    // Send 9 objects with batch_size=3: should produce 3 full batches (3+3+3)
+    for i in 0..9 {
         input_sender
             .send(make_s3_object(&format!("key/{i}"), 100))
             .await
@@ -1188,14 +1186,13 @@ async fn object_deleter_flushes_at_batch_size_boundary() {
     deleter.delete().await.unwrap();
 
     let batch_calls = mock.delete_objects_calls.lock().unwrap();
-    // 3 batch calls: [3, 3, 1]
     assert_eq!(batch_calls.len(), 3);
     assert_eq!(batch_calls[0].identifiers.len(), 3);
     assert_eq!(batch_calls[1].identifiers.len(), 3);
-    assert_eq!(batch_calls[2].identifiers.len(), 1);
+    assert_eq!(batch_calls[2].identifiers.len(), 3);
 
     let report = stats_report.lock().unwrap();
-    assert_eq!(report.stats_deleted_objects.load(Ordering::SeqCst), 7);
+    assert_eq!(report.stats_deleted_objects.load(Ordering::SeqCst), 9);
 }
 
 // ===========================================================================

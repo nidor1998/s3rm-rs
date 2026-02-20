@@ -74,7 +74,7 @@ pub struct ObjectDeleter {
     delete_counter: Arc<AtomicU64>,
     /// Deletion backend: BatchDeleter (batch_size > 1) or SingleDeleter (batch_size == 1).
     deleter: Box<dyn Deleter>,
-    /// Buffer of objects that passed filtering, pending flush to the deleter.
+    /// Buffer of objects that passed filtering, flushed to the deleter at batch boundaries.
     buffer: Vec<S3Object>,
     /// Effective batch size (min of config.batch_size and MAX_BATCH_SIZE).
     effective_batch_size: usize,
@@ -128,7 +128,6 @@ impl ObjectDeleter {
                             self.process_object(object).await?;
                         },
                         Err(_) => {
-                            // Channel closed — flush remaining buffer and shut down
                             self.flush_buffer().await?;
                             debug!(worker_index = self.worker_index, "delete worker has been completed.");
                             break;
@@ -136,8 +135,6 @@ impl ObjectDeleter {
                     }
                 },
                 _ = self.base.cancellation_token.cancelled() => {
-                    // Flush buffered objects that already passed filtering
-                    self.flush_buffer().await?;
                     info!(worker_index = self.worker_index, "delete worker has been cancelled.");
                     return Ok(());
                 }
@@ -153,9 +150,6 @@ impl ObjectDeleter {
         let deleted_count = self.delete_counter.load(Ordering::SeqCst);
         if let Some(max_delete) = self.base.config.max_delete {
             if deleted_count > max_delete {
-                // Flush already-buffered objects (they are within the threshold)
-                self.flush_buffer().await?;
-
                 self.base
                     .send_stats(DeletionStatistics::DeleteWarning {
                         key: object.key().to_string(),

@@ -5,7 +5,20 @@
 ```
 .
 ├── src/
-│   └── lib.rs              # Library entry point and public API
+│   ├── lib.rs              # Library entry point and public API
+│   ├── pipeline.rs         # DeletionPipeline orchestrator
+│   ├── stage.rs            # Stage struct for pipeline stages
+│   ├── lister.rs           # ObjectLister (reused from s3sync)
+│   ├── terminator.rs       # Terminator stage
+│   ├── config/             # Configuration and argument parsing
+│   ├── storage/            # Storage trait and S3 implementation
+│   ├── filters/            # Filter stages (regex, size, time, Lua)
+│   ├── deleter/            # Deletion components (batch, single, worker)
+│   ├── callback/           # Callback managers (event, filter)
+│   ├── safety/             # Safety features (confirmation, dry-run)
+│   ├── lua/                # Lua VM integration (filter, event callbacks)
+│   ├── types/              # Core types (error, event, filter, token)
+│   └── bin/s3rm/           # CLI binary entry point
 ├── Cargo.toml              # Package manifest and dependencies
 ├── Cargo.lock              # Dependency lock file
 ├── specs/                  # Feature specifications (requirements, design, tasks)
@@ -13,40 +26,65 @@
 └── .git/                   # Git repository
 ```
 
-## Library Organization (Planned)
-
-The library will be organized following s3sync's architecture patterns:
+## Library Organization
 
 ```
 src/
-├── lib.rs                  # Public API exports
+├── lib.rs                  # Public API exports and re-exports
 ├── pipeline.rs             # DeletionPipeline orchestrator
 ├── stage.rs                # Stage struct for pipeline stages
-├── config.rs               # Configuration and ParsedArgs
+├── config/
+│   ├── mod.rs              # Config struct, sub-structs, TryFrom<CLIArgs>
+│   └── args/
+│       ├── mod.rs          # CLIArgs (clap-derived), parse_from_args()
+│       └── value_parser/   # Custom value parsers (human_bytes)
 ├── storage/
-│   ├── mod.rs              # Storage trait
-│   └── s3.rs               # S3 storage implementation
+│   ├── mod.rs              # StorageTrait, Storage type alias, create_storage()
+│   └── s3/
+│       ├── mod.rs          # S3Storage implementation
+│       └── client_builder.rs # AWS client builder with credentials, retry, rate limiting
 ├── lister.rs               # ObjectLister (reused from s3sync)
 ├── filters/
-│   ├── mod.rs              # Filter trait
-│   ├── time.rs             # MtimeBeforeFilter, MtimeAfterFilter
-│   ├── size.rs             # SmallerSizeFilter, LargerSizeFilter
-│   ├── regex.rs            # IncludeRegexFilter, ExcludeRegexFilter
-│   └── lua.rs              # UserDefinedFilter (Lua callbacks)
+│   ├── mod.rs              # ObjectFilter trait, ObjectFilterBase
+│   ├── mtime_before.rs     # MtimeBeforeFilter
+│   ├── mtime_after.rs      # MtimeAfterFilter
+│   ├── smaller_size.rs     # SmallerSizeFilter
+│   ├── larger_size.rs      # LargerSizeFilter
+│   ├── include_regex.rs    # IncludeRegexFilter
+│   ├── exclude_regex.rs    # ExcludeRegexFilter
+│   └── user_defined.rs     # UserDefinedFilter (Lua/Rust callbacks via FilterManager)
 ├── deleter/
-│   ├── mod.rs              # ObjectDeleter and Deleter trait
-│   ├── batch.rs            # BatchDeleter
-│   └── single.rs           # SingleDeleter
+│   ├── mod.rs              # ObjectDeleter, Deleter trait, DeleteResult types
+│   ├── batch.rs            # BatchDeleter (S3 DeleteObjects API)
+│   ├── single.rs           # SingleDeleter (S3 DeleteObject API)
+│   └── tests.rs            # Deletion unit and property tests
+├── callback/
+│   ├── mod.rs              # Re-exports
+│   ├── event_manager.rs    # EventManager (event callback registration and dispatch)
+│   ├── filter_manager.rs   # FilterManager (filter callback registration and dispatch)
+│   ├── user_defined_event_callback.rs  # UserDefinedEventCallback
+│   └── user_defined_filter_callback.rs # UserDefinedFilterCallback
+├── safety/
+│   └── mod.rs              # SafetyChecker, PromptHandler trait, confirmation flow
 ├── terminator.rs           # Terminator stage
-├── retry.rs                # RetryPolicy (reused from s3sync)
-├── progress.rs             # Progress reporting (reused from s3sync)
 ├── lua/                    # Lua integration (reused from s3sync)
 │   ├── mod.rs
 │   ├── engine.rs           # LuaScriptCallbackEngine
 │   ├── filter.rs           # LuaFilterCallback
 │   └── event.rs            # LuaEventCallback
-└── cli/
-    └── main.rs             # CLI binary entry point
+├── types/
+│   ├── mod.rs              # S3Object, DeletionStats, DeletionStatistics, S3Target, etc.
+│   ├── error.rs            # S3rmError enum with exit_code() and is_retryable()
+│   ├── event_callback.rs   # EventCallback trait, EventType bitflags, EventData
+│   ├── filter_callback.rs  # FilterCallback trait
+│   └── token.rs            # PipelineCancellationToken type alias
+└── bin/s3rm/
+    ├── main.rs             # CLI binary entry point
+    ├── indicator.rs         # Progress reporter (indicatif)
+    ├── tracing_init.rs     # Tracing subscriber initialization
+    ├── ui_config.rs        # UI configuration helpers
+    └── ctrl_c_handler/
+        └── mod.rs          # Ctrl+C signal handler
 ```
 
 ## Key Architectural Principles
@@ -62,18 +100,19 @@ src/
 - `pipeline`: Orchestrates the entire deletion workflow
 - `stage`: Provides context for each pipeline stage
 - `config`: Handles CLI parsing and configuration validation
-- `storage`: Abstracts S3 operations
+- `storage`: Abstracts S3 operations (retry logic integrated in S3Storage)
 - `lister`: Lists objects from S3 with parallel pagination
 - `filters`: Filter objects based on various criteria
 - `deleter`: Executes deletion operations (batch or single)
+- `callback`: Manages event and filter callback registration and dispatch
+- `safety`: Confirmation prompts, dry-run skip, force flag, non-TTY detection
 - `terminator`: Consumes final pipeline output
-- `retry`: Handles transient failures with exponential backoff
-- `progress`: Displays progress bars and statistics
 - `lua`: Integrates Lua VM for custom callbacks
+- `types`: Core data types, error types, event/filter callback traits
 
 ## Testing Organization
 
-Tests should be co-located with source code:
+Tests are co-located with source code:
 - Unit tests in `#[cfg(test)]` modules within each source file
+- Property-based tests in `*_properties.rs` files alongside source modules
 - Integration tests in `tests/` directory at project root
-- Property-based tests using appropriate PBT framework

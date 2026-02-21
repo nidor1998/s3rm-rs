@@ -14,8 +14,6 @@ use clap_verbosity_flag::{Verbosity, WarnLevel};
 use fancy_regex::Regex;
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::sync::Arc;
-use tokio::sync::Semaphore;
 
 mod value_parser;
 
@@ -629,7 +627,6 @@ impl CLIArgs {
             },
             disable_stalled_stream_protection: self.disable_stalled_stream_protection,
             request_checksum_calculation: RequestChecksumCalculation::WhenRequired,
-            parallel_upload_semaphore: Arc::new(Semaphore::new(1)),
         })
     }
 

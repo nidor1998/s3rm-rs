@@ -193,7 +193,6 @@ mod tests {
     use crate::types::{AccessKeys, ClientConfigLocation, S3Credentials};
     use aws_smithy_types::checksum_config::RequestChecksumCalculation;
     use std::sync::atomic::AtomicBool;
-    use tokio::sync::Semaphore;
 
     fn init_dummy_tracing_subscriber() {
         let _ = tracing_subscriber::fmt()
@@ -229,7 +228,6 @@ mod tests {
             },
             disable_stalled_stream_protection: false,
             request_checksum_calculation: RequestChecksumCalculation::WhenRequired,
-            parallel_upload_semaphore: Arc::new(Semaphore::new(1)),
             accelerate: false,
             request_payer: None,
         }

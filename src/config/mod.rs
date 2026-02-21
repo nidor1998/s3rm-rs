@@ -7,8 +7,6 @@ use aws_sdk_s3::types::RequestPayer;
 use aws_smithy_types::checksum_config::RequestChecksumCalculation;
 use chrono::{DateTime, Utc};
 use fancy_regex::Regex;
-use std::sync::Arc;
-use tokio::sync::Semaphore;
 
 /// Main configuration for the s3rm-rs deletion pipeline.
 ///
@@ -115,7 +113,6 @@ pub struct ClientConfig {
     pub cli_timeout_config: CLITimeoutConfig,
     pub disable_stalled_stream_protection: bool,
     pub request_checksum_calculation: RequestChecksumCalculation,
-    pub parallel_upload_semaphore: Arc<Semaphore>,
 }
 
 /// Retry configuration for AWS SDK operations.

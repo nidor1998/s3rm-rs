@@ -8,7 +8,7 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-13 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, and CLI implementation established.
+**Current Achievement**: Tasks 1-14 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, and versioning support established.
 
 ## Current Status
 
@@ -26,6 +26,7 @@ Phase 9: Deletion Pipeline (Task 10)
 Phase 10: Progress Reporting (Task 11)
 Phase 11: Library API (Task 12)
 Phase 12: CLI Implementation (Task 13)
+Phase 13: Versioning Support (Task 14)
 
 ## Tasks
 
@@ -465,7 +466,7 @@ Phase 12: CLI Implementation (Task 13)
     - **Validates: Requirements 10.5, 13.4**
 
 
-- [-] 14. Implement Versioning Support
+- [x] 14. Implement Versioning Support
   - [x] 14.1 Add version handling to ObjectDeleter
     - S3Object enum supports NotVersioning, Versioning, and DeleteMarker variants (Task 3)
     - BatchDeleter and SingleDeleter include version_id in API requests (Task 8)
@@ -909,7 +910,7 @@ Phase 12: CLI Implementation (Task 13)
 
 ## Implementation Status Summary
 
-Tasks 1-13 complete. All merged to init_build.
+Tasks 1-14 complete. All merged to init_build.
 
 **Already implemented across Tasks 1-12** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)

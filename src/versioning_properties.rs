@@ -6,8 +6,9 @@
 // **Validates: Requirements 5.1**
 //
 // **Property 26: All-Versions Deletion**
-// For any deletion with delete-all-versions flag, the tool should use
-// list_object_versions and deleters should include version_id.
+// For any deletion with delete-all-versions, the BatchDeleter should
+// include version_id in delete API calls for both ObjectVersion and
+// DeleteMarker entries.
 // **Validates: Requirements 5.2**
 //
 // **Property 27: Version Information Retrieval**
@@ -23,9 +24,13 @@
 #[cfg(test)]
 mod tests {
     use aws_sdk_s3::primitives::DateTime;
-    use aws_sdk_s3::types::{Object, ObjectVersion, ObjectVersionStorageClass};
+    use aws_sdk_s3::types::{
+        DeleteMarkerEntry, DeletedObject, Object, ObjectIdentifier, ObjectVersion,
+        ObjectVersionStorageClass,
+    };
     use proptest::prelude::*;
     use std::sync::atomic::Ordering;
+    use std::sync::{Arc, Mutex};
 
     use crate::lister::tests::create_mock_lister;
     use crate::types::S3Object;
@@ -180,10 +185,108 @@ mod tests {
     // Property 26: All-Versions Deletion
     // Validates: Requirements 5.2
     //
-    // When delete_all_versions is true, the lister uses list_object_versions.
-    // All versions (including old ones) are sent through the pipeline, each
-    // carrying its version_id for correct per-version deletion.
+    // When delete_all_versions is true, the BatchDeleter must include
+    // version_id in the DeleteObjects API call for BOTH ObjectVersion
+    // entries and DeleteMarker entries. This exercises the deletion stage
+    // (not just the lister) and covers S3Object::DeleteMarker.
     // -----------------------------------------------------------------------
+
+    /// Minimal mock storage that records delete_objects calls for verification.
+    /// Only implements the methods needed by BatchDeleter.
+    #[derive(Clone)]
+    struct VersioningMockStorage {
+        delete_objects_calls: Arc<Mutex<Vec<Vec<ObjectIdentifier>>>>,
+    }
+
+    impl VersioningMockStorage {
+        fn new() -> Self {
+            Self {
+                delete_objects_calls: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::storage::StorageTrait for VersioningMockStorage {
+        fn is_express_onezone_storage(&self) -> bool {
+            false
+        }
+
+        async fn list_objects(
+            &self,
+            _sender: &async_channel::Sender<S3Object>,
+            _max_keys: i32,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn list_object_versions(
+            &self,
+            _sender: &async_channel::Sender<S3Object>,
+            _max_keys: i32,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn head_object(
+            &self,
+            _key: &str,
+            _version_id: Option<String>,
+        ) -> anyhow::Result<aws_sdk_s3::operation::head_object::HeadObjectOutput> {
+            Ok(aws_sdk_s3::operation::head_object::HeadObjectOutput::builder().build())
+        }
+
+        async fn get_object_tagging(
+            &self,
+            _key: &str,
+            _version_id: Option<String>,
+        ) -> anyhow::Result<aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput>
+        {
+            Ok(
+                aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput::builder()
+                    .build()
+                    .unwrap(),
+            )
+        }
+
+        async fn delete_object(
+            &self,
+            _key: &str,
+            _version_id: Option<String>,
+            _if_match: Option<String>,
+        ) -> anyhow::Result<aws_sdk_s3::operation::delete_object::DeleteObjectOutput> {
+            Ok(aws_sdk_s3::operation::delete_object::DeleteObjectOutput::builder().build())
+        }
+
+        async fn delete_objects(
+            &self,
+            objects: Vec<ObjectIdentifier>,
+        ) -> anyhow::Result<aws_sdk_s3::operation::delete_objects::DeleteObjectsOutput> {
+            let mut builder = aws_sdk_s3::operation::delete_objects::DeleteObjectsOutput::builder();
+            for ident in &objects {
+                builder = builder.deleted(DeletedObject::builder().key(ident.key()).build());
+            }
+            self.delete_objects_calls.lock().unwrap().push(objects);
+            Ok(builder.build())
+        }
+
+        async fn is_versioning_enabled(&self) -> anyhow::Result<bool> {
+            Ok(true)
+        }
+
+        fn get_client(&self) -> Option<Arc<aws_sdk_s3::Client>> {
+            None
+        }
+
+        fn get_stats_sender(&self) -> async_channel::Sender<crate::types::DeletionStatistics> {
+            let (sender, _) = async_channel::unbounded();
+            sender
+        }
+
+        async fn send_stats(&self, _stats: crate::types::DeletionStatistics) {}
+
+        fn set_warning(&self) {}
+    }
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
@@ -191,13 +294,14 @@ mod tests {
         /// **Property 26: All-Versions Deletion**
         /// **Validates: Requirements 5.2**
         ///
-        /// With delete_all_versions=true, the lister dispatches to
-        /// list_object_versions. All versions are sent with their version_id,
-        /// enabling deletion of all versions including delete markers.
+        /// When delete_all_versions is true, the BatchDeleter must include
+        /// version_id in delete API calls for both ObjectVersion and
+        /// DeleteMarker entries. Every object passed to the deleter has
+        /// its version_id forwarded to the S3 DeleteObjects API.
         #[test]
-        fn prop_all_versions_delete_uses_list_object_versions(
-            num_keys in 1usize..10,
-            versions_per_key in 1usize..5,
+        fn prop_all_versions_deletion_includes_version_ids(
+            num_versions in 1usize..8,
+            num_delete_markers in 1usize..5,
         ) {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -207,62 +311,77 @@ mod tests {
             rt.block_on(async {
                 let config = make_lister_config(true); // delete_all_versions = true
 
-                // Build versioned objects: each key has multiple versions
-                let keys_and_versions: Vec<(String, Vec<String>)> = (0..num_keys)
-                    .map(|k| {
-                        let key = format!("key/{k}");
-                        let versions: Vec<String> = (0..versions_per_key)
-                            .map(|v| format!("v{v}"))
-                            .collect();
-                        (key, versions)
-                    })
-                    .collect();
+                // Build a mix of ObjectVersion and DeleteMarker entries
+                let mut objects: Vec<S3Object> = Vec::new();
+                let mut expected: Vec<(String, String)> = Vec::new(); // (key, version_id)
 
-                let versioned_objects: Vec<S3Object> = keys_and_versions
-                    .iter()
-                    .flat_map(|(key, versions)| {
-                        versions.iter().enumerate().map(move |(i, vid)| {
-                            S3Object::Versioning(
-                                ObjectVersion::builder()
-                                    .key(key.as_str())
-                                    .version_id(vid.as_str())
-                                    .is_latest(i == 0)
-                                    .size(100)
-                                    .storage_class(ObjectVersionStorageClass::Standard)
-                                    .last_modified(DateTime::from_secs(1000 + i as i64))
-                                    .build(),
-                            )
-                        })
-                    })
-                    .collect();
-
-                let expected_total = num_keys * versions_per_key;
-
-                let (lister, list_objects_called, list_versions_called, receiver) =
-                    create_mock_lister(config, vec![], versioned_objects);
-
-                lister.list_target(1000).await.unwrap();
-
-                // Property: list_object_versions is called (not list_objects)
-                prop_assert_eq!(list_objects_called.load(Ordering::SeqCst), 0);
-                prop_assert_eq!(list_versions_called.load(Ordering::SeqCst), 1);
-
-                // Property: all versions are sent through the channel
-                let mut received = Vec::new();
-                while let Ok(obj) = receiver.try_recv() {
-                    received.push(obj);
+                for i in 0..num_versions {
+                    let key = format!("key/{i}");
+                    let vid = format!("ver-{i}");
+                    expected.push((key.clone(), vid.clone()));
+                    objects.push(S3Object::Versioning(
+                        ObjectVersion::builder()
+                            .key(key.as_str())
+                            .version_id(vid.as_str())
+                            .is_latest(i == 0)
+                            .size(100)
+                            .storage_class(ObjectVersionStorageClass::Standard)
+                            .last_modified(DateTime::from_secs(1000 + i as i64))
+                            .build(),
+                    ));
                 }
-                prop_assert_eq!(received.len(), expected_total);
 
-                // Property: every received object is Versioning with a version_id
-                for obj in &received {
-                    prop_assert!(
-                        matches!(obj, S3Object::Versioning(_)),
-                        "Versioned listing should produce Versioning objects"
+                for i in 0..num_delete_markers {
+                    let key = format!("deleted/{i}");
+                    let vid = format!("dm-{i}");
+                    expected.push((key.clone(), vid.clone()));
+                    objects.push(S3Object::DeleteMarker(
+                        DeleteMarkerEntry::builder()
+                            .key(key.as_str())
+                            .version_id(vid.as_str())
+                            .is_latest(false)
+                            .last_modified(DateTime::from_secs(2000 + i as i64))
+                            .build(),
+                    ));
+                }
+
+                let mock = VersioningMockStorage::new();
+                let boxed: Box<dyn crate::storage::StorageTrait + Send + Sync> =
+                    Box::new(mock.clone());
+                let deleter = crate::deleter::BatchDeleter::new(boxed);
+
+                let result = crate::deleter::Deleter::delete(&deleter, &objects, &config)
+                    .await
+                    .unwrap();
+
+                // Property: all objects (versions + delete markers) were deleted
+                prop_assert_eq!(
+                    result.deleted.len(),
+                    expected.len(),
+                    "All versions and delete markers should be deleted"
+                );
+
+                // Property: version_ids in the API call match what we provided
+                let calls = mock.delete_objects_calls.lock().unwrap();
+                let all_idents: Vec<&ObjectIdentifier> =
+                    calls.iter().flat_map(|c| c.iter()).collect();
+
+                prop_assert_eq!(
+                    all_idents.len(),
+                    expected.len(),
+                    "All objects should appear in delete API calls"
+                );
+
+                for (ident, (exp_key, exp_vid)) in all_idents.iter().zip(expected.iter()) {
+                    prop_assert_eq!(
+                        ident.key(),
+                        exp_key.as_str(),
+                        "Key must match in delete API call"
                     );
-                    prop_assert!(
-                        obj.version_id().is_some(),
-                        "Objects from list_object_versions should have version_id"
+                    prop_assert_eq!(
+                        ident.version_id(),
+                        Some(exp_vid.as_str()),
+                        "version_id must be included in delete API call"
                     );
                 }
 
@@ -447,6 +566,66 @@ mod tests {
         assert_eq!(received[1].version_id(), Some("v2"));
         assert_eq!(received[2].key(), "file2.txt");
         assert_eq!(received[2].version_id(), Some("v1"));
+    }
+
+    #[tokio::test]
+    async fn batch_deleter_handles_delete_markers_with_version_id() {
+        let config = make_lister_config(true);
+
+        let objects = vec![
+            S3Object::Versioning(
+                ObjectVersion::builder()
+                    .key("file.txt")
+                    .version_id("ver-1")
+                    .is_latest(true)
+                    .size(500)
+                    .storage_class(ObjectVersionStorageClass::Standard)
+                    .last_modified(DateTime::from_secs(1000))
+                    .build(),
+            ),
+            S3Object::DeleteMarker(
+                DeleteMarkerEntry::builder()
+                    .key("file.txt")
+                    .version_id("dm-1")
+                    .is_latest(false)
+                    .last_modified(DateTime::from_secs(900))
+                    .build(),
+            ),
+            S3Object::DeleteMarker(
+                DeleteMarkerEntry::builder()
+                    .key("other.txt")
+                    .version_id("dm-2")
+                    .is_latest(true)
+                    .last_modified(DateTime::from_secs(800))
+                    .build(),
+            ),
+        ];
+
+        let mock = VersioningMockStorage::new();
+        let boxed: Box<dyn crate::storage::StorageTrait + Send + Sync> = Box::new(mock.clone());
+        let deleter = crate::deleter::BatchDeleter::new(boxed);
+
+        let result = crate::deleter::Deleter::delete(&deleter, &objects, &config)
+            .await
+            .unwrap();
+
+        assert_eq!(result.deleted.len(), 3);
+        assert_eq!(result.failed.len(), 0);
+
+        let calls = mock.delete_objects_calls.lock().unwrap();
+        let idents = &calls[0];
+        assert_eq!(idents.len(), 3);
+
+        // ObjectVersion includes version_id
+        assert_eq!(idents[0].key(), "file.txt");
+        assert_eq!(idents[0].version_id(), Some("ver-1"));
+
+        // DeleteMarker entries also include version_id
+        assert_eq!(idents[1].key(), "file.txt");
+        assert_eq!(idents[1].version_id(), Some("dm-1"));
+
+        assert_eq!(idents[2].key(), "other.txt");
+        assert_eq!(idents[2].version_id(), Some("dm-2"));
     }
 
     #[tokio::test]

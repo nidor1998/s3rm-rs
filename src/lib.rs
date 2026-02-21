@@ -189,6 +189,9 @@ mod retry_properties;
 mod optimistic_locking_properties;
 
 #[cfg(test)]
+mod logging_properties;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

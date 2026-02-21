@@ -552,7 +552,7 @@ Phase 15: Optimistic Locking Support (Task 16)
     - Implemented in src/optimistic_locking_properties.rs (Task 16)
 
 
-- [ ] 17. Implement Logging and Verbosity
+- [-] 17. Implement Logging and Verbosity
   - [x] 17.1 Verify tracing integration
     - init_tracing() in bin/s3rm/tracing_init.rs supports all verbosity levels, JSON, text, color (Task 2)
     - TracingConfig in Config covers tracing_level, json_tracing, aws_sdk_tracing, disable_color_tracing

@@ -271,9 +271,15 @@ Examples:
     )]
     pub filter_larger_size: Option<String>,
 
-    /// Lua script path for custom object filtering.
+    /// Path to the Lua script that is executed as filter callback.
     #[cfg(feature = "lua_support")]
-    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "Lua")]
+    #[arg(
+        long,
+        env,
+        value_parser = NonEmptyStringValueParser::new(),
+        help_heading = "Lua",
+        long_help = r#"Path to the Lua script that is executed as filter callback"#
+    )]
     pub filter_callback_lua_script: Option<String>,
 
     // -----------------------------------------------------------------------
@@ -418,24 +424,54 @@ Examples:
     // -----------------------------------------------------------------------
     // Lua options (same as s3sync)
     // -----------------------------------------------------------------------
-    /// Lua event callback script path.
+    /// Path to the Lua script that is executed as event callback.
     #[cfg(feature = "lua_support")]
-    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "Lua")]
+    #[arg(
+        long,
+        env,
+        value_parser = NonEmptyStringValueParser::new(),
+        help_heading = "Lua",
+        long_help = r#"Path to the Lua script that is executed as event callback"#
+    )]
     pub event_callback_lua_script: Option<String>,
 
-    /// Allow Lua OS library access (disabled by default for safety).
+    /// Allow Lua OS and I/O library functions in the Lua script.
     #[cfg(feature = "lua_support")]
-    #[arg(long, env, default_value_t = DEFAULT_ALLOW_LUA_OS_LIBRARY, help_heading = "Lua")]
+    #[arg(
+        long,
+        env,
+        conflicts_with_all = ["allow_lua_unsafe_vm"],
+        default_value_t = DEFAULT_ALLOW_LUA_OS_LIBRARY,
+        help_heading = "Lua",
+        long_help = "Allow Lua OS and I/O library functions in the Lua script."
+    )]
     pub allow_lua_os_library: bool,
 
-    /// Allow unsafe Lua VM operations.
+    /// Allow unsafe Lua VM functions in the Lua script.
     #[cfg(feature = "lua_support")]
-    #[arg(long, env, default_value_t = DEFAULT_ALLOW_LUA_UNSAFE_VM, help_heading = "Lua")]
+    #[arg(
+        long,
+        env,
+        conflicts_with_all = ["allow_lua_os_library"],
+        default_value_t = DEFAULT_ALLOW_LUA_UNSAFE_VM,
+        help_heading = "Dangerous",
+        long_help = r#"Allow unsafe Lua VM functions in the Lua script.
+It allows the Lua script to load unsafe standard libraries or C modules."#
+    )]
     pub allow_lua_unsafe_vm: bool,
 
-    /// Lua VM memory limit (e.g. "64MiB", "128MiB"). Default: 64MiB.
+    /// Lua VM memory limit.
     #[cfg(feature = "lua_support")]
-    #[arg(long, env, default_value = DEFAULT_LUA_VM_MEMORY_LIMIT, help_heading = "Lua")]
+    #[arg(
+        long,
+        env,
+        default_value = DEFAULT_LUA_VM_MEMORY_LIMIT,
+        value_parser = check_human_bytes,
+        help_heading = "Lua",
+        long_help = r#"Memory limit for the Lua VM. Allow suffixes: KB, KiB, MB, MiB, GB, GiB.
+Zero means no limit.
+If the memory limit is exceeded, the whole process will be terminated."#
+    )]
     pub lua_vm_memory_limit: String,
 
     // -----------------------------------------------------------------------

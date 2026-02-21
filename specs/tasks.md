@@ -8,7 +8,7 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-17 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, retry/error handling, optimistic locking, and logging/verbosity property tests established.
+**Current Achievement**: Tasks 1-18 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, retry/error handling, optimistic locking, logging/verbosity, and AWS configuration property tests established.
 
 ## Current Status
 
@@ -30,6 +30,7 @@ Phase 13: Versioning Support (Task 14)
 Phase 14: Retry and Error Handling (Task 15)
 Phase 15: Optimistic Locking Support (Task 16)
 Phase 16: Logging and Verbosity (Task 17)
+Phase 17: AWS Configuration Support (Task 18)
 
 ## Tasks
 
@@ -586,7 +587,7 @@ Phase 16: Logging and Verbosity (Task 17)
     - Implemented in src/logging_properties.rs (Task 17)
 
 
-- [ ] 18. Implement AWS Configuration Support
+- [x] 18. Implement AWS Configuration Support
   - [x] 18.1 Verify AWS credential loading
     - client_builder.rs supports access keys, named profiles, and environment credentials (Task 2)
     - Region configuration from profile, env, or explicit setting (Task 2)
@@ -597,13 +598,15 @@ Phase 16: Logging and Verbosity (Task 17)
     - force_path_style for S3-compatible services (MinIO, Wasabi, LocalStack)
     - _Requirements: 8.6_
 
-  - [ ] 18.3 Write property test for AWS credential loading
+  - [x] 18.3 Write property test for AWS credential loading
     - **Property 34: AWS Credential Loading**
     - **Validates: Requirements 8.4**
+    - Implemented in src/aws_config_properties.rs (Task 18)
 
-  - [ ] 18.4 Write property test for custom endpoint support
+  - [x] 18.4 Write property test for custom endpoint support
     - **Property 35: Custom Endpoint Support**
     - **Validates: Requirements 8.6**
+    - Implemented in src/aws_config_properties.rs (Task 18)
 
 
 - [ ] 19. Implement Rate Limiting
@@ -743,7 +746,7 @@ Phase 16: Logging and Verbosity (Task 17)
   - _Requirements: All requirements (comprehensive coverage)_
 
 
-**Implemented Property Tests**: Properties 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47 (38 of 49).
+**Implemented Property Tests**: Properties 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47 (40 of 49).
 
 - [ ] 27. Documentation and Examples
   - [ ] 27.1 Write README.md
@@ -920,9 +923,9 @@ Phase 16: Logging and Verbosity (Task 17)
 
 ## Implementation Status Summary
 
-Tasks 1-17 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init_build.
+Tasks 1-18 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init_build.
 
-**Already implemented across Tasks 1-16** (infrastructure available for remaining tasks):
+**Already implemented across Tasks 1-18** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)
 - All core data types: S3Object, DeletionStats, DeletionError, DeletionEvent, S3Target (Task 3)
 - Storage trait, S3 storage with versioning, conditional deletion, rate limiting (Task 4)
@@ -940,8 +943,9 @@ Tasks 1-17 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init
 - Versioning property tests: Properties 25-28 covering lister dispatch, deletion stage, version info (Task 14)
 - Retry/error handling property tests: Properties 29-30 covering retry config, error classification, failure tracking (Task 15)
 - Optimistic locking property tests: Properties 41-43 covering If-Match flag, SingleDeleter/BatchDeleter ETags (Task 16)
+- AWS configuration property tests: Properties 34-35 covering credential loading, custom endpoint support (Task 18)
 - CI pipeline for all target platforms (Task 1)
-- 38 property tests implemented (Properties 1-3, 5-11, 14-18, 21-33, 38-43, 44-47)
+- 40 property tests implemented (Properties 1-3, 5-11, 14-18, 21-35, 38-47)
 - Comprehensive unit tests for all components (Task 24, all sub-tasks done in Tasks 3-13)
 
 **Sub-tasks already completed in later task groups** (done during Tasks 1-16):
@@ -954,6 +958,7 @@ Tasks 1-17 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init
 - 16.3-16.5: Optimistic locking property tests (done in Task 16)
 - 17.1-17.2: Tracing integration and error logging (done in Tasks 2, 8, 9)
 - 18.1-18.2: AWS credential loading and custom endpoint support (done in Task 2)
+- 18.3-18.4: AWS configuration property tests (done in Task 18)
 - 19.1: Rate limiter integration (done in Task 2)
 - 20.2-20.3: Terminal detection and cross-platform builds (done in Tasks 1, 9)
 - 21.1: Non-interactive environment detection (done in Task 9)
@@ -962,7 +967,7 @@ Tasks 1-17 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init
 - 25.1-25.2: Property-based testing infrastructure (done in Tasks 3-9)
 
 **Remaining work**:
-- Tasks 17-22: Remaining property tests (11 of 49 properties still need tests: 4, 12, 13, 19, 20, 34, 35, 36, 37, 48, 49)
+- Tasks 19-22: Remaining property tests (9 of 49 properties still need tests: 4, 12, 13, 19, 20, 36, 37, 48, 49)
 - Task 23: Checkpoint review
 - Task 26: Verify all property tests
 - Tasks 27-31: Documentation, quality, E2E testing, release

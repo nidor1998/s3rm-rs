@@ -192,6 +192,9 @@ mod optimistic_locking_properties;
 mod logging_properties;
 
 #[cfg(test)]
+mod aws_config_properties;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -183,8 +183,8 @@ pub fn create_pipeline_cancellation_token() -> PipelineCancellationToken;
 // Deletion statistics
 pub struct DeletionStats {
     pub stats_deleted_objects: u64,
-    pub stats_failed_objects: u64,
     pub stats_deleted_bytes: u64,
+    pub stats_failed_objects: u64,
     pub duration: Duration,
 }
 
@@ -333,10 +333,10 @@ pub struct Stage {
 impl Stage {
     pub fn new(
         config: Config,
-        target: Box<dyn Storage>,
+        target: Storage,
         receiver: Option<Receiver<S3Object>>,
         sender: Option<Sender<S3Object>>,
-        cancellation_token: CancellationToken,
+        cancellation_token: PipelineCancellationToken,
         has_warning: Arc<AtomicBool>,
     ) -> Self;
 }
@@ -434,7 +434,7 @@ pub struct ObjectDeleter {
     base: Stage,
     deletion_stats_report: Arc<Mutex<DeletionStatsReport>>,
     delete_counter: Arc<AtomicU64>,         // shared counter for --max-delete enforcement
-    deleter: Box<dyn Deleter>,              // BatchDeleter or SingleDeleter
+    deleter: Box<dyn Deleter + Send + Sync>, // BatchDeleter or SingleDeleter
     buffer: Vec<S3Object>,                  // objects pending deletion, flushed at batch boundaries
     effective_batch_size: usize,            // min(config.batch_size, MAX_BATCH_SIZE)
 }
@@ -487,9 +487,10 @@ pub struct FailedKey {
 }
 
 #[async_trait]
-pub trait Deleter: Send + Sync {
+pub trait Deleter {
     async fn delete(&self, objects: &[S3Object], config: &Config) -> Result<DeleteResult>;
 }
+// Note: Send + Sync bounds are applied at the usage site: Box<dyn Deleter + Send + Sync>
 ```
 
 **Adaptation from s3sync**: The ObjectDeleter is adapted from s3sync's ObjectSyncer. Following s3sync's pattern, content-type, metadata, and tagging filters are implemented within the worker (not as separate stages) because they require API calls to fetch object attributes.
@@ -583,10 +584,10 @@ pub trait StorageTrait: DynClone {
     async fn list_objects(&self, sender: &Sender<S3Object>, max_keys: i32) -> Result<()>;
     async fn list_object_versions(&self, sender: &Sender<S3Object>, max_keys: i32) -> Result<()>;
 
-    async fn head_object(&self, key: &str, version_id: Option<String>) -> Result<HeadObjectOutput>;
-    async fn get_object_tagging(&self, key: &str, version_id: Option<String>) -> Result<GetObjectTaggingOutput>;
+    async fn head_object(&self, relative_key: &str, version_id: Option<String>) -> Result<HeadObjectOutput>;
+    async fn get_object_tagging(&self, relative_key: &str, version_id: Option<String>) -> Result<GetObjectTaggingOutput>;
 
-    async fn delete_object(&self, key: &str, version_id: Option<String>, if_match: Option<String>) -> Result<DeleteObjectOutput>;
+    async fn delete_object(&self, relative_key: &str, version_id: Option<String>, if_match: Option<String>) -> Result<DeleteObjectOutput>;
     async fn delete_objects(&self, objects: Vec<ObjectIdentifier>) -> Result<DeleteObjectsOutput>;
 
     async fn is_versioning_enabled(&self) -> Result<bool>;
@@ -719,15 +720,15 @@ pub fn init_tracing(config: &TracingConfig) {
 
 // Lua script callback engine (from s3sync)
 pub struct LuaScriptCallbackEngine {
-    lua: mlua::Lua,
+    engine: Lua,
 }
 
 impl LuaScriptCallbackEngine {
     pub fn new(memory_limit: usize) -> Self;
     pub fn new_without_os_io_libs(memory_limit: usize) -> Self;
     pub fn unsafe_new(memory_limit: usize) -> Self;
-    pub fn load_and_compile(&mut self, script: &str) -> Result<()>;
-    pub fn get_engine(&self) -> &mlua::Lua;
+    pub fn load_and_compile(&self, script: &str) -> Result<()>;
+    pub fn get_engine(&self) -> &Lua;
 }
 
 // Lua filter callback (from s3sync)
@@ -813,7 +814,7 @@ where
 #[command(name = "s3rm", version, about)]
 pub struct CLIArgs {
     // Target
-    pub target: String,  // s3://bucket/prefix (validated by value_parser)
+    pub target_url: String,  // s3://bucket/prefix (validated by value_parser)
 
     // General options
     pub dry_run: bool,       // -d / --dry-run
@@ -833,8 +834,8 @@ pub struct CLIArgs {
     pub filter_exclude_metadata_regex: Option<String>,
     pub filter_include_tag_regex: Option<String>,
     pub filter_exclude_tag_regex: Option<String>,
-    pub filter_mtime_before: Option<DateTime<Utc>>,
-    pub filter_mtime_after: Option<DateTime<Utc>>,
+    pub filter_mtime_before: Option<String>,   // parsed via humantime
+    pub filter_mtime_after: Option<String>,    // parsed via humantime
     pub filter_smaller_size: Option<String>,   // human-readable (e.g. "64MiB")
     pub filter_larger_size: Option<String>,    // human-readable (e.g. "1GiB")
 
@@ -848,7 +849,7 @@ pub struct CLIArgs {
     // Performance (same as s3sync)
     pub worker_size: u16,                  // value_parser range(1..)
     pub max_parallel_listings: u16,        // value_parser range(1..)
-    pub max_parallel_listing_max_depth: u16, // value_parser range(1..)
+    pub max_parallel_listing_max_depth: u16, // default 0 (disabled)
     pub rate_limit_objects: Option<u32>,    // value_parser range(10..)
     pub object_listing_queue_size: u32,    // value_parser range(1..)
     pub allow_parallel_listings_in_express_one_zone: bool,
@@ -878,6 +879,7 @@ pub struct CLIArgs {
     pub target_accelerate: bool,
     pub target_request_payer: bool,
     pub disable_stalled_stream_protection: bool,
+    pub request_checksum_calculation: Option<String>,
 
     // Lua (feature-gated: #[cfg(feature = "lua_support")])
     pub filter_callback_lua_script: Option<String>,
@@ -891,6 +893,7 @@ pub struct CLIArgs {
     pub warn_as_error: bool,
     pub max_keys: i32,                 // value_parser range(1..=32767)
     pub auto_complete_shell: Option<clap_complete::shells::Shell>,
+    pub test_user_defined_callback: bool,   // for testing user-defined callbacks
 }
 ```
 
@@ -1222,6 +1225,7 @@ pub struct Config {
     pub batch_size: u16,
     pub delete_all_versions: bool,
     pub force: bool,
+    pub test_user_defined_callback: bool,
 }
 
 pub struct ClientConfig {

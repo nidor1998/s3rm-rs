@@ -8,7 +8,7 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-18 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, retry/error handling, optimistic locking, logging/verbosity, and AWS configuration property tests established.
+**Current Achievement**: Tasks 1-19 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration property tests, and rate limiting property tests established.
 
 ## Current Status
 
@@ -31,6 +31,7 @@ Phase 14: Retry and Error Handling (Task 15)
 Phase 15: Optimistic Locking Support (Task 16)
 Phase 16: Logging and Verbosity (Task 17)
 Phase 17: AWS Configuration Support (Task 18)
+Phase 18: Rate Limiting (Task 19)
 
 ## Tasks
 
@@ -609,16 +610,17 @@ Phase 17: AWS Configuration Support (Task 18)
     - Implemented in src/aws_config_properties.rs (Task 18)
 
 
-- [-] 19. Implement Rate Limiting
+- [x] 19. Implement Rate Limiting
   - [x] 19.1 Verify rate limiter integration
     - leaky_bucket RateLimiter integrated in storage layer (Task 2)
     - Token bucket applied to all S3 operations: list, head, delete, get-tagging
     - rate_limit_objects in Config; unit tests for rate limiter creation
     - _Requirements: 8.7_
 
-  - [ ] 19.2 Write property test for rate limiting enforcement
+  - [x] 19.2 Write property test for rate limiting enforcement
     - **Property 36: Rate Limiting Enforcement**
     - **Validates: Requirements 8.7**
+    - Implemented in src/rate_limiting_properties.rs (Task 19)
 
 
 - [ ] 20. Implement Cross-Platform Support
@@ -746,7 +748,7 @@ Phase 17: AWS Configuration Support (Task 18)
   - _Requirements: All requirements (comprehensive coverage)_
 
 
-**Implemented Property Tests**: Properties 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47 (40 of 49).
+**Implemented Property Tests**: Properties 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47 (41 of 49).
 
 - [ ] 27. Documentation and Examples
   - [ ] 27.1 Write README.md
@@ -923,7 +925,7 @@ Phase 17: AWS Configuration Support (Task 18)
 
 ## Implementation Status Summary
 
-Tasks 1-18 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init_build.
+Tasks 1-19 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init_build.
 
 **Already implemented across Tasks 1-18** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)
@@ -967,7 +969,7 @@ Tasks 1-18 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init
 - 25.1-25.2: Property-based testing infrastructure (done in Tasks 3-9)
 
 **Remaining work**:
-- Tasks 19-22: Remaining property tests (9 of 49 properties still need tests: 4, 12, 13, 19, 20, 36, 37, 48, 49)
+- Tasks 20-22: Remaining property tests (8 of 49 properties still need tests: 4, 12, 13, 19, 20, 37, 48, 49)
 - Task 23: Checkpoint review
 - Task 26: Verify all property tests
 - Tasks 27-31: Documentation, quality, E2E testing, release

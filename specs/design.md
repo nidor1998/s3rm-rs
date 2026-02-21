@@ -674,7 +674,7 @@ debug!("Applying filters: {:?}", filter_config);
 trace!("Processing object: {}", object.key);
 error!("Failed to delete object {}: {}", object.key, error);
 
-// Tracing subscriber configuration (in bin/s3rm/tracing.rs, adapted from s3sync)
+// Tracing subscriber configuration (in bin/s3rm/tracing_init.rs, adapted from s3sync)
 // Uses TracingConfig from the library's config module
 pub fn init_tracing(config: &TracingConfig) {
     let fmt_span = if config.span_events_tracing {
@@ -710,7 +710,7 @@ pub fn init_tracing(config: &TracingConfig) {
 }
 ```
 
-**Reuse from s3sync**: The entire tracing infrastructure, subscriber configuration, and JSON/text formatting. Verbosity is configured via `TracingConfig.tracing_level` (a `log::Level`). The `init_tracing` function lives in the binary crate (`bin/s3rm/tracing.rs`), not the library.
+**Reuse from s3sync**: The entire tracing infrastructure, subscriber configuration, and JSON/text formatting. Verbosity is configured via `TracingConfig.tracing_level` (a `log::Level`). The `init_tracing` function lives in the binary crate (`bin/s3rm/tracing_init.rs`), not the library.
 
 ### 14. Lua Integration (Reused from s3sync)
 
@@ -1967,7 +1967,7 @@ async fn test_batch_deletion_with_partial_failure() {
 5. **Lua VM**: `lua/engine.rs` - VM initialization, sandbox configuration, memory limits
 6. **Lua Callbacks**: `lua/filter.rs`, `lua/event.rs` - LuaFilterCallback and LuaEventCallback
 7. **Callback Managers**: `callback/filter_manager.rs`, `callback/event_manager.rs` - Rust + Lua callback dispatch
-8. **Tracing Infrastructure**: `bin/s3rm/tracing.rs` - subscriber setup, verbosity configuration, JSON/text formatting
+8. **Tracing Infrastructure**: `bin/s3rm/tracing_init.rs` - subscriber setup, verbosity configuration, JSON/text formatting
 9. **Config Structure**: `config/mod.rs` - Config, ClientConfig, FilterConfig, TracingConfig, etc. (with zeroize for credentials)
 10. **Object Lister**: `lister.rs` - parallel pagination, version listing
 11. **Cancellation Token**: `types/token.rs` - pipeline cancellation support
@@ -2081,7 +2081,16 @@ s3rm-rs/
 │   ├── lister.rs              # ObjectLister (reused from s3sync)
 │   ├── terminator.rs          # Terminator<T> stage (from s3sync)
 │   ├── config/
-│   │   └── mod.rs             # Config, ClientConfig, FilterConfig, etc. (adapted from s3sync)
+│   │   ├── mod.rs             # Config, ClientConfig, FilterConfig, etc. (adapted from s3sync)
+│   │   └── args/
+│   │       ├── mod.rs         # CLIArgs (clap derive), parse_from_args, build_config_from_args
+│   │       ├── tests.rs       # Property tests for CLI args (Properties 33, 38-40)
+│   │       └── value_parser/  # Custom clap value parsers
+│   │           ├── mod.rs
+│   │           ├── file_exist.rs
+│   │           ├── human_bytes.rs
+│   │           ├── regex.rs
+│   │           └── url.rs
 │   ├── types/
 │   │   ├── mod.rs             # S3Object, DeletionStatistics, StoragePath, S3Credentials, etc.
 │   │   ├── error.rs           # S3rmError enum with exit codes
@@ -2091,7 +2100,10 @@ s3rm-rs/
 │   ├── callback/
 │   │   ├── mod.rs             # Callback module exports
 │   │   ├── filter_manager.rs  # FilterManager (Rust + Lua filter dispatch)
-│   │   └── event_manager.rs   # EventManager (Rust + Lua event dispatch with PipelineStats)
+│   │   ├── event_manager.rs   # EventManager (Rust + Lua event dispatch with PipelineStats)
+│   │   ├── user_defined_filter_callback.rs  # UserDefinedFilterCallback wrapper
+│   │   ├── user_defined_event_callback.rs   # UserDefinedEventCallback wrapper
+│   │   └── event_callback_properties.rs     # Property tests for event callbacks (Property 32)
 │   ├── storage/
 │   │   ├── mod.rs             # StorageTrait, create_storage(), Storage type alias (from s3sync)
 │   │   └── s3/
@@ -2121,19 +2133,22 @@ s3rm-rs/
 │   │   ├── filter.rs          # LuaFilterCallback (from s3sync)
 │   │   ├── event.rs           # LuaEventCallback (from s3sync)
 │   │   └── lua_properties.rs  # Property tests for Lua integration
+│   ├── versioning_properties.rs  # Property tests for versioning support (Properties 25-28)
 │   └── bin/
 │       └── s3rm/
-│           ├── main.rs        # CLI binary entry point (stub, not yet implemented)
-│           ├── tracing.rs     # Tracing initialization for CLI binary
-│           ├── indicator.rs   # Progress indicator with indicatif (adapted from s3sync)
-│           ├── ui_config.rs   # UI configuration helpers (color, quiet mode)
-│           └── indicator_properties.rs  # Property tests for progress indicator
+│           ├── main.rs            # CLI binary entry point (fully implemented)
+│           ├── tracing_init.rs    # Tracing initialization for CLI binary
+│           ├── indicator.rs       # Progress indicator with indicatif (adapted from s3sync)
+│           ├── indicator_properties.rs  # Property tests for progress indicator (Property 31)
+│           ├── ui_config.rs       # UI configuration helpers (color, quiet mode)
+│           └── ctrl_c_handler/
+│               └── mod.rs         # Ctrl+C signal handler (from s3sync)
 ├── Cargo.toml
 ├── Cargo.lock
 └── README.md
 ```
 
-**Notes**: Tests are co-located with source code (e.g., `deleter/tests.rs`, `filters/filter_properties.rs`, `lua/lua_properties.rs`, `safety/safety_properties.rs`, `callback/event_callback_properties.rs`, `bin/s3rm/indicator_properties.rs`). Property tests and unit tests share the same test files. Pipeline orchestrator (`pipeline.rs`), terminator (`terminator.rs`), and progress indicator (`bin/s3rm/indicator.rs`) are implemented. CLI main.rs is a stub pending Task 13.
+**Notes**: Tests are co-located with source code (e.g., `deleter/tests.rs`, `filters/filter_properties.rs`, `lua/lua_properties.rs`, `safety/safety_properties.rs`, `callback/event_callback_properties.rs`, `bin/s3rm/indicator_properties.rs`, `versioning_properties.rs`). Property tests and unit tests share the same test files. All core components are fully implemented including pipeline orchestrator, terminator, progress indicator, CLI binary, and versioning support.
 
 ### Development Phases
 

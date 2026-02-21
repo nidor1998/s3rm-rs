@@ -549,7 +549,7 @@ Phase 13: Versioning Support (Task 14)
 
 - [ ] 17. Implement Logging and Verbosity
   - [x] 17.1 Verify tracing integration
-    - init_tracing() in bin/s3rm/tracing.rs supports all verbosity levels, JSON, text, color (Task 2)
+    - init_tracing() in bin/s3rm/tracing_init.rs supports all verbosity levels, JSON, text, color (Task 2)
     - TracingConfig in Config covers tracing_level, json_tracing, aws_sdk_tracing, disable_color_tracing
     - All components use tracing macros (info!, warn!, error!, debug!, trace!)
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.9_
@@ -674,7 +674,7 @@ Phase 13: Versioning Support (Task 14)
   - Ask the user if questions arise
 
 
-- [ ] 24. Write Comprehensive Unit Tests
+- [x] 24. Write Comprehensive Unit Tests
   - [x] 24.1 Write unit tests for configuration parsing
     - 54 unit tests in config/args/tests.rs covering argument parsing, environment variables, validation, and invalid input (Task 13)
     - 4 unit tests in config/args/value_parser/human_bytes.rs for human-readable byte parsing (Task 13)
@@ -910,9 +910,9 @@ Phase 13: Versioning Support (Task 14)
 
 ## Implementation Status Summary
 
-Tasks 1-14 complete. All merged to init_build.
+Tasks 1-14 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init_build.
 
-**Already implemented across Tasks 1-12** (infrastructure available for remaining tasks):
+**Already implemented across Tasks 1-14** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)
 - All core data types: S3Object, DeletionStats, DeletionError, DeletionEvent, S3Target (Task 3)
 - Storage trait, S3 storage with versioning, conditional deletion, rate limiting (Task 4)
@@ -926,10 +926,13 @@ Tasks 1-14 complete. All merged to init_build.
 - Terminator stage for draining final pipeline output (Task 10)
 - Progress reporter with indicatif, UI config helpers, moving averages (Task 11)
 - Library API: root-level re-exports, rustdoc documentation, property tests for API surface (Task 12)
+- CLI binary: fully implemented with clap, tracing, progress indicator, Ctrl+C handler (Task 13)
+- Versioning property tests: Properties 25-28 covering lister dispatch, deletion stage, version info (Task 14)
 - CI pipeline for all target platforms (Task 1)
 - 29 property tests implemented (Properties 1-3, 5-11, 14-18, 25-28, 31-33, 38-40, 44-47)
+- Comprehensive unit tests for all components (Task 24, all sub-tasks done in Tasks 3-13)
 
-**Sub-tasks already completed in later task groups** (done during Tasks 1-12):
+**Sub-tasks already completed in later task groups** (done during Tasks 1-14):
 - 14.1: Version handling in ObjectDeleter (done in Tasks 3, 5, 8)
 - 14.2: Version display in dry-run mode — not needed; each version is a separate object in the pipeline
 - 15.1: Retry policy integration (done in Task 2)
@@ -941,10 +944,11 @@ Tasks 1-14 complete. All merged to init_build.
 - 19.1: Rate limiter integration (done in Task 2)
 - 20.2-20.3: Terminal detection and cross-platform builds (done in Tasks 1, 9)
 - 21.1: Non-interactive environment detection (done in Task 9)
-- 24.1: Configuration parsing unit tests (done in Task 13)
-- 24.2-24.6: Unit tests for filters, deletion, safety, versioning, errors (done in Tasks 3-9)
+- 24.1-24.6: All unit tests (done in Tasks 3-13)
 - 25.1-25.2: Property-based testing infrastructure (done in Tasks 3-9)
 
 **Remaining work**:
-- Tasks 14-22: Remaining property tests and verification tasks (implementation sub-tasks mostly done)
-- Tasks 23-31: Quality, documentation, E2E testing, release
+- Tasks 15-22: Remaining property tests (20 of 49 properties still need tests)
+- Task 23: Checkpoint review
+- Task 26: Verify all property tests
+- Tasks 27-31: Documentation, quality, E2E testing, release

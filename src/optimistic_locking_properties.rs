@@ -194,25 +194,29 @@ mod tests {
             );
         }
 
-        /// **Property 42: ETag Input Parsing (env var)**
+        /// **Property 42: ETag Input Parsing (default)**
         /// **Validates: Requirements 11.3**
         ///
-        /// The IF_MATCH environment variable controls the same flag. When set to
-        /// "true", Config.if_match is true.
+        /// When --if-match is omitted and the IF_MATCH env var is unset,
+        /// Config.if_match defaults to false for any valid bucket name.
         #[test]
-        fn prop_if_match_env_var_parsing(
+        fn prop_if_match_default_is_false(
             bucket in "[a-z][a-z0-9-]{2,10}",
         ) {
             let _ = tracing_subscriber::fmt()
                 .with_env_filter("dummy=trace")
                 .try_init();
 
-            // Test without flag — default is false
+            // Ensure the env var is not influencing the result.
+            // SAFETY: This test is the only writer of IF_MATCH in this process;
+            // proptest runs cases sequentially within a single test function.
+            unsafe { std::env::remove_var("IF_MATCH") };
+
             let target = format!("s3://{}/", bucket);
             let args = vec!["s3rm", target.as_str()];
             let parsed = parse_from_args(args).unwrap();
             let config = Config::try_from(parsed).unwrap();
-            prop_assert!(!config.if_match, "Default if_match must be false");
+            prop_assert!(!config.if_match, "Default if_match must be false when flag and env var are absent");
         }
     }
 

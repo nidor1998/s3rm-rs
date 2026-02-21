@@ -90,6 +90,7 @@ tokio-test = "0.4"
 once_cell = "1.21.3"
 uuid = { version = "1.20.0", features = ["v4"] }
 nix = { version = "0.31.1", features = ["process", "signal"] }
+tempfile = "3.25.0"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)', 'cfg(e2e_test)'] }

@@ -74,7 +74,8 @@
       "Bash(done)",
       "mcp__serena__check_onboarding_performed",
       "mcp__github__search_issues",
-      "Bash(gh pr:*)"
+      "Bash(gh pr:*)",
+      "Bash(cargo add:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

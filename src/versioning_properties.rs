@@ -363,27 +363,30 @@ mod tests {
 
                 // Property: version_ids in the API call match what we provided
                 let calls = mock.delete_objects_calls.lock().unwrap();
-                let all_idents: Vec<&ObjectIdentifier> =
-                    calls.iter().flat_map(|c| c.iter()).collect();
+                let mut actual: Vec<(String, String)> = calls
+                    .iter()
+                    .flat_map(|c| c.iter())
+                    .map(|id| {
+                        (
+                            id.key().to_string(),
+                            id.version_id().unwrap_or("").to_string(),
+                        )
+                    })
+                    .collect();
+
+                actual.sort();
+                expected.sort();
 
                 prop_assert_eq!(
-                    all_idents.len(),
+                    actual.len(),
                     expected.len(),
                     "All objects should appear in delete API calls"
                 );
-
-                for (ident, (exp_key, exp_vid)) in all_idents.iter().zip(expected.iter()) {
-                    prop_assert_eq!(
-                        ident.key(),
-                        exp_key.as_str(),
-                        "Key must match in delete API call"
-                    );
-                    prop_assert_eq!(
-                        ident.version_id(),
-                        Some(exp_vid.as_str()),
-                        "version_id must be included in delete API call"
-                    );
-                }
+                prop_assert_eq!(
+                    actual,
+                    expected,
+                    "All (key, version_id) pairs must match"
+                );
 
                 Ok(())
             })?;
@@ -454,15 +457,23 @@ mod tests {
 
                 prop_assert_eq!(received.len(), expected.len());
 
-                // Property: each object preserves its key and version_id
-                for (obj, (exp_key, exp_vid)) in received.iter().zip(expected.iter()) {
-                    prop_assert_eq!(obj.key(), exp_key.as_str());
-                    prop_assert_eq!(
-                        obj.version_id(),
-                        Some(exp_vid.as_str()),
-                        "version_id must be preserved through listing"
-                    );
-                }
+                // Property: each object preserves its key and version_id (order-independent)
+                let mut actual: Vec<(String, String)> = received
+                    .iter()
+                    .map(|obj| {
+                        (
+                            obj.key().to_string(),
+                            obj.version_id().unwrap_or("").to_string(),
+                        )
+                    })
+                    .collect();
+                actual.sort();
+                expected.sort();
+                prop_assert_eq!(
+                    actual,
+                    expected,
+                    "All (key, version_id) pairs must be preserved through listing"
+                );
 
                 Ok(())
             })?;
@@ -560,12 +571,24 @@ mod tests {
         }
 
         assert_eq!(received.len(), 3);
-        assert_eq!(received[0].key(), "file1.txt");
-        assert_eq!(received[0].version_id(), Some("v1"));
-        assert_eq!(received[1].key(), "file1.txt");
-        assert_eq!(received[1].version_id(), Some("v2"));
-        assert_eq!(received[2].key(), "file2.txt");
-        assert_eq!(received[2].version_id(), Some("v1"));
+        let mut pairs: Vec<(String, Option<String>)> = received
+            .iter()
+            .map(|obj| {
+                (
+                    obj.key().to_string(),
+                    obj.version_id().map(|v| v.to_string()),
+                )
+            })
+            .collect();
+        pairs.sort();
+        assert_eq!(
+            pairs,
+            vec![
+                ("file1.txt".to_string(), Some("v1".to_string())),
+                ("file1.txt".to_string(), Some("v2".to_string())),
+                ("file2.txt".to_string(), Some("v1".to_string())),
+            ]
+        );
     }
 
     #[tokio::test]

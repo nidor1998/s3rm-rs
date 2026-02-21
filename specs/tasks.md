@@ -8,7 +8,7 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-12 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, and library API established.
+**Current Achievement**: Tasks 1-13 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, and CLI implementation established.
 
 ## Current Status
 
@@ -25,6 +25,7 @@ Phase 8: Safety Features (Task 9)
 Phase 9: Deletion Pipeline (Task 10)
 Phase 10: Progress Reporting (Task 11)
 Phase 11: Library API (Task 12)
+Phase 12: CLI Implementation (Task 13)
 
 ## Tasks
 
@@ -402,8 +403,8 @@ Phase 11: Library API (Task 12)
     - **Validates: Requirements 12.8**
 
 
-- [-] 13. Implement CLI (Adapted from s3sync)
-  - [ ] 13.1 Define CLI arguments with clap
+- [x] 13. Implement CLI (Adapted from s3sync)
+  - [x] 13.1 Define CLI arguments with clap
     - Create config/args.rs with CliArgs struct
     - Define target argument (s3://bucket/prefix)
     - Define deletion options (batch_size, delete_all_versions)
@@ -419,7 +420,7 @@ Phase 11: Library API (Task 12)
     - Support environment variables for all options
     - _Requirements: 8.1, 8.2, 10.1, 10.2, 10.3, 10.4, 10.7_
 
-  - [ ] 13.2 Implement parse_from_args function
+  - [x] 13.2 Implement parse_from_args function
     - Parse CLI arguments using clap
     - Handle environment variables
     - Apply configuration precedence (CLI > env > defaults)
@@ -427,7 +428,7 @@ Phase 11: Library API (Task 12)
     - Reuse s3sync's parsing pattern
     - _Requirements: 8.1, 8.2, 10.2_
 
-  - [ ] 13.3 Implement Config::try_from(ParsedArgs)
+  - [x] 13.3 Implement Config::try_from(ParsedArgs)
     - Validate all arguments
     - Build Config struct
     - Apply defaults
@@ -435,7 +436,7 @@ Phase 11: Library API (Task 12)
     - Reuse s3sync's validation logic
     - _Requirements: 8.3, 10.2_
 
-  - [ ] 13.4 Implement main.rs CLI entry point
+  - [x] 13.4 Implement main.rs CLI entry point
     - Collect CLI args from std::env::args()
     - Call parse_from_args() and Config::try_from()
     - Initialize tracing with configured verbosity
@@ -447,19 +448,19 @@ Phase 11: Library API (Task 12)
     - Follow s3sync's main.rs pattern exactly
     - _Requirements: 10.5, 13.4, 13.6_
 
-  - [ ] 13.5 Write property test for configuration precedence
+  - [x] 13.5 Write property test for configuration precedence
     - **Property 33: Configuration Precedence**
     - **Validates: Requirements 8.1, 8.2, 8.3, 8.5**
 
-  - [ ] 13.6 Write property test for input validation
+  - [x] 13.6 Write property test for input validation
     - **Property 38: Input Validation and Error Messages**
     - **Validates: Requirements 10.2**
 
-  - [ ] 13.7 Write property test for flag alias support
+  - [x] 13.7 Write property test for flag alias support
     - **Property 39: Flag Alias Support**
     - **Validates: Requirements 10.4**
 
-  - [ ] 13.8 Write property test for exit code mapping
+  - [x] 13.8 Write property test for exit code mapping
     - **Property 40: Exit Code Mapping**
     - **Validates: Requirements 10.5, 13.4**
 
@@ -736,7 +737,7 @@ Phase 11: Library API (Task 12)
   - _Requirements: All requirements (comprehensive coverage)_
 
 
-**Implemented Property Tests**: Properties 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 31, 32, 44, 45, 46, 47 (21 of 49).
+**Implemented Property Tests**: Properties 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 31, 32, 33, 38, 39, 40, 44, 45, 46, 47 (25 of 49).
 
 - [ ] 27. Documentation and Examples
   - [ ] 27.1 Write README.md
@@ -913,7 +914,7 @@ Phase 11: Library API (Task 12)
 
 ## Implementation Status Summary
 
-Tasks 1-12 complete and merged to init_build.
+Tasks 1-13 complete. Tasks 1-12 merged to init_build; Task 13 on build/init/task13 (PR #25).
 
 **Already implemented across Tasks 1-12** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)
@@ -930,7 +931,7 @@ Tasks 1-12 complete and merged to init_build.
 - Progress reporter with indicatif, UI config helpers, moving averages (Task 11)
 - Library API: root-level re-exports, rustdoc documentation, property tests for API surface (Task 12)
 - CI pipeline for all target platforms (Task 1)
-- 21 property tests implemented (Properties 1-3, 5-11, 14-18, 31, 32, 44-47)
+- 25 property tests implemented (Properties 1-3, 5-11, 14-18, 31-33, 38-40, 44-47)
 
 **Sub-tasks already completed in later task groups** (done during Tasks 1-12):
 - 14.1: Version handling in ObjectDeleter (done in Tasks 3, 5, 8)
@@ -946,7 +947,7 @@ Tasks 1-12 complete and merged to init_build.
 - 24.2-24.6: Unit tests for filters, deletion, safety, versioning, errors (done in Tasks 3-9)
 - 25.1-25.2: Property-based testing infrastructure (done in Tasks 3-9)
 
-**Remaining work** (Task 13 is the critical path):
-- Task 13: CLI argument parsing with clap (main.rs is a stub) — BLOCKING
+**Remaining work**:
+- CLI implementation complete (Task 13) — binary is fully functional
 - Tasks 14-22: Remaining property tests and verification tasks (implementation sub-tasks mostly done)
 - Tasks 23-31: Quality, documentation, E2E testing, release

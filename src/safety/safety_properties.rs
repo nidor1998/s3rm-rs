@@ -100,6 +100,7 @@ mod tests {
             batch_size: 1000,
             delete_all_versions: false,
             force,
+            test_user_defined_callback: false,
         }
     }
 

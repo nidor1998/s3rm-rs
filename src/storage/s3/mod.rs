@@ -882,6 +882,7 @@ mod tests {
             batch_size: 1000,
             delete_all_versions: false,
             force: false,
+            test_user_defined_callback: false,
         }
     }
 
@@ -940,7 +941,6 @@ mod tests {
             },
             disable_stalled_stream_protection: false,
             request_checksum_calculation: RequestChecksumCalculation::WhenRequired,
-            parallel_upload_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
             accelerate: false,
             request_payer: None,
         }

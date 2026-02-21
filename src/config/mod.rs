@@ -1,3 +1,5 @@
+pub mod args;
+
 use crate::callback::event_manager::EventManager;
 use crate::callback::filter_manager::FilterManager;
 use crate::types::{ClientConfigLocation, S3Credentials, StoragePath};
@@ -5,8 +7,6 @@ use aws_sdk_s3::types::RequestPayer;
 use aws_smithy_types::checksum_config::RequestChecksumCalculation;
 use chrono::{DateTime, Utc};
 use fancy_regex::Regex;
-use std::sync::Arc;
-use tokio::sync::Semaphore;
 
 /// Main configuration for the s3rm-rs deletion pipeline.
 ///
@@ -60,6 +60,7 @@ use tokio::sync::Semaphore;
 ///     # allow_lua_unsafe_vm: false,
 ///     # lua_vm_memory_limit: 50 * 1024 * 1024,
 ///     # if_match: false,
+///     # test_user_defined_callback: false,
 /// };
 /// ```
 #[derive(Debug, Clone)]
@@ -94,6 +95,8 @@ pub struct Config {
     pub batch_size: u16,
     pub delete_all_versions: bool,
     pub force: bool,
+    // Testing flag: enables user-defined callbacks (for library testing)
+    pub test_user_defined_callback: bool,
 }
 
 /// AWS S3 client configuration.
@@ -113,7 +116,6 @@ pub struct ClientConfig {
     pub cli_timeout_config: CLITimeoutConfig,
     pub disable_stalled_stream_protection: bool,
     pub request_checksum_calculation: RequestChecksumCalculation,
-    pub parallel_upload_semaphore: Arc<Semaphore>,
 }
 
 /// Retry configuration for AWS SDK operations.

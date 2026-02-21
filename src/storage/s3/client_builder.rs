@@ -176,8 +176,6 @@ mod tests {
     use super::*;
     use crate::types::{AccessKeys, ClientConfigLocation};
     use aws_smithy_types::checksum_config::RequestChecksumCalculation;
-    use std::sync::Arc;
-    use tokio::sync::Semaphore;
     use tracing_subscriber::EnvFilter;
 
     #[tokio::test]
@@ -211,7 +209,6 @@ mod tests {
             },
             disable_stalled_stream_protection: false,
             request_checksum_calculation: RequestChecksumCalculation::WhenRequired,
-            parallel_upload_semaphore: Arc::new(Semaphore::new(1)),
             accelerate: false,
             request_payer: None,
         };
@@ -269,7 +266,6 @@ mod tests {
             },
             disable_stalled_stream_protection: false,
             request_checksum_calculation: RequestChecksumCalculation::WhenRequired,
-            parallel_upload_semaphore: Arc::new(Semaphore::new(1)),
             accelerate: false,
             request_payer: None,
         };
@@ -334,7 +330,6 @@ mod tests {
             },
             disable_stalled_stream_protection: false,
             request_checksum_calculation: RequestChecksumCalculation::WhenRequired,
-            parallel_upload_semaphore: Arc::new(Semaphore::new(1)),
             accelerate: false,
             request_payer: None,
         };
@@ -393,7 +388,6 @@ mod tests {
             },
             disable_stalled_stream_protection: false,
             request_checksum_calculation: RequestChecksumCalculation::WhenRequired,
-            parallel_upload_semaphore: Arc::new(Semaphore::new(1)),
             accelerate: false,
             request_payer: None,
         };
@@ -438,7 +432,6 @@ mod tests {
             },
             disable_stalled_stream_protection: false,
             request_checksum_calculation: RequestChecksumCalculation::WhenRequired,
-            parallel_upload_semaphore: Arc::new(Semaphore::new(1)),
             accelerate: false,
             request_payer: None,
         };
@@ -483,7 +476,6 @@ mod tests {
             },
             disable_stalled_stream_protection: false,
             request_checksum_calculation: RequestChecksumCalculation::WhenRequired,
-            parallel_upload_semaphore: Arc::new(Semaphore::new(1)),
             accelerate: false,
             request_payer: None,
         };
@@ -528,7 +520,6 @@ mod tests {
             },
             disable_stalled_stream_protection: false,
             request_checksum_calculation: RequestChecksumCalculation::WhenRequired,
-            parallel_upload_semaphore: Arc::new(Semaphore::new(1)),
             accelerate: false,
             request_payer: None,
         };
@@ -571,7 +562,6 @@ mod tests {
             },
             disable_stalled_stream_protection: false,
             request_checksum_calculation: RequestChecksumCalculation::WhenRequired,
-            parallel_upload_semaphore: Arc::new(Semaphore::new(1)),
             accelerate: false,
             request_payer: None,
         };
@@ -614,7 +604,6 @@ mod tests {
             },
             disable_stalled_stream_protection: false,
             request_checksum_calculation: RequestChecksumCalculation::WhenRequired,
-            parallel_upload_semaphore: Arc::new(Semaphore::new(1)),
             accelerate: false,
             request_payer: None,
         };

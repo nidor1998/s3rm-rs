@@ -863,7 +863,7 @@ struct CliArgs {
     pub aws_shared_credentials_file: Option<PathBuf>,
     pub target_profile: Option<String>,
     pub target_access_key: Option<String>,
-    pub target_secret_key: Option<String>,
+    pub target_secret_access_key: Option<String>,
     pub target_session_token: Option<String>,
     pub target_region: Option<String>,
     pub target_endpoint_url: Option<String>,

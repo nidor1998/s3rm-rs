@@ -195,6 +195,9 @@ mod logging_properties;
 mod aws_config_properties;
 
 #[cfg(test)]
+mod rate_limiting_properties;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

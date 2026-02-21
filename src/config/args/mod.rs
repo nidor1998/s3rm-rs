@@ -14,9 +14,10 @@ use clap_verbosity_flag::{Verbosity, WarnLevel};
 use fancy_regex::Regex;
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
+
+mod value_parser;
 
 #[cfg(test)]
 mod tests;
@@ -88,14 +89,8 @@ fn check_s3_target(s: &str) -> Result<String, String> {
 }
 
 fn parse_human_bytes(s: &str) -> Result<usize, String> {
-    let byte = byte_unit::Byte::from_str(s.trim()).map_err(|e| e.to_string())?;
-    usize::try_from(byte.as_u128()).map_err(|e| e.to_string())
-}
-
-/// Clap value_parser that validates a human-readable byte string without consuming it.
-fn check_human_bytes(s: &str) -> Result<String, String> {
-    byte_unit::Byte::from_str(s.trim()).map_err(|e| e.to_string())?;
-    Ok(s.to_string())
+    let v = value_parser::human_bytes::parse_human_bytes_without_limit(s)?;
+    usize::try_from(v).map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -162,23 +157,23 @@ pub struct CLIArgs {
     // Filter options (same as s3sync)
     // -----------------------------------------------------------------------
     /// Include only objects whose key matches this regex pattern.
-    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "Filter")]
+    #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filter")]
     pub filter_include_regex: Option<String>,
 
     /// Exclude objects whose key matches this regex pattern.
-    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "Filter")]
+    #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filter")]
     pub filter_exclude_regex: Option<String>,
 
     /// Include only objects whose content-type matches this regex pattern.
-    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "Filter")]
+    #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filter")]
     pub filter_include_content_type_regex: Option<String>,
 
     /// Exclude objects whose content-type matches this regex pattern.
-    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "Filter")]
+    #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filter")]
     pub filter_exclude_content_type_regex: Option<String>,
 
     /// Include only objects whose user-defined metadata matches this regex.
-    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "Filter",
+    #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filter",
         long_help = r#"Delete only objects that have metadata matching a given regular expression.
 Keys(lowercase) must be sorted in alphabetical order, and comma separated.
 This filter is applied after all other filters(except tag filters).
@@ -188,7 +183,7 @@ Example: "key1=(value1|value2),key2=value2""#)]
     pub filter_include_metadata_regex: Option<String>,
 
     /// Exclude objects whose user-defined metadata matches this regex.
-    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "Filter",
+    #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filter",
         long_help = r#"Do not delete objects that have metadata matching a given regular expression.
 Keys(lowercase) must be sorted in alphabetical order, and comma separated.
 This filter is applied after all other filters(except tag filters).
@@ -198,7 +193,7 @@ Example: "key1=(value1|value2),key2=value2""#)]
     pub filter_exclude_metadata_regex: Option<String>,
 
     /// Include only objects whose tags match this regex pattern.
-    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "Filter",
+    #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filter",
         long_help = r#"Delete only objects that have tag matching a given regular expression.
 Keys must be sorted in alphabetical order, and '&' separated.
 This filter is applied after all other filters.
@@ -208,7 +203,7 @@ Example: "key1=(value1|value2)&key2=value2""#)]
     pub filter_include_tag_regex: Option<String>,
 
     /// Exclude objects whose tags match this regex pattern.
-    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "Filter",
+    #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filter",
         long_help = r#"Do not delete objects that have tag matching a given regular expression.
 Keys must be sorted in alphabetical order, and '&' separated.
 This filter is applied after all other filters.
@@ -241,7 +236,7 @@ Example: 2023-02-19T12:00:00Z"#
     #[arg(
         long,
         env,
-        value_parser = check_human_bytes,
+        value_parser = value_parser::human_bytes::check_human_bytes_without_limit,
         help_heading = "Filter",
         long_help = r#"Delete only objects smaller than given size.
 Allow suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
@@ -252,7 +247,7 @@ Allow suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
     #[arg(
         long,
         env,
-        value_parser = check_human_bytes,
+        value_parser = value_parser::human_bytes::check_human_bytes_without_limit,
         help_heading = "Filter",
         long_help = r#"Delete only objects larger than or equal to given size.
 Allow suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
@@ -264,7 +259,7 @@ Allow suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
     #[arg(
         long,
         env,
-        value_parser = NonEmptyStringValueParser::new(),
+        value_parser = value_parser::file_exist::is_file_exist,
         help_heading = "Lua",
         long_help = r#"Path to the Lua script that is executed as filter callback"#
     )]
@@ -390,7 +385,7 @@ Allow suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
     pub target_region: Option<String>,
 
     /// Custom S3-compatible endpoint URL (e.g. MinIO, Wasabi).
-    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "AWS")]
+    #[arg(long, env, value_parser = value_parser::url::check_scheme, help_heading = "AWS")]
     pub target_endpoint_url: Option<String>,
 
     /// Force path-style access (required for some S3-compatible services).
@@ -417,7 +412,7 @@ Allow suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
     #[arg(
         long,
         env,
-        value_parser = NonEmptyStringValueParser::new(),
+        value_parser = value_parser::file_exist::is_file_exist,
         help_heading = "Lua",
         long_help = r#"Path to the Lua script that is executed as event callback"#
     )]
@@ -454,7 +449,7 @@ It allows the Lua script to load unsafe standard libraries or C modules."#
         long,
         env,
         default_value = DEFAULT_LUA_VM_MEMORY_LIMIT,
-        value_parser = check_human_bytes,
+        value_parser = value_parser::human_bytes::check_human_bytes_without_limit,
         help_heading = "Lua",
         long_help = r#"Memory limit for the Lua VM. Allow suffixes: KB, KiB, MB, MiB, GB, GiB.
 Zero means no limit.
@@ -708,22 +703,8 @@ impl TryFrom<CLIArgs> for Config {
 
         cfg_if::cfg_if! {
             if #[cfg(feature = "lua_support")] {
-                filter_callback_lua_script = if let Some(ref script) = args.filter_callback_lua_script {
-                    if !PathBuf::from(script).exists() {
-                        return Err(format!("Filter callback Lua script not found: {script}"));
-                    }
-                    Some(script.clone())
-                } else {
-                    None
-                };
-                event_callback_lua_script = if let Some(ref script) = args.event_callback_lua_script {
-                    if !PathBuf::from(script).exists() {
-                        return Err(format!("Event callback Lua script not found: {script}"));
-                    }
-                    Some(script.clone())
-                } else {
-                    None
-                };
+                filter_callback_lua_script = args.filter_callback_lua_script.clone();
+                event_callback_lua_script = args.event_callback_lua_script.clone();
                 allow_lua_os_library = args.allow_lua_os_library;
                 allow_lua_unsafe_vm = args.allow_lua_unsafe_vm;
                 lua_vm_memory_limit = parse_human_bytes(&args.lua_vm_memory_limit)

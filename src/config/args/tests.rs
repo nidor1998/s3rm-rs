@@ -312,10 +312,9 @@ fn config_validates_worker_size_zero() {
 #[test]
 fn config_validates_invalid_regex() {
     let args = vec!["s3rm", "s3://bucket/", "--filter-include-regex", "[invalid"];
-    let cli = parse_from_args(args).unwrap();
-    let result = Config::try_from(cli);
+    // Regex validation now happens at parse time via value_parser
+    let result = parse_from_args(args);
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("Invalid regular expression"));
 }
 
 #[test]

@@ -277,20 +277,20 @@ Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
     #[arg(long, env, help_heading = "AWS Configuration")]
     pub aws_shared_credentials_file: Option<PathBuf>,
 
-    /// AWS profile name for the target (uses default profile if not set)
-    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "AWS Configuration")]
+    /// Target AWS CLI profile
+    #[arg(long, env, conflicts_with_all = ["target_access_key", "target_secret_access_key", "target_session_token"], value_parser = NonEmptyStringValueParser::new(), help_heading = "AWS Configuration")]
     pub target_profile: Option<String>,
 
-    /// AWS access key ID for the target
-    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "AWS Configuration")]
+    /// Target access key
+    #[arg(long, env, conflicts_with_all = ["target_profile"], requires = "target_secret_access_key", value_parser = NonEmptyStringValueParser::new(), help_heading = "AWS Configuration")]
     pub target_access_key: Option<String>,
 
-    /// AWS secret access key for the target
-    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "AWS Configuration")]
-    pub target_secret_key: Option<String>,
+    /// Target secret access key
+    #[arg(long, env, conflicts_with_all = ["target_profile"], requires = "target_access_key", value_parser = NonEmptyStringValueParser::new(), help_heading = "AWS Configuration")]
+    pub target_secret_access_key: Option<String>,
 
-    /// AWS session token for the target
-    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "AWS Configuration")]
+    /// Target session token
+    #[arg(long, env, conflicts_with_all = ["target_profile"], requires = "target_access_key", value_parser = NonEmptyStringValueParser::new(), help_heading = "AWS Configuration")]
     pub target_session_token: Option<String>,
 
     /// AWS region for the target
@@ -562,7 +562,7 @@ impl CLIArgs {
         let credential = if let Some(ref profile) = self.target_profile {
             S3Credentials::Profile(profile.clone())
         } else if let Some(ref access_key) = self.target_access_key {
-            let secret_key = self.target_secret_key.clone().unwrap_or_default();
+            let secret_key = self.target_secret_access_key.clone().unwrap_or_default();
             S3Credentials::Credentials {
                 access_keys: AccessKeys {
                     access_key: access_key.clone(),

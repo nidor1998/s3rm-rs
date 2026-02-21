@@ -386,7 +386,7 @@ fn config_target_client_config_from_access_keys() {
         "s3://bucket/",
         "--target-access-key",
         "AKIA...",
-        "--target-secret-key",
+        "--target-secret-access-key",
         "secret123",
     ];
     let cli = parse_from_args(args).unwrap();

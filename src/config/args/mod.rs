@@ -172,35 +172,83 @@ pub struct CLIArgs {
     pub filter_exclude_content_type_regex: Option<String>,
 
     /// Include only objects whose user-defined metadata matches this regex.
-    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "Filter")]
+    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "Filter",
+        long_help = r#"Delete only objects that have metadata matching a given regular expression.
+Keys(lowercase) must be sorted in alphabetical order, and comma separated.
+This filter is applied after all other filters(except tag filters).
+It may take an extra API call to get metadata of the object.
+
+Example: "key1=(value1|value2),key2=value2""#)]
     pub filter_include_metadata_regex: Option<String>,
 
     /// Exclude objects whose user-defined metadata matches this regex.
-    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "Filter")]
+    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "Filter",
+        long_help = r#"Do not delete objects that have metadata matching a given regular expression.
+Keys(lowercase) must be sorted in alphabetical order, and comma separated.
+This filter is applied after all other filters(except tag filters).
+It may take an extra API call to get metadata of the object.
+
+Example: "key1=(value1|value2),key2=value2""#)]
     pub filter_exclude_metadata_regex: Option<String>,
 
     /// Include only objects whose tags match this regex pattern.
-    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "Filter")]
+    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "Filter",
+        long_help = r#"Delete only objects that have tag matching a given regular expression.
+Keys must be sorted in alphabetical order, and '&' separated.
+This filter is applied after all other filters.
+It takes an extra API call to get tags of the object.
+
+Example: "key1=(value1|value2)&key2=value2""#)]
     pub filter_include_tag_regex: Option<String>,
 
     /// Exclude objects whose tags match this regex pattern.
-    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "Filter")]
+    #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "Filter",
+        long_help = r#"Do not delete objects that have tag matching a given regular expression.
+Keys must be sorted in alphabetical order, and '&' separated.
+This filter is applied after all other filters.
+It takes an extra API call to get tags of the object.
+
+Example: "key1=(value1|value2)&key2=value2""#)]
     pub filter_exclude_tag_regex: Option<String>,
 
     /// Include only objects modified before this date (ISO 8601 / RFC 3339).
-    #[arg(long, env, help_heading = "Filter")]
+    #[arg(
+        long,
+        env,
+        help_heading = "Filter",
+        long_help = r#"Delete only objects older than given time (RFC3339 datetime).
+Example: 2023-02-19T12:00:00Z"#
+    )]
     pub filter_mtime_before: Option<DateTime<Utc>>,
 
     /// Include only objects modified after this date (ISO 8601 / RFC 3339).
-    #[arg(long, env, help_heading = "Filter")]
+    #[arg(
+        long,
+        env,
+        help_heading = "Filter",
+        long_help = r#"Delete only objects newer than or equal to given time (RFC3339 datetime).
+Example: 2023-02-19T12:00:00Z"#
+    )]
     pub filter_mtime_after: Option<DateTime<Utc>>,
 
-    /// Include only objects smaller than this size in bytes.
-    #[arg(long, env, help_heading = "Filter")]
+    /// Include only objects smaller than this size.
+    #[arg(
+        long,
+        env,
+        help_heading = "Filter",
+        long_help = r#"Delete only objects smaller than given size.
+Allow suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
+    )]
     pub filter_smaller_size: Option<u64>,
 
-    /// Include only objects larger than this size in bytes.
-    #[arg(long, env, help_heading = "Filter")]
+    /// Include only objects larger than this size.
+    #[arg(
+        long,
+        env,
+        help_heading = "Filter",
+        long_help = r#"Delete only objects larger than or equal to given size.
+Allow suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
+    )]
     pub filter_larger_size: Option<u64>,
 
     /// Lua script path for custom object filtering.

@@ -17,18 +17,14 @@ mod tests {
 
     #[test]
     fn test_existing_file_returns_ok() {
-        let dir = std::env::temp_dir().join("s3rm_test_file_exist");
-        fs::create_dir_all(&dir).unwrap();
-        let file_path = dir.join("test.lua");
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("test.lua");
         fs::write(&file_path, "return true").unwrap();
 
         let result = is_file_exist(file_path.to_str().unwrap());
         assert!(result.is_ok());
         let returned = PathBuf::from(result.unwrap());
         assert_eq!(returned, file_path);
-
-        // cleanup
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -40,14 +36,11 @@ mod tests {
 
     #[test]
     fn test_directory_returns_err() {
-        let dir = std::env::temp_dir().join("s3rm_test_dir_not_file");
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tempfile::tempdir().unwrap();
 
-        let result = is_file_exist(dir.to_str().unwrap());
+        let result = is_file_exist(dir.path().to_str().unwrap());
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("file not found"));
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -59,17 +52,15 @@ mod tests {
 
     #[test]
     fn test_path_with_dot_components() {
-        let dir = std::env::temp_dir().join("s3rm_test_dot_components");
-        let sub = dir.join("sub");
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("sub");
         fs::create_dir_all(&sub).unwrap();
         let file_path = sub.join("test.lua");
         fs::write(&file_path, "return true").unwrap();
 
         // Use ./sub/../sub/test.lua style path
-        let dotdot_path = format!("{}/sub/../sub/test.lua", dir.to_str().unwrap());
+        let dotdot_path = format!("{}/sub/../sub/test.lua", dir.path().to_str().unwrap());
         let result = is_file_exist(&dotdot_path);
         assert!(result.is_ok());
-
-        let _ = fs::remove_dir_all(&dir);
     }
 }

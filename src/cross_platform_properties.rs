@@ -297,9 +297,8 @@ mod tests {
     fn test_lua_script_path_existing_file_accepted() {
         use std::fs;
 
-        let dir = std::env::temp_dir().join("s3rm_prop37_lua_test");
-        let _ = fs::create_dir_all(&dir);
-        let script_path = dir.join("filter_test.lua");
+        let dir = tempfile::tempdir().unwrap();
+        let script_path = dir.path().join("filter_test.lua");
         fs::write(&script_path, "function filter(object) return true end").unwrap();
 
         let path_str = script_path.to_str().unwrap().to_string();
@@ -315,8 +314,6 @@ mod tests {
             result.is_ok(),
             "Existing Lua script path should be accepted"
         );
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

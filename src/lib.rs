@@ -151,6 +151,7 @@ pub use pipeline::DeletionPipeline;
 
 // Configuration
 pub use config::Config;
+pub use config::args::{CLIArgs, build_config_from_args, parse_from_args};
 
 // Statistics
 pub use types::{DeletionStatistics, DeletionStats, DeletionStatsReport};

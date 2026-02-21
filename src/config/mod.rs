@@ -1,3 +1,5 @@
+pub mod args;
+
 use crate::callback::event_manager::EventManager;
 use crate::callback::filter_manager::FilterManager;
 use crate::types::{ClientConfigLocation, S3Credentials, StoragePath};

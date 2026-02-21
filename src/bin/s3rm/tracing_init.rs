@@ -1,6 +1,5 @@
 // Tracing infrastructure adapted from s3sync.
-// Used by Task 13 (CLI entry point) to initialize the tracing subscriber.
-#![allow(dead_code)]
+// Initializes the tracing subscriber for the CLI binary.
 
 use std::env;
 

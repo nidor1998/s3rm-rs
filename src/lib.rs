@@ -186,6 +186,9 @@ mod versioning_properties;
 mod retry_properties;
 
 #[cfg(test)]
+mod optimistic_locking_properties;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

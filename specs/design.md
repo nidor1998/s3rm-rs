@@ -1451,8 +1451,8 @@ pub struct FilterConfig {
 *For any* If-Match ETag provided, the tool should include the If-Match header in deletion requests, and when the condition fails (ETag mismatch), log the failure and skip the object.
 **Validates: Requirements 11.1, 11.2**
 
-### Property 42: ETag Input Parsing
-*For any* If-Match ETag provided via command-line option, the tool should correctly parse the value and use it for conditional deletion.
+### Property 42: If-Match Flag Propagation
+*For any* --if-match CLI flag presence or absence, the boolean value should correctly propagate through parse_from_args and Config::try_from, and default to false when the flag and IF_MATCH env var are absent.
 **Validates: Requirements 11.3**
 
 ### Property 43: Batch Conditional Deletion Handling

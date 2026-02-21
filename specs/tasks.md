@@ -8,7 +8,7 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-15 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, and retry/error handling property tests established.
+**Current Achievement**: Tasks 1-16 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, retry/error handling, and optimistic locking property tests established.
 
 ## Current Status
 
@@ -28,6 +28,7 @@ Phase 11: Library API (Task 12)
 Phase 12: CLI Implementation (Task 13)
 Phase 13: Versioning Support (Task 14)
 Phase 14: Retry and Error Handling (Task 15)
+Phase 15: Optimistic Locking Support (Task 16)
 
 ## Tasks
 
@@ -521,7 +522,7 @@ Phase 14: Retry and Error Handling (Task 15)
     - _Requirements: 6.1, 6.2, 6.4_
 
 
-- [-] 16. Implement Optimistic Locking Support
+- [x] 16. Implement Optimistic Locking Support
   - [x] 16.1 Add If-Match support to deletion requests
     - if_match field in Config (Task 2)
     - BatchDeleter includes ETag when if_match enabled (Task 8)
@@ -535,17 +536,20 @@ Phase 14: Retry and Error Handling (Task 15)
     - Objects with failed conditions are skipped
     - _Requirements: 11.2_
 
-  - [ ] 16.3 Write property test for If-Match conditional deletion
+  - [x] 16.3 Write property test for If-Match conditional deletion
     - **Property 41: If-Match Conditional Deletion**
     - **Validates: Requirements 11.1, 11.2**
+    - Implemented in src/optimistic_locking_properties.rs (Task 16)
 
-  - [ ] 16.4 Write property test for ETag input parsing
-    - **Property 42: ETag Input Parsing**
+  - [x] 16.4 Write property test for If-Match flag propagation
+    - **Property 42: If-Match Flag Propagation**
     - **Validates: Requirements 11.3**
+    - Implemented in src/optimistic_locking_properties.rs (Task 16)
 
-  - [ ] 16.5 Write property test for batch conditional deletion handling
+  - [x] 16.5 Write property test for batch conditional deletion handling
     - **Property 43: Batch Conditional Deletion Handling**
     - **Validates: Requirements 11.4**
+    - Implemented in src/optimistic_locking_properties.rs (Task 16)
 
 
 - [ ] 17. Implement Logging and Verbosity
@@ -734,7 +738,7 @@ Phase 14: Retry and Error Handling (Task 15)
   - _Requirements: All requirements (comprehensive coverage)_
 
 
-**Implemented Property Tests**: Properties 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 25, 26, 27, 28, 29, 30, 31, 32, 33, 38, 39, 40, 44, 45, 46, 47 (31 of 49).
+**Implemented Property Tests**: Properties 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 25, 26, 27, 28, 29, 30, 31, 32, 33, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47 (34 of 49).
 
 - [ ] 27. Documentation and Examples
   - [ ] 27.1 Write README.md
@@ -911,9 +915,9 @@ Phase 14: Retry and Error Handling (Task 15)
 
 ## Implementation Status Summary
 
-Tasks 1-15 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init_build.
+Tasks 1-16 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init_build.
 
-**Already implemented across Tasks 1-14** (infrastructure available for remaining tasks):
+**Already implemented across Tasks 1-16** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)
 - All core data types: S3Object, DeletionStats, DeletionError, DeletionEvent, S3Target (Task 3)
 - Storage trait, S3 storage with versioning, conditional deletion, rate limiting (Task 4)
@@ -930,17 +934,19 @@ Tasks 1-15 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init
 - CLI binary: fully implemented with clap, tracing, progress indicator, Ctrl+C handler (Task 13)
 - Versioning property tests: Properties 25-28 covering lister dispatch, deletion stage, version info (Task 14)
 - Retry/error handling property tests: Properties 29-30 covering retry config, error classification, failure tracking (Task 15)
+- Optimistic locking property tests: Properties 41-43 covering If-Match flag, SingleDeleter/BatchDeleter ETags (Task 16)
 - CI pipeline for all target platforms (Task 1)
-- 31 property tests implemented (Properties 1-3, 5-11, 14-18, 25-30, 31-33, 38-40, 44-47)
+- 34 property tests implemented (Properties 1-3, 5-11, 14-18, 25-33, 38-43, 44-47)
 - Comprehensive unit tests for all components (Task 24, all sub-tasks done in Tasks 3-13)
 
-**Sub-tasks already completed in later task groups** (done during Tasks 1-14):
+**Sub-tasks already completed in later task groups** (done during Tasks 1-16):
 - 14.1: Version handling in ObjectDeleter (done in Tasks 3, 5, 8)
 - 14.2: Version display in dry-run mode — not needed; each version is a separate object in the pipeline
 - 15.1: Retry policy integration (done in Task 2)
 - 15.2: Failure tracking (done in Tasks 3, 8)
 - 15.5: Error handling unit tests (done in Tasks 3, 8)
 - 16.1-16.2: If-Match support and conditional failure handling (done in Tasks 2, 3, 8)
+- 16.3-16.5: Optimistic locking property tests (done in Task 16)
 - 17.1-17.2: Tracing integration and error logging (done in Tasks 2, 8, 9)
 - 18.1-18.2: AWS credential loading and custom endpoint support (done in Task 2)
 - 19.1: Rate limiter integration (done in Task 2)
@@ -951,7 +957,7 @@ Tasks 1-15 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init
 - 25.1-25.2: Property-based testing infrastructure (done in Tasks 3-9)
 
 **Remaining work**:
-- Tasks 16-22: Remaining property tests (18 of 49 properties still need tests)
+- Tasks 17-22: Remaining property tests (15 of 49 properties still need tests: 4, 12, 13, 19-24, 34-37, 48-49)
 - Task 23: Checkpoint review
 - Task 26: Verify all property tests
 - Tasks 27-31: Documentation, quality, E2E testing, release

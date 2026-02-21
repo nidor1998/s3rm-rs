@@ -63,7 +63,6 @@ const DEFAULT_FORCE: bool = false;
 // ---------------------------------------------------------------------------
 
 const ERROR_MESSAGE_INVALID_TARGET: &str = "target must be an S3 path (e.g. s3://bucket/prefix)";
-const ERROR_MESSAGE_INVALID_REGEX: &str = "Invalid regular expression";
 const ERROR_MESSAGE_WORKER_SIZE_ZERO: &str = "--worker-size must be at least 1";
 const ERROR_MESSAGE_BATCH_SIZE_ZERO: &str = "--batch-size must be at least 1";
 const ERROR_MESSAGE_BATCH_SIZE_TOO_LARGE: &str = "--batch-size must be at most 1000 (S3 API limit)";
@@ -531,46 +530,23 @@ impl CLIArgs {
         Ok(())
     }
 
-    fn build_filter_config(&self) -> Result<FilterConfig, String> {
-        let compile_regex =
-            |pattern: &Option<String>, name: &str| -> Result<Option<Regex>, String> {
-                match pattern {
-                    Some(p) => Regex::new(p)
-                        .map(Some)
-                        .map_err(|e| format!("{ERROR_MESSAGE_INVALID_REGEX} for {name}: {e}")),
-                    None => Ok(None),
-                }
-            };
+    fn build_filter_config(&self) -> FilterConfig {
+        // value_parser already validated regexes at parse time, so unwrap is safe
+        let compile_regex = |pattern: &Option<String>| -> Option<Regex> {
+            pattern.as_ref().map(|p| Regex::new(p).unwrap())
+        };
 
-        Ok(FilterConfig {
+        FilterConfig {
             before_time: self.filter_mtime_before,
             after_time: self.filter_mtime_after,
-            include_regex: compile_regex(&self.filter_include_regex, "filter-include-regex")?,
-            exclude_regex: compile_regex(&self.filter_exclude_regex, "filter-exclude-regex")?,
-            include_content_type_regex: compile_regex(
-                &self.filter_include_content_type_regex,
-                "filter-include-content-type-regex",
-            )?,
-            exclude_content_type_regex: compile_regex(
-                &self.filter_exclude_content_type_regex,
-                "filter-exclude-content-type-regex",
-            )?,
-            include_metadata_regex: compile_regex(
-                &self.filter_include_metadata_regex,
-                "filter-include-metadata-regex",
-            )?,
-            exclude_metadata_regex: compile_regex(
-                &self.filter_exclude_metadata_regex,
-                "filter-exclude-metadata-regex",
-            )?,
-            include_tag_regex: compile_regex(
-                &self.filter_include_tag_regex,
-                "filter-include-tag-regex",
-            )?,
-            exclude_tag_regex: compile_regex(
-                &self.filter_exclude_tag_regex,
-                "filter-exclude-tag-regex",
-            )?,
+            include_regex: compile_regex(&self.filter_include_regex),
+            exclude_regex: compile_regex(&self.filter_exclude_regex),
+            include_content_type_regex: compile_regex(&self.filter_include_content_type_regex),
+            exclude_content_type_regex: compile_regex(&self.filter_exclude_content_type_regex),
+            include_metadata_regex: compile_regex(&self.filter_include_metadata_regex),
+            exclude_metadata_regex: compile_regex(&self.filter_exclude_metadata_regex),
+            include_tag_regex: compile_regex(&self.filter_include_tag_regex),
+            exclude_tag_regex: compile_regex(&self.filter_exclude_tag_regex),
             larger_size: self
                 .filter_larger_size
                 .as_deref()
@@ -579,7 +555,7 @@ impl CLIArgs {
                 .filter_smaller_size
                 .as_deref()
                 .map(|s| parse_human_bytes(s).unwrap() as u64),
-        })
+        }
     }
 
     fn build_client_config(&self) -> Option<ClientConfig> {
@@ -672,7 +648,7 @@ impl TryFrom<CLIArgs> for Config {
         args.validate()?;
 
         let target = args.parse_target()?;
-        let filter_config = args.build_filter_config()?;
+        let filter_config = args.build_filter_config();
         let target_client_config = args.build_client_config();
         let tracing_config = args.build_tracing_config();
 

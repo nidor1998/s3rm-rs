@@ -710,40 +710,46 @@ impl TryFrom<CLIArgs> for Config {
             }
         }
 
-        // Load and validate Lua scripts if provided
-        #[cfg(feature = "lua_support")]
-        {
-            if let Some(ref script_path) = filter_callback_lua_script {
-                let engine = if allow_lua_unsafe_vm {
-                    crate::lua::engine::LuaScriptCallbackEngine::unsafe_new(lua_vm_memory_limit)
-                } else if allow_lua_os_library {
-                    crate::lua::engine::LuaScriptCallbackEngine::new(lua_vm_memory_limit)
-                } else {
-                    crate::lua::engine::LuaScriptCallbackEngine::new_without_os_io_libs(
-                        lua_vm_memory_limit,
-                    )
-                };
-                let script_content = std::fs::read_to_string(script_path)
-                    .map_err(|e| format!("Failed to read filter Lua script: {e}"))?;
-                engine
-                    .load_and_compile(&script_content)
-                    .map_err(|e| format!("Failed to load filter Lua script: {e}"))?;
+        // Build callback managers and register Lua callbacks (like s3sync)
+        #[allow(unused_mut)]
+        let mut filter_manager = FilterManager::new();
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "lua_support")] {
+                if let Some(ref script_path) = filter_callback_lua_script {
+                    let mut lua_filter_callback =
+                        crate::lua::filter::LuaFilterCallback::new(
+                            lua_vm_memory_limit,
+                            allow_lua_os_library,
+                            allow_lua_unsafe_vm,
+                        );
+                    lua_filter_callback
+                        .load_and_compile(script_path.as_str())
+                        .map_err(|e| format!("Failed to load filter Lua script: {e}"))?;
+                    filter_manager.register_callback(lua_filter_callback);
+                }
             }
-            if let Some(ref script_path) = event_callback_lua_script {
-                let engine = if allow_lua_unsafe_vm {
-                    crate::lua::engine::LuaScriptCallbackEngine::unsafe_new(lua_vm_memory_limit)
-                } else if allow_lua_os_library {
-                    crate::lua::engine::LuaScriptCallbackEngine::new(lua_vm_memory_limit)
-                } else {
-                    crate::lua::engine::LuaScriptCallbackEngine::new_without_os_io_libs(
-                        lua_vm_memory_limit,
-                    )
-                };
-                let script_content = std::fs::read_to_string(script_path)
-                    .map_err(|e| format!("Failed to read event Lua script: {e}"))?;
-                engine
-                    .load_and_compile(&script_content)
-                    .map_err(|e| format!("Failed to load event Lua script: {e}"))?;
+        }
+
+        #[allow(unused_mut)]
+        let mut event_manager = EventManager::new();
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "lua_support")] {
+                if let Some(ref script_path) = event_callback_lua_script {
+                    let mut lua_event_callback =
+                        crate::lua::event::LuaEventCallback::new(
+                            lua_vm_memory_limit,
+                            allow_lua_os_library,
+                            allow_lua_unsafe_vm,
+                        );
+                    lua_event_callback
+                        .load_and_compile(script_path.as_str())
+                        .map_err(|e| format!("Failed to load event Lua script: {e}"))?;
+                    event_manager.register_callback(
+                        crate::types::event_callback::EventType::ALL_EVENTS,
+                        lua_event_callback,
+                        args.dry_run,
+                    );
+                }
             }
         }
 
@@ -775,8 +781,8 @@ impl TryFrom<CLIArgs> for Config {
             lua_vm_memory_limit,
             if_match: args.if_match,
             max_delete: args.max_delete,
-            filter_manager: FilterManager::new(),
-            event_manager: EventManager::new(),
+            filter_manager,
+            event_manager,
             batch_size,
             delete_all_versions: args.delete_all_versions,
             force: args.force,

@@ -63,7 +63,11 @@
       "Bash(gh pr list:*)",
       "Bash(gh issue list:*)",
       "Bash(cargo run:*)",
-      "mcp__serena__insert_after_symbol"
+      "mcp__serena__insert_after_symbol",
+      "Bash(gh issue view:*)",
+      "Bash(gh issue edit:*)",
+      "Bash(gh pr edit:*)",
+      "Bash(gh issue close:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

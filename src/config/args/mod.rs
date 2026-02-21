@@ -92,6 +92,12 @@ fn parse_human_bytes(s: &str) -> Result<usize, String> {
     usize::try_from(byte.as_u128()).map_err(|e| e.to_string())
 }
 
+/// Clap value_parser that validates a human-readable byte string without consuming it.
+fn check_human_bytes(s: &str) -> Result<String, String> {
+    byte_unit::Byte::from_str(s.trim()).map_err(|e| e.to_string())?;
+    Ok(s.to_string())
+}
+
 // ---------------------------------------------------------------------------
 // CLIArgs (clap-derived argument struct)
 // ---------------------------------------------------------------------------
@@ -235,21 +241,35 @@ Example: 2023-02-19T12:00:00Z"#
     #[arg(
         long,
         env,
+        value_parser = check_human_bytes,
         help_heading = "Filter",
         long_help = r#"Delete only objects smaller than given size.
-Allow suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
+Allow suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB
+
+Examples:
+  --filter-smaller-size 1024        (1024 bytes)
+  --filter-smaller-size 64KiB       (65536 bytes)
+  --filter-smaller-size 10MB        (10000000 bytes)
+  --filter-smaller-size 1GiB        (1073741824 bytes)"#
     )]
-    pub filter_smaller_size: Option<u64>,
+    pub filter_smaller_size: Option<String>,
 
     /// Include only objects larger than this size.
     #[arg(
         long,
         env,
+        value_parser = check_human_bytes,
         help_heading = "Filter",
         long_help = r#"Delete only objects larger than or equal to given size.
-Allow suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
+Allow suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB
+
+Examples:
+  --filter-larger-size 1024         (1024 bytes)
+  --filter-larger-size 64KiB        (65536 bytes)
+  --filter-larger-size 10MB         (10000000 bytes)
+  --filter-larger-size 1GiB         (1073741824 bytes)"#
     )]
-    pub filter_larger_size: Option<u64>,
+    pub filter_larger_size: Option<String>,
 
     /// Lua script path for custom object filtering.
     #[cfg(feature = "lua_support")]
@@ -542,8 +562,14 @@ impl CLIArgs {
                 &self.filter_exclude_tag_regex,
                 "filter-exclude-tag-regex",
             )?,
-            larger_size: self.filter_larger_size,
-            smaller_size: self.filter_smaller_size,
+            larger_size: self
+                .filter_larger_size
+                .as_deref()
+                .map(|s| parse_human_bytes(s).unwrap() as u64),
+            smaller_size: self
+                .filter_smaller_size
+                .as_deref()
+                .map(|s| parse_human_bytes(s).unwrap() as u64),
         })
     }
 

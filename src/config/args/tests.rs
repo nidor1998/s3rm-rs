@@ -96,8 +96,24 @@ fn parse_filter_options() {
     let cli = parse_from_args(args).unwrap();
     assert_eq!(cli.filter_include_regex.as_deref(), Some(".*\\.log$"));
     assert_eq!(cli.filter_exclude_regex.as_deref(), Some("^temp/"));
-    assert_eq!(cli.filter_smaller_size, Some(1024));
-    assert_eq!(cli.filter_larger_size, Some(100));
+    assert_eq!(cli.filter_smaller_size.as_deref(), Some("1024"));
+    assert_eq!(cli.filter_larger_size.as_deref(), Some("100"));
+}
+
+#[test]
+fn parse_filter_size_human_readable() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-smaller-size",
+        "64MiB",
+        "--filter-larger-size",
+        "1GiB",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert_eq!(config.filter_config.smaller_size, Some(64 * 1024 * 1024));
+    assert_eq!(config.filter_config.larger_size, Some(1024 * 1024 * 1024));
 }
 
 #[test]

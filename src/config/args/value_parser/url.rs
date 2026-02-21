@@ -1,6 +1,6 @@
 use url::Url;
 
-const INVALID_SCHEME: &str = "scheme must be https:// or http:// .";
+const INVALID_SCHEME: &str = "URL scheme must be https:// or http://";
 
 pub fn check_scheme(url: &str) -> Result<String, String> {
     let parsed = Url::parse(url).map_err(|e| e.to_string())?;

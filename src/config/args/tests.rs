@@ -279,7 +279,7 @@ fn config_validates_batch_size_zero() {
     assert!(
         result
             .unwrap_err()
-            .contains("Batch size must be at least 1")
+            .contains("--batch-size must be at least 1")
     );
 }
 
@@ -292,7 +292,7 @@ fn config_validates_batch_size_too_large() {
     assert!(
         result
             .unwrap_err()
-            .contains("Batch size must be at most 1000")
+            .contains("--batch-size must be at most 1000")
     );
 }
 
@@ -305,7 +305,7 @@ fn config_validates_worker_size_zero() {
     assert!(
         result
             .unwrap_err()
-            .contains("Worker size must be at least 1")
+            .contains("--worker-size must be at least 1")
     );
 }
 

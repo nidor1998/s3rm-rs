@@ -6,6 +6,6 @@ pub fn is_file_exist(file_path: &str) -> Result<String, String> {
     if file_path.exists() && file_path.is_file() {
         Ok(file_path.to_string_lossy().to_string())
     } else {
-        Err(format!("File does not exist: {}", file_path.display()))
+        Err(format!("file not found: {}", file_path.display()))
     }
 }

@@ -64,17 +64,16 @@ const DEFAULT_FORCE: bool = false;
 // Error messages
 // ---------------------------------------------------------------------------
 
-const ERROR_MESSAGE_INVALID_TARGET: &str =
-    "Target must be an S3 path starting with 's3://' (e.g., s3://bucket/prefix).";
-const ERROR_MESSAGE_INVALID_REGEX: &str = "Invalid regular expression pattern";
-const ERROR_MESSAGE_WORKER_SIZE_ZERO: &str = "Worker size must be at least 1.";
-const ERROR_MESSAGE_BATCH_SIZE_ZERO: &str = "Batch size must be at least 1.";
-const ERROR_MESSAGE_BATCH_SIZE_TOO_LARGE: &str = "Batch size must be at most 1000 (S3 API limit).";
-const ERROR_MESSAGE_MAX_PARALLEL_LISTINGS_ZERO: &str = "Max parallel listings must be at least 1.";
+const ERROR_MESSAGE_INVALID_TARGET: &str = "target must be an S3 path (e.g. s3://bucket/prefix)";
+const ERROR_MESSAGE_INVALID_REGEX: &str = "Invalid regular expression";
+const ERROR_MESSAGE_WORKER_SIZE_ZERO: &str = "--worker-size must be at least 1";
+const ERROR_MESSAGE_BATCH_SIZE_ZERO: &str = "--batch-size must be at least 1";
+const ERROR_MESSAGE_BATCH_SIZE_TOO_LARGE: &str = "--batch-size must be at most 1000 (S3 API limit)";
+const ERROR_MESSAGE_MAX_PARALLEL_LISTINGS_ZERO: &str = "--max-parallel-listings must be at least 1";
 const ERROR_MESSAGE_OBJECT_LISTING_QUEUE_SIZE_ZERO: &str =
-    "Object listing queue size must be at least 1.";
+    "--object-listing-queue-size must be at least 1";
 const ERROR_MESSAGE_MAX_PARALLEL_LISTING_MAX_DEPTH_ZERO: &str =
-    "Max parallel listing max depth must be at least 1.";
+    "--max-parallel-listing-max-depth must be at least 1";
 
 // ---------------------------------------------------------------------------
 // Value parser helpers
@@ -122,297 +121,296 @@ pub struct CLIArgs {
     // -----------------------------------------------------------------------
     // General options
     // -----------------------------------------------------------------------
-    /// Simulation mode. Lists and filters objects but does not actually delete.
+    /// List objects that would be deleted without actually deleting them
     #[arg(short = 'd', long, env, default_value_t = DEFAULT_DRY_RUN, help_heading = "General")]
     pub dry_run: bool,
 
-    /// Skip confirmation prompt before deleting.
+    /// Skip the confirmation prompt before deleting
     #[arg(short = 'f', long, env, default_value_t = DEFAULT_FORCE, help_heading = "General")]
     pub force: bool,
 
-    /// Don't show the progress bar.
+    /// Hide the progress bar
     #[arg(long, env, default_value_t = DEFAULT_SHOW_NO_PROGRESS, help_heading = "General")]
     pub show_no_progress: bool,
 
-    /// Delete all versions of matching objects including delete markers.
+    /// Delete all versions of matching objects, including delete markers
     #[arg(long, env, default_value_t = DEFAULT_DELETE_ALL_VERSIONS, help_heading = "General")]
     pub delete_all_versions: bool,
 
-    /// Number of objects per batch deletion request (1–1000). Default: 1000.
-    /// When set to 1, uses single-object deletion (DeleteObject API).
+    /// Objects per batch deletion request (1-1000; 1 uses single-object deletion)
     #[arg(long, env, default_value_t = DEFAULT_BATCH_SIZE, help_heading = "General")]
     pub batch_size: u16,
 
-    /// Cancel the pipeline when deletion count exceeds this limit.
+    /// Stop deleting after this many objects have been deleted
     #[arg(long, env, help_heading = "General")]
     pub max_delete: Option<u64>,
 
     // -----------------------------------------------------------------------
     // Filter options (same as s3sync)
     // -----------------------------------------------------------------------
-    /// Include only objects whose key matches this regex pattern.
+    /// Delete only objects whose key matches this regex
     #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filtering")]
     pub filter_include_regex: Option<String>,
 
-    /// Exclude objects whose key matches this regex pattern.
+    /// Skip objects whose key matches this regex
     #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filtering")]
     pub filter_exclude_regex: Option<String>,
 
-    /// Include only objects whose content-type matches this regex pattern.
+    /// Delete only objects whose content type matches this regex
     #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filtering")]
     pub filter_include_content_type_regex: Option<String>,
 
-    /// Exclude objects whose content-type matches this regex pattern.
+    /// Skip objects whose content type matches this regex
     #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filtering")]
     pub filter_exclude_content_type_regex: Option<String>,
 
-    /// Include only objects whose user-defined metadata matches this regex.
+    /// Delete only objects whose user-defined metadata matches this regex
     #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filtering",
-        long_help = r#"Delete only objects that have metadata matching a given regular expression.
-Keys(lowercase) must be sorted in alphabetical order, and comma separated.
-This filter is applied after all other filters(except tag filters).
-It may take an extra API call to get metadata of the object.
+        long_help = r#"Delete only objects whose user-defined metadata matches this regular expression.
+Keys (lowercase) must be sorted alphabetically and separated by commas.
+This filter is applied after all other filters except tag filters.
+May require an extra API call per object to retrieve metadata.
 
 Example: "key1=(value1|value2),key2=value2""#)]
     pub filter_include_metadata_regex: Option<String>,
 
-    /// Exclude objects whose user-defined metadata matches this regex.
+    /// Skip objects whose user-defined metadata matches this regex
     #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filtering",
-        long_help = r#"Do not delete objects that have metadata matching a given regular expression.
-Keys(lowercase) must be sorted in alphabetical order, and comma separated.
-This filter is applied after all other filters(except tag filters).
-It may take an extra API call to get metadata of the object.
+        long_help = r#"Skip objects whose user-defined metadata matches this regular expression.
+Keys (lowercase) must be sorted alphabetically and separated by commas.
+This filter is applied after all other filters except tag filters.
+May require an extra API call per object to retrieve metadata.
 
 Example: "key1=(value1|value2),key2=value2""#)]
     pub filter_exclude_metadata_regex: Option<String>,
 
-    /// Include only objects whose tags match this regex pattern.
+    /// Delete only objects whose tags match this regex
     #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filtering",
-        long_help = r#"Delete only objects that have tag matching a given regular expression.
-Keys must be sorted in alphabetical order, and '&' separated.
+        long_help = r#"Delete only objects whose tags match this regular expression.
+Keys must be sorted alphabetically and separated by '&'.
 This filter is applied after all other filters.
-It takes an extra API call to get tags of the object.
+Requires an extra API call per object to retrieve tags.
 
 Example: "key1=(value1|value2)&key2=value2""#)]
     pub filter_include_tag_regex: Option<String>,
 
-    /// Exclude objects whose tags match this regex pattern.
+    /// Skip objects whose tags match this regex
     #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filtering",
-        long_help = r#"Do not delete objects that have tag matching a given regular expression.
-Keys must be sorted in alphabetical order, and '&' separated.
+        long_help = r#"Skip objects whose tags match this regular expression.
+Keys must be sorted alphabetically and separated by '&'.
 This filter is applied after all other filters.
-It takes an extra API call to get tags of the object.
+Requires an extra API call per object to retrieve tags.
 
 Example: "key1=(value1|value2)&key2=value2""#)]
     pub filter_exclude_tag_regex: Option<String>,
 
-    /// Include only objects modified before this date (ISO 8601 / RFC 3339).
+    /// Delete only objects modified before this time
     #[arg(
         long,
         env,
         help_heading = "Filtering",
-        long_help = r#"Delete only objects older than given time (RFC3339 datetime).
+        long_help = r#"Delete only objects older than the given time (RFC 3339 format).
 Example: 2023-02-19T12:00:00Z"#
     )]
     pub filter_mtime_before: Option<DateTime<Utc>>,
 
-    /// Include only objects modified after this date (ISO 8601 / RFC 3339).
+    /// Delete only objects modified at or after this time
     #[arg(
         long,
         env,
         help_heading = "Filtering",
-        long_help = r#"Delete only objects newer than or equal to given time (RFC3339 datetime).
+        long_help = r#"Delete only objects newer than or equal to the given time (RFC 3339 format).
 Example: 2023-02-19T12:00:00Z"#
     )]
     pub filter_mtime_after: Option<DateTime<Utc>>,
 
-    /// Include only objects smaller than this size.
+    /// Delete only objects smaller than this size
     #[arg(
         long,
         env,
         value_parser = value_parser::human_bytes::check_human_bytes_without_limit,
         help_heading = "Filtering",
-        long_help = r#"Delete only objects smaller than given size.
-Allow suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
+        long_help = r#"Delete only objects smaller than the given size.
+Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
     )]
     pub filter_smaller_size: Option<String>,
 
-    /// Include only objects larger than this size.
+    /// Delete only objects larger than or equal to this size
     #[arg(
         long,
         env,
         value_parser = value_parser::human_bytes::check_human_bytes_without_limit,
         help_heading = "Filtering",
-        long_help = r#"Delete only objects larger than or equal to given size.
-Allow suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
+        long_help = r#"Delete only objects larger than or equal to the given size.
+Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
     )]
     pub filter_larger_size: Option<String>,
 
     // -----------------------------------------------------------------------
     // Tracing/Logging options (same as s3sync)
     // -----------------------------------------------------------------------
-    /// Verbosity level. -q (quiet), default (normal), -v, -vv, -vvv.
+    /// Verbosity level (-q quiet, default normal, -v, -vv, -vvv)
     #[command(flatten)]
     pub verbosity: Verbosity<WarnLevel>,
 
-    /// Output logs in JSON format.
+    /// Output structured logs in JSON format
     #[arg(long, env, default_value_t = DEFAULT_JSON_TRACING, help_heading = "Tracing/Logging")]
     pub json_tracing: bool,
 
-    /// Enable AWS SDK tracing.
+    /// Include AWS SDK internal traces in log output
     #[arg(long, env, default_value_t = DEFAULT_AWS_SDK_TRACING, help_heading = "Tracing/Logging")]
     pub aws_sdk_tracing: bool,
 
-    /// Enable tracing span events.
+    /// Include span open/close events in log output
     #[arg(long, env, default_value_t = DEFAULT_SPAN_EVENTS_TRACING, help_heading = "Tracing/Logging")]
     pub span_events_tracing: bool,
 
-    /// Disable colored output in logs.
+    /// Disable colored output in logs
     #[arg(long, env, default_value_t = DEFAULT_DISABLE_COLOR_TRACING, help_heading = "Tracing/Logging")]
     pub disable_color_tracing: bool,
 
     // -----------------------------------------------------------------------
     // AWS configuration (target-only, adapted from s3sync)
     // -----------------------------------------------------------------------
-    /// AWS config file path.
+    /// Path to the AWS config file
     #[arg(long, env, help_heading = "AWS Configuration")]
     pub aws_config_file: Option<PathBuf>,
 
-    /// AWS shared credentials file path.
+    /// Path to the AWS shared credentials file
     #[arg(long, env, help_heading = "AWS Configuration")]
     pub aws_shared_credentials_file: Option<PathBuf>,
 
-    /// AWS profile for the target. If not set, uses the default profile.
+    /// AWS profile name for the target (uses default profile if not set)
     #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "AWS Configuration")]
     pub target_profile: Option<String>,
 
-    /// AWS access key ID for the target.
+    /// AWS access key ID for the target
     #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "AWS Configuration")]
     pub target_access_key: Option<String>,
 
-    /// AWS secret access key for the target.
+    /// AWS secret access key for the target
     #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "AWS Configuration")]
     pub target_secret_key: Option<String>,
 
-    /// AWS session token for the target.
+    /// AWS session token for the target
     #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "AWS Configuration")]
     pub target_session_token: Option<String>,
 
-    /// AWS region for the target.
+    /// AWS region for the target
     #[arg(long, env, value_parser = NonEmptyStringValueParser::new(), help_heading = "AWS Configuration")]
     pub target_region: Option<String>,
 
-    /// Custom S3-compatible endpoint URL (e.g. MinIO, Wasabi).
+    /// Custom S3-compatible endpoint URL (e.g. MinIO, Wasabi)
     #[arg(long, env, value_parser = value_parser::url::check_scheme, help_heading = "AWS Configuration")]
     pub target_endpoint_url: Option<String>,
 
-    /// Force path-style access (required for some S3-compatible services).
+    /// Use path-style access (required by some S3-compatible services)
     #[arg(long, env, default_value_t = DEFAULT_FORCE_PATH_STYLE, help_heading = "AWS Configuration")]
     pub target_force_path_style: bool,
 
-    /// Enable S3 Transfer Acceleration.
+    /// Enable S3 Transfer Acceleration
     #[arg(long, env, default_value_t = DEFAULT_ACCELERATE, help_heading = "AWS Configuration")]
     pub target_accelerate: bool,
 
-    /// Enable requester-pays for the target bucket.
+    /// Enable requester-pays for the target bucket
     #[arg(long, env, default_value_t = DEFAULT_REQUEST_PAYER, help_heading = "AWS Configuration")]
     pub target_request_payer: bool,
 
-    /// Disable stalled stream protection.
+    /// Disable stalled stream protection
     #[arg(long, env, default_value_t = DEFAULT_DISABLE_STALLED_STREAM_PROTECTION, help_heading = "AWS Configuration")]
     pub disable_stalled_stream_protection: bool,
 
     // -----------------------------------------------------------------------
     // Performance options (same as s3sync)
     // -----------------------------------------------------------------------
-    /// Number of concurrent deletion workers (1–65535). Default: 16.
+    /// Number of concurrent deletion workers (1-65535)
     #[arg(long, env, default_value_t = DEFAULT_WORKER_SIZE, help_heading = "Performance")]
     pub worker_size: u16,
 
-    /// Number of concurrent listing operations. Default: 16.
+    /// Number of concurrent listing operations
     #[arg(long, env, default_value_t = DEFAULT_MAX_PARALLEL_LISTINGS, help_heading = "Performance")]
     pub max_parallel_listings: u16,
 
-    /// Maximum depth for parallel listing operations. Default: 2.
+    /// Maximum depth for parallel listing operations
     #[arg(long, env, default_value_t = DEFAULT_PARALLEL_LISTING_MAX_DEPTH, help_heading = "Performance")]
     pub max_parallel_listing_max_depth: u16,
 
-    /// Maximum objects per second for rate limiting.
+    /// Maximum objects per second (rate limiting)
     #[arg(long, env, help_heading = "Performance")]
     pub rate_limit_objects: Option<u32>,
 
-    /// Object listing channel queue size. Default: 200000.
+    /// Internal queue size for object listing
     #[arg(long, env, default_value_t = DEFAULT_OBJECT_LISTING_QUEUE_SIZE, help_heading = "Performance")]
     pub object_listing_queue_size: u32,
 
-    /// Allow parallel listings in Express One Zone storage.
+    /// Allow parallel listings in Express One Zone storage
     #[arg(long, env, default_value_t = DEFAULT_ALLOW_PARALLEL_LISTINGS_IN_EXPRESS_ONE_ZONE, help_heading = "Performance")]
     pub allow_parallel_listings_in_express_one_zone: bool,
 
     // -----------------------------------------------------------------------
     // Retry options (same as s3sync)
     // -----------------------------------------------------------------------
-    /// Maximum retry attempts for AWS SDK operations. Default: 10.
+    /// Maximum retry attempts for AWS SDK operations
     #[arg(long, env, default_value_t = DEFAULT_AWS_MAX_ATTEMPTS, help_heading = "Retry Options")]
     pub aws_max_attempts: u32,
 
-    /// Initial backoff in milliseconds for retries. Default: 100.
+    /// Initial backoff in milliseconds for retries
     #[arg(long, env, default_value_t = DEFAULT_INITIAL_BACKOFF_MILLISECONDS, help_heading = "Retry Options")]
     pub initial_backoff_milliseconds: u64,
 
-    /// Number of application-level force retries (after SDK retries). Default: 5.
+    /// Number of application-level retries after SDK retries are exhausted
     #[arg(long, env, default_value_t = DEFAULT_FORCE_RETRY_COUNT, help_heading = "Retry Options")]
     pub force_retry_count: u32,
 
-    /// Interval in ms between force retries. Default: 1000.
+    /// Interval in milliseconds between application-level retries
     #[arg(long, env, default_value_t = DEFAULT_FORCE_RETRY_INTERVAL_MILLISECONDS, help_heading = "Retry Options")]
     pub force_retry_interval_milliseconds: u64,
 
     // -----------------------------------------------------------------------
     // Timeout options (same as s3sync)
     // -----------------------------------------------------------------------
-    /// Overall operation timeout in milliseconds.
+    /// Overall operation timeout in milliseconds
     #[arg(long, env, help_heading = "Timeout Options")]
     pub operation_timeout_milliseconds: Option<u64>,
 
-    /// Per-attempt operation timeout in milliseconds.
+    /// Per-attempt operation timeout in milliseconds
     #[arg(long, env, help_heading = "Timeout Options")]
     pub operation_attempt_timeout_milliseconds: Option<u64>,
 
-    /// Connection timeout in milliseconds.
+    /// Connection timeout in milliseconds
     #[arg(long, env, help_heading = "Timeout Options")]
     pub connect_timeout_milliseconds: Option<u64>,
 
-    /// Read timeout in milliseconds.
+    /// Read timeout in milliseconds
     #[arg(long, env, help_heading = "Timeout Options")]
     pub read_timeout_milliseconds: Option<u64>,
 
     // -----------------------------------------------------------------------
     // Lua scripting support (same as s3sync)
     // -----------------------------------------------------------------------
-    /// Path to the Lua script that is executed as filter callback.
+    /// Path to a Lua filter callback script
     #[cfg(feature = "lua_support")]
     #[arg(
         long,
         env,
         value_parser = value_parser::file_exist::is_file_exist,
         help_heading = "Lua scripting support",
-        long_help = r#"Path to the Lua script that is executed as filter callback"#
+        long_help = "Path to a Lua script used as a filter callback.\nThe script is called for each object and must return true to delete the object."
     )]
     pub filter_callback_lua_script: Option<String>,
 
-    /// Path to the Lua script that is executed as event callback.
+    /// Path to a Lua event callback script
     #[cfg(feature = "lua_support")]
     #[arg(
         long,
         env,
         value_parser = value_parser::file_exist::is_file_exist,
         help_heading = "Lua scripting support",
-        long_help = r#"Path to the Lua script that is executed as event callback"#
+        long_help = "Path to a Lua script used as an event callback.\nThe script receives deletion events such as progress, errors, and completion."
     )]
     pub event_callback_lua_script: Option<String>,
 
-    /// Allow Lua OS and I/O library functions in the Lua script.
+    /// Allow Lua OS and I/O library access in the Lua script
     #[cfg(feature = "lua_support")]
     #[arg(
         long,
@@ -420,11 +418,11 @@ Allow suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
         conflicts_with_all = ["allow_lua_unsafe_vm"],
         default_value_t = DEFAULT_ALLOW_LUA_OS_LIBRARY,
         help_heading = "Lua scripting support",
-        long_help = "Allow Lua OS and I/O library functions in the Lua script."
+        long_help = "Allow Lua OS and I/O library access in the Lua script"
     )]
     pub allow_lua_os_library: bool,
 
-    /// Lua VM memory limit.
+    /// Memory limit for the Lua VM
     #[cfg(feature = "lua_support")]
     #[arg(
         long,
@@ -432,35 +430,33 @@ Allow suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
         default_value = DEFAULT_LUA_VM_MEMORY_LIMIT,
         value_parser = value_parser::human_bytes::check_human_bytes_without_limit,
         help_heading = "Lua scripting support",
-        long_help = r#"Memory limit for the Lua VM. Allow suffixes: KB, KiB, MB, MiB, GB, GiB.
-Zero means no limit.
-If the memory limit is exceeded, the whole process will be terminated."#
+        long_help = "Memory limit for the Lua VM.\nSupported suffixes: KB, KiB, MB, MiB, GB, GiB.\nSet to 0 for no limit. Exceeding this limit terminates the process."
     )]
     pub lua_vm_memory_limit: String,
 
     // -----------------------------------------------------------------------
     // Advanced options (same as s3sync)
     // -----------------------------------------------------------------------
-    /// Enable If-Match conditional deletion using each object's own ETag.
+    /// Use ETag-based conditional deletion to prevent race conditions
     #[arg(long, env, default_value_t = DEFAULT_IF_MATCH, help_heading = "Advanced")]
     pub if_match: bool,
 
-    /// Treat warnings as errors (exit code 1 instead of 3).
+    /// Treat warnings as errors (exit code 1 instead of 3)
     #[arg(long, env, default_value_t = DEFAULT_WARN_AS_ERROR, help_heading = "Advanced")]
     pub warn_as_error: bool,
 
-    /// Max keys per listing request. Default: 1000.
+    /// Maximum keys per listing request
     #[arg(long, env, default_value_t = DEFAULT_MAX_KEYS, help_heading = "Advanced")]
     pub max_keys: i32,
 
-    /// Generate shell completions.
+    /// Generate shell completions for the given shell
     #[arg(long, env, help_heading = "Advanced")]
     pub auto_complete_shell: Option<clap_complete::shells::Shell>,
 
     // -----------------------------------------------------------------------
     // Dangerous options
     // -----------------------------------------------------------------------
-    /// Allow unsafe Lua VM functions in the Lua script.
+    /// Allow loading unsafe Lua standard libraries and C modules
     #[cfg(feature = "lua_support")]
     #[arg(
         long,
@@ -468,8 +464,7 @@ If the memory limit is exceeded, the whole process will be terminated."#
         conflicts_with_all = ["allow_lua_os_library"],
         default_value_t = DEFAULT_ALLOW_LUA_UNSAFE_VM,
         help_heading = "Dangerous",
-        long_help = r#"Allow unsafe Lua VM functions in the Lua script.
-It allows the Lua script to load unsafe standard libraries or C modules."#
+        long_help = "Allow loading unsafe Lua standard libraries and C modules.\nThis removes all sandbox restrictions from the Lua VM."
     )]
     pub allow_lua_unsafe_vm: bool,
 }

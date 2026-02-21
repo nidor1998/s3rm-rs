@@ -135,21 +135,28 @@ pub struct Config {
     // Internal configuration state
 }
 
-impl Config {
-    // Build from parsed args (similar to s3sync)
-    pub fn try_from(parsed_args: ParsedArgs) -> Result<Self, Error>;
+impl TryFrom<CLIArgs> for Config {
+    type Error = String;
+    fn try_from(args: CLIArgs) -> Result<Self, String>;
 }
 
-// Parsed arguments structure
-pub struct ParsedArgs {
-    // Parsed CLI arguments
+// CLI argument structure (clap-derived, public API)
+#[derive(clap::Parser, Clone, Debug)]
+pub struct CLIArgs {
+    // All CLI arguments — see Section 15 for full listing
 }
 
 // Parse arguments from string array (similar to s3sync's parse_from_args)
-pub fn parse_from_args<I, T>(args: I) -> Result<ParsedArgs, Error>
+pub fn parse_from_args<I, T>(args: I) -> Result<CLIArgs, clap::Error>
 where
     I: IntoIterator<Item = T>,
-    T: Into<String>;
+    T: Into<OsString> + Clone;
+
+// Convenience: parse + build Config in one step
+pub fn build_config_from_args<I, T>(args: I) -> Result<Config, String>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone;
 
 // Cancellation token (similar to s3sync)
 pub type PipelineCancellationToken = tokio_util::sync::CancellationToken;
@@ -162,8 +169,8 @@ pub fn create_pipeline_cancellation_token() -> PipelineCancellationToken;
 //     "--dry-run",
 //     "--worker-size", "100",
 // ];
-// let parsed_args = parse_from_args(args).unwrap();
-// let config = Config::try_from(parsed_args).unwrap();
+// let cli_args = parse_from_args(args).unwrap();
+// let config = Config::try_from(cli_args).unwrap();
 // let cancellation_token = create_pipeline_cancellation_token();
 // let mut pipeline = DeletionPipeline::new(config, cancellation_token).await;
 // pipeline.close_stats_sender();
@@ -772,49 +779,51 @@ impl EventCallback for LuaEventCallback {
 // Configuration structure (similar to s3sync's Config)
 pub struct Config {
     // Internal configuration state
-    // Built from ParsedArgs
+    // Built from CLIArgs via TryFrom
 }
 
-impl Config {
-    pub fn try_from(parsed_args: ParsedArgs) -> Result<Self, Error> {
+impl TryFrom<CLIArgs> for Config {
+    type Error = String;
+    fn try_from(args: CLIArgs) -> Result<Self, String> {
         // Validate and build configuration
         // Apply defaults
+        // Handle Express One Zone batch_size override (with warning)
+        // Load and register Lua callbacks
         // Reuse s3sync's validation logic
     }
 }
 
-// Parsed arguments structure
-pub struct ParsedArgs {
-    // Parsed CLI arguments using clap
-}
-
 // Parse arguments from string array (similar to s3sync's parse_from_args)
-pub fn parse_from_args<I, T>(args: I) -> Result<ParsedArgs, Error>
+pub fn parse_from_args<I, T>(args: I) -> Result<CLIArgs, clap::Error>
 where
     I: IntoIterator<Item = T>,
-    T: Into<String>
+    T: Into<OsString> + Clone
 {
-    // Parse using clap
-    // Handle environment variables
-    // Reuse s3sync's parsing logic
+    CLIArgs::try_parse_from(args)
 }
 
-// Internal CLI argument structure (aligned with s3sync patterns)
-// This is parsed internally, not exposed in public API
-#[derive(clap::Parser)]
-struct CliArgs {
+// Convenience: parse + build Config in one step
+pub fn build_config_from_args<I, T>(args: I) -> Result<Config, String>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone;
+
+// CLI argument structure (public, clap-derived, aligned with s3sync patterns)
+#[derive(clap::Parser, Clone, Debug)]
+#[command(name = "s3rm", version, about)]
+pub struct CLIArgs {
     // Target
-    pub target: String,  // s3://bucket/prefix
-    
-    // Deletion options
-    pub batch_size: usize,  // 1-1000 (default 1000); if 1, use single deletion
-                            // If Express One Zone and allow_parallel_listings_in_express_one_zone is false, batch_size defaults to 1
+    pub target: String,  // s3://bucket/prefix (validated by value_parser)
+
+    // General options
+    pub dry_run: bool,       // -d / --dry-run
+    pub force: bool,         // -f / --force
+    pub show_no_progress: bool,
     pub delete_all_versions: bool,
-    
-    // Safety
-    pub dry_run: bool,
-    pub force: bool,
-    
+    pub batch_size: u16,     // 1-1000 (default 1000); value_parser range enforced
+                             // If Express One Zone and !allow_parallel_listings_in_express_one_zone, overridden to 1
+    pub max_delete: Option<u64>,  // value_parser range(1..)
+
     // Filtering (same as s3sync)
     pub filter_include_regex: Option<String>,
     pub filter_exclude_regex: Option<String>,
@@ -826,39 +835,37 @@ struct CliArgs {
     pub filter_exclude_tag_regex: Option<String>,
     pub filter_mtime_before: Option<DateTime<Utc>>,
     pub filter_mtime_after: Option<DateTime<Utc>>,
-    pub filter_smaller_size: Option<u64>,
-    pub filter_larger_size: Option<u64>,
-    pub filter_callback_lua_script: Option<PathBuf>,
-    
-    // Performance (same as s3sync)
-    pub worker_size: usize,
-    pub max_parallel_listings: usize,
-    pub max_parallel_listing_max_depth: Option<usize>,
-    pub rate_limit_objects: Option<u64>,
-    pub object_listing_queue_size: usize,
-    pub allow_parallel_listings_in_express_one_zone: bool,
-    
-    // Logging (same as s3sync)
-    pub verbosity: i8,  // -q=-1, default=0, -v=1, -vv=2, -vvv=3
-    pub quiet: bool,
+    pub filter_smaller_size: Option<String>,   // human-readable (e.g. "64MiB")
+    pub filter_larger_size: Option<String>,    // human-readable (e.g. "1GiB")
+
+    // Verbosity (clap-verbosity-flag)
+    pub verbosity: Verbosity<WarnLevel>,  // -qq silent, -q error, default warn, -v info, -vv debug, -vvv trace
     pub json_tracing: bool,
-    pub disable_color_tracing: bool,
     pub aws_sdk_tracing: bool,
     pub span_events_tracing: bool,
-    
+    pub disable_color_tracing: bool,
+
+    // Performance (same as s3sync)
+    pub worker_size: u16,                  // value_parser range(1..)
+    pub max_parallel_listings: u16,        // value_parser range(1..)
+    pub max_parallel_listing_max_depth: u16, // value_parser range(1..)
+    pub rate_limit_objects: Option<u32>,    // value_parser range(10..)
+    pub object_listing_queue_size: u32,    // value_parser range(1..)
+    pub allow_parallel_listings_in_express_one_zone: bool,
+
     // Retry (same as s3sync)
     pub aws_max_attempts: u32,
     pub initial_backoff_milliseconds: u64,
-    pub force_retry_count: u32,
+    pub force_retry_count: u32,            // default 0
     pub force_retry_interval_milliseconds: u64,
-    
+
     // Timeout (same as s3sync)
-    pub operation_timeout_milliseconds: u64,
-    pub operation_attempt_timeout_milliseconds: u64,
-    pub connect_timeout_milliseconds: u64,
-    pub read_timeout_milliseconds: u64,
-    
-    // AWS config (same as s3sync)
+    pub operation_timeout_milliseconds: Option<u64>,
+    pub operation_attempt_timeout_milliseconds: Option<u64>,
+    pub connect_timeout_milliseconds: Option<u64>,
+    pub read_timeout_milliseconds: Option<u64>,
+
+    // AWS config (target-only, no source-*)
     pub aws_config_file: Option<PathBuf>,
     pub aws_shared_credentials_file: Option<PathBuf>,
     pub target_profile: Option<String>,
@@ -867,84 +874,108 @@ struct CliArgs {
     pub target_session_token: Option<String>,
     pub target_region: Option<String>,
     pub target_endpoint_url: Option<String>,
+    pub target_force_path_style: bool,
     pub target_accelerate: bool,
     pub target_request_payer: bool,
-    pub target_force_path_style: bool,
-    
-    // Lua (same as s3sync)
+    pub disable_stalled_stream_protection: bool,
+
+    // Lua (feature-gated: #[cfg(feature = "lua_support")])
+    pub filter_callback_lua_script: Option<String>,
+    pub event_callback_lua_script: Option<String>,
     pub allow_lua_os_library: bool,
-    pub lua_vm_memory_limit: Option<usize>,
+    pub lua_vm_memory_limit: String,  // human-readable (default "64MiB")
     pub allow_lua_unsafe_vm: bool,
-    pub event_callback_lua_script: Option<PathBuf>,
-    
-    // Advanced (same as s3sync)
-    pub if_match: bool,             // Uses the object's own ETag for conditional deletion
+
+    // Advanced
+    pub if_match: bool,
     pub warn_as_error: bool,
-    pub max_keys: Option<i32>,
-    pub show_no_progress: bool,
-    pub auto_complete_shell: Option<String>,
-    
-    // Deletion-specific
-    pub max_delete: Option<u64>,  // Maximum number of objects to delete
+    pub max_keys: i32,                 // value_parser range(1..=32767)
+    pub auto_complete_shell: Option<clap_complete::shells::Shell>,
 }
 ```
+
+All numeric fields use `clap::value_parser!` with `.range()` for compile-time validation (s3sync style). All fields have `env` attribute for environment variable support. Options are organized with `help_heading` into: General, Filtering, Tracing/Logging, AWS Configuration, Performance, Retry Options, Timeout Options, Lua scripting support, Advanced, Dangerous.
 
 **Reuse from s3sync**: All option parsing, environment variable handling, validation logic. Only remove source-specific options.
 
 ### 16. CLI Entry Point (Adapted from s3sync)
 
 ```rust
-// CLI entry point
+// CLI entry point (adapted from s3sync's main.rs)
 #[tokio::main]
-async fn main() {
-    // Collect CLI args
-    let args: Vec<String> = std::env::args().collect();
-    
-    // Parse arguments (reuse s3sync's pattern)
-    // s3rm library converts the arguments to Config.
-    // For simplicity, if invalid arguments are passed, this function will panic.
-    let parsed_args = s3rm_rs::parse_from_args(args).unwrap();
-    let config = s3rm_rs::Config::try_from(parsed_args).unwrap();
-    
-    // Initialize tracing (reuse s3sync's tracing setup)
-    init_tracing(&config).unwrap();
-    
-    // Create cancellation token
-    let cancellation_token = s3rm_rs::create_pipeline_cancellation_token();
-    
-    // Setup Ctrl-C handler (reuse s3sync's pattern)
-    let cancellation_token_for_ctrlc = cancellation_token.clone();
-    ctrlc::set_handler(move || {
-        tracing::warn!("Received Ctrl-C signal. Cancelling...");
-        cancellation_token_for_ctrlc.cancel();
-    })
-    .expect("Error setting Ctrl-C handler");
-    
-    // Create and run deletion pipeline
-    let mut pipeline = s3rm_rs::DeletionPipeline::new(config, cancellation_token).await;
-    
-    // Close stats sender if not needed (saves memory)
-    pipeline.close_stats_sender();
-    
-    // Run the pipeline
+async fn main() -> Result<()> {
+    let config = load_config_exit_if_err();
+
+    // Handle shell completion generation
+    if let Some(shell) = config.auto_complete_shell {
+        generate(shell, &mut CLIArgs::command(), "s3rm", &mut std::io::stdout());
+        return Ok(());
+    }
+
+    start_tracing_if_necessary(&config);
+    run(config).await
+}
+
+fn load_config_exit_if_err() -> Config {
+    let config = Config::try_from(CLIArgs::parse());
+    if let Err(error_message) = config {
+        clap::Error::raw(clap::error::ErrorKind::ValueValidation, error_message).exit();
+    }
+    config.unwrap()
+}
+
+async fn run(mut config: Config) -> Result<()> {
+    // Register user-defined callbacks (event + filter) if enabled
+    let mut user_defined_event_callback = UserDefinedEventCallback::new();
+    if config.test_user_defined_callback {
+        user_defined_event_callback.enable = true;
+    }
+    if user_defined_event_callback.is_enabled() {
+        config.event_manager.register_callback(
+            EventType::ALL_EVENTS, user_defined_event_callback, config.dry_run,
+        );
+    }
+
+    let mut user_defined_filter_callback = UserDefinedFilterCallback::new();
+    if config.test_user_defined_callback {
+        user_defined_filter_callback.enable = true;
+    }
+    if user_defined_filter_callback.is_enabled() {
+        config.filter_manager.register_callback(user_defined_filter_callback);
+    }
+
+    // Create cancellation token and Ctrl-C handler (tokio::select! pattern)
+    let cancellation_token = create_pipeline_cancellation_token();
+    ctrl_c_handler::spawn_ctrl_c_handler(cancellation_token.clone());
+
+    // Create pipeline with progress indicator
+    let mut pipeline = DeletionPipeline::new(config.clone(), cancellation_token).await;
+    let indicator_join_handle = indicator::show_indicator(
+        pipeline.get_stats_receiver(),
+        ui_config::is_progress_indicator_needed(&config),
+        ui_config::is_show_result_needed(&config),
+        true, config.dry_run,
+    );
+
     pipeline.run().await;
-    
-    // Check for errors
+    indicator_join_handle.await?;
+
+    // Handle errors — exit code 1
     if pipeline.has_error() {
-        tracing::error!("An error has occurred.");
         let errors = pipeline.get_errors_and_consume().unwrap();
-        tracing::error!("{:?}", errors[0]);
-        std::process::exit(1);
+        for err in &errors {
+            if is_cancelled_error(err) { return Ok(()); }
+            error!("{}", err);
+        }
+        return Err(anyhow::anyhow!("s3rm failed."));
     }
-    
-    // Check for warnings
+
+    // Handle warnings — exit code 3
     if pipeline.has_warning() {
-        tracing::warn!("A warning has occurred.");
+        std::process::exit(EXIT_CODE_WARNING); // 3
     }
-    
-    // Display statistics
-    let stats = pipeline.get_deletion_stats().await;
-    println!("Number of deleted objects: {}", stats.stats_deleted_objects);
+
+    Ok(())
 }
 ```
 
@@ -959,24 +990,19 @@ s3rm s3://my-bucket/old-data/ --delete-all-versions -vv
 s3rm s3://my-bucket/ --filter-mtime-before 2023-01-01 --worker-size 100
 ```
 
-**Help Text Organization** (following s3sync's categorized help format):
+**Help Text Organization** (using clap's `help_heading` attribute):
 
-The CLI help output should organize options into clear categories using clap's `#[command(next_help_heading = "Category Name")]` attribute. This matches s3sync's help structure for consistency.
-
-**Option Groups** (same structure as s3sync):
-- **Target**: S3 bucket/prefix specification
-- **Deletion Options**: Batch size, delete-all-versions
-- **Safety Options**: Dry-run, force, max-delete threshold
-- **Filter Options**: Regex, size, time, Lua callbacks (identical to s3sync)
-- **Performance Options**: Worker count, parallel listings, rate limiting (identical to s3sync)
-- **Logging Options**: Verbosity, JSON, color control (identical to s3sync)
+Options are organized into clear categories matching s3sync's help structure:
+- **General**: dry-run, force, show-no-progress, delete-all-versions, batch-size, max-delete
+- **Filtering**: Regex, size, time filters (identical to s3sync)
+- **Tracing/Logging**: Verbosity, JSON, color control, AWS SDK tracing, span events
+- **AWS Configuration**: Credentials, region, endpoint (target-* only, no source-*)
+- **Performance**: Worker count, parallel listings, rate limiting (identical to s3sync)
 - **Retry Options**: Max attempts, backoff configuration (identical to s3sync)
 - **Timeout Options**: Operation, connection, read timeouts (identical to s3sync)
-- **AWS Configuration**: Credentials, region, endpoint (target-* only, no source-*)
-- **Lua Options**: Script paths, memory limits, security modes (identical to s3sync)
-- **Advanced Options**: If-Match, warn-as-error, max-keys, show-no-progress (identical to s3sync)
-
-Each option group should be clearly labeled in the help output with a heading, making it easy for users to find relevant options. This categorization improves usability and maintains consistency with s3sync's CLI interface.
+- **Lua scripting support**: Script paths, memory limits, security modes (feature-gated)
+- **Advanced**: If-Match, warn-as-error, max-keys, shell completions
+- **Dangerous**: allow-lua-unsafe-vm
 
 ### 17. Safety Features (New Component)
 
@@ -1855,8 +1881,8 @@ async fn test_basic_deletion_with_auto_cleanup() {
         "--force",
     ];
     
-    let parsed_args = parse_from_args(args).expect("Failed to parse arguments");
-    let config = Config::try_from(parsed_args).expect("Failed to create config");
+    let cli_args = parse_from_args(args).expect("Failed to parse arguments");
+    let config = Config::try_from(cli_args).expect("Failed to create config");
     let cancellation_token = create_pipeline_cancellation_token();
     
     // Run deletion pipeline

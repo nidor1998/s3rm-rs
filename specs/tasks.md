@@ -676,12 +676,9 @@ Phase 12: CLI Implementation (Task 13)
 
 
 - [ ] 24. Write Comprehensive Unit Tests
-  - [ ] 24.1 Write unit tests for configuration parsing
-    - Test CLI argument parsing with various combinations
-    - Test environment variable precedence
-    - Test configuration validation
-    - Test invalid input handling
-    - Note: Depends on Task 13 (CLI args not yet implemented)
+  - [x] 24.1 Write unit tests for configuration parsing
+    - 54 unit tests in config/args/tests.rs covering argument parsing, environment variables, validation, and invalid input (Task 13)
+    - 4 unit tests in config/args/value_parser/human_bytes.rs for human-readable byte parsing (Task 13)
     - _Requirements: 8.1, 8.2, 8.3, 10.2_
 
   - [x] 24.2 Write unit tests for filter logic
@@ -914,7 +911,7 @@ Phase 12: CLI Implementation (Task 13)
 
 ## Implementation Status Summary
 
-Tasks 1-13 complete. Tasks 1-12 merged to init_build; Task 13 on build/init/task13 (PR #25).
+Tasks 1-13 complete. All merged to init_build.
 
 **Already implemented across Tasks 1-12** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)
@@ -944,10 +941,10 @@ Tasks 1-13 complete. Tasks 1-12 merged to init_build; Task 13 on build/init/task
 - 19.1: Rate limiter integration (done in Task 2)
 - 20.2-20.3: Terminal detection and cross-platform builds (done in Tasks 1, 9)
 - 21.1: Non-interactive environment detection (done in Task 9)
+- 24.1: Configuration parsing unit tests (done in Task 13)
 - 24.2-24.6: Unit tests for filters, deletion, safety, versioning, errors (done in Tasks 3-9)
 - 25.1-25.2: Property-based testing infrastructure (done in Tasks 3-9)
 
 **Remaining work**:
-- CLI implementation complete (Task 13) — binary is fully functional
 - Tasks 14-22: Remaining property tests and verification tasks (implementation sub-tasks mostly done)
 - Tasks 23-31: Quality, documentation, E2E testing, release

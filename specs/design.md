@@ -2035,7 +2035,6 @@ zeroize_derive = "1.4.3"
 # Logging (same as s3sync)
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json", "local-time"] }
-log = "0.4.29"
 
 # Progress bar (same as s3sync)
 indicatif = "0.18.3"
@@ -2055,18 +2054,25 @@ futures = "0.3.31"
 futures-util = "0.3.31"
 url = "2.5.8"
 urlencoding = "2.1.3"
+
+# Lua support (same as s3sync, optional)
+mlua = { version = "0.11.6", features = ["lua54", "async", "send", "vendored"], optional = true }
+
+# Byte unit parsing (same as s3sync)
+byte-unit = "5.2.0"
+
+# Misc (same as s3sync)
 cfg-if = "1.0.4"
 bitflags = "2.10.0"
+log = "0.4.29"
 rusty-fork = "0.3.1"
-
-# Lua (same as s3sync, optional feature)
-mlua = { version = "0.11.6", features = ["lua54", "async", "send", "vendored"], optional = true }
 
 [dev-dependencies]
 proptest = "1.6"
 tokio-test = "0.4"
 once_cell = "1.21.3"
 uuid = { version = "1.20.0", features = ["v4"] }
+nix = { version = "0.31.1", features = ["process", "signal"] }
 ```
 
 ### File Structure

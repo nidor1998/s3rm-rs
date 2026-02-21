@@ -521,7 +521,7 @@ Phase 14: Retry and Error Handling (Task 15)
     - _Requirements: 6.1, 6.2, 6.4_
 
 
-- [ ] 16. Implement Optimistic Locking Support
+- [-] 16. Implement Optimistic Locking Support
   - [x] 16.1 Add If-Match support to deletion requests
     - if_match field in Config (Task 2)
     - BatchDeleter includes ETag when if_match enabled (Task 8)

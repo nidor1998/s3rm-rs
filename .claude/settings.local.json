@@ -71,7 +71,9 @@
       "mcp__context7__query-docs",
       "Bash(git status:*)",
       "Bash(xargs -I {} bash -c 'echo \"\"=== {} ===\"\" && head -100 {}')",
-      "Bash(done)"
+      "Bash(done)",
+      "mcp__serena__check_onboarding_performed",
+      "mcp__github__search_issues"
     ]
   },
   "enableAllProjectMcpServers": true,

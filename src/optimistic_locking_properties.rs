@@ -1,7 +1,7 @@
 // **Property 41: If-Match Conditional Deletion**
 // **Validates: Requirements 11.1, 11.2**
 //
-// **Property 42: ETag Input Parsing**
+// **Property 42: If-Match Flag Propagation**
 // **Validates: Requirements 11.3**
 //
 // **Property 43: Batch Conditional Deletion Handling**
@@ -161,13 +161,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 42: ETag Input Parsing
+    // Property 42: If-Match Flag Propagation
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
 
-        /// **Property 42: ETag Input Parsing**
+        /// **Property 42: If-Match Flag Propagation**
         /// **Validates: Requirements 11.3**
         ///
         /// The --if-match CLI flag is a boolean toggle. When present, Config.if_match
@@ -194,7 +194,7 @@ mod tests {
             );
         }
 
-        /// **Property 42: ETag Input Parsing (default)**
+        /// **Property 42: If-Match Flag Propagation (default)**
         /// **Validates: Requirements 11.3**
         ///
         /// When --if-match is omitted and the IF_MATCH env var is unset,

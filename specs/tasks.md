@@ -648,7 +648,7 @@ Phase 19: Cross-Platform Support (Task 20)
     - Implemented in src/cross_platform_properties.rs (Task 20)
 
 
-- [ ] 21. Implement CI/CD Integration Features
+- [-] 21. Implement CI/CD Integration Features
   - [x] 21.1 Implement non-interactive environment detection
     - SafetyChecker uses std::io::IsTerminal (not atty) for TTY detection (Task 9)
     - Prompts skipped in non-TTY environments and when JSON logging is enabled

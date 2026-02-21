@@ -8,7 +8,7 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-14 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, and versioning support established.
+**Current Achievement**: Tasks 1-15 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, and retry/error handling property tests established.
 
 ## Current Status
 
@@ -27,6 +27,7 @@ Phase 10: Progress Reporting (Task 11)
 Phase 11: Library API (Task 12)
 Phase 12: CLI Implementation (Task 13)
 Phase 13: Versioning Support (Task 14)
+Phase 14: Retry and Error Handling (Task 15)
 
 ## Tasks
 
@@ -493,7 +494,7 @@ Phase 13: Versioning Support (Task 14)
     - **Validates: Requirements 5.4**
 
 
-- [ ] 15. Implement Retry and Error Handling
+- [x] 15. Implement Retry and Error Handling
   - [x] 15.1 Verify retry policy integration
     - AWS SDK retry with exponential backoff configured in client_builder.rs (Task 2)
     - Force retry loop in S3Storage::delete_objects() for partial batch failures
@@ -505,11 +506,11 @@ Phase 13: Versioning Support (Task 14)
     - ObjectDeleter logs failures and continues processing remaining objects (Task 8)
     - _Requirements: 6.4, 6.5_
 
-  - [ ] 15.3 Write property test for retry with exponential backoff
+  - [x] 15.3 Write property test for retry with exponential backoff
     - **Property 29: Retry with Exponential Backoff**
     - **Validates: Requirements 6.1, 6.2, 6.6**
 
-  - [ ] 15.4 Write property test for failure tracking and continuation
+  - [x] 15.4 Write property test for failure tracking and continuation
     - **Property 30: Failure Tracking and Continuation**
     - **Validates: Requirements 6.4, 6.5**
 
@@ -733,7 +734,7 @@ Phase 13: Versioning Support (Task 14)
   - _Requirements: All requirements (comprehensive coverage)_
 
 
-**Implemented Property Tests**: Properties 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 25, 26, 27, 28, 31, 32, 33, 38, 39, 40, 44, 45, 46, 47 (29 of 49).
+**Implemented Property Tests**: Properties 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 25, 26, 27, 28, 29, 30, 31, 32, 33, 38, 39, 40, 44, 45, 46, 47 (31 of 49).
 
 - [ ] 27. Documentation and Examples
   - [ ] 27.1 Write README.md
@@ -910,7 +911,7 @@ Phase 13: Versioning Support (Task 14)
 
 ## Implementation Status Summary
 
-Tasks 1-14 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init_build.
+Tasks 1-15 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init_build.
 
 **Already implemented across Tasks 1-14** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)
@@ -928,8 +929,9 @@ Tasks 1-14 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init
 - Library API: root-level re-exports, rustdoc documentation, property tests for API surface (Task 12)
 - CLI binary: fully implemented with clap, tracing, progress indicator, Ctrl+C handler (Task 13)
 - Versioning property tests: Properties 25-28 covering lister dispatch, deletion stage, version info (Task 14)
+- Retry/error handling property tests: Properties 29-30 covering retry config, error classification, failure tracking (Task 15)
 - CI pipeline for all target platforms (Task 1)
-- 29 property tests implemented (Properties 1-3, 5-11, 14-18, 25-28, 31-33, 38-40, 44-47)
+- 31 property tests implemented (Properties 1-3, 5-11, 14-18, 25-30, 31-33, 38-40, 44-47)
 - Comprehensive unit tests for all components (Task 24, all sub-tasks done in Tasks 3-13)
 
 **Sub-tasks already completed in later task groups** (done during Tasks 1-14):

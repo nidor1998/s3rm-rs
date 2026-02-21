@@ -700,7 +700,7 @@ pub fn init_tracing(config: &TracingConfig) {
     };
 
     // TracingConfig.tracing_level is log::Level, mapped from CLI verbosity:
-    // -q -> Error, default -> Info, -v -> Debug, -vv -> Debug, -vvv -> Trace
+    // -qq -> (None/silent), -q -> Error, default -> Warn, -v -> Info, -vv -> Debug, -vvv -> Trace
 
     if config.json_tracing {
         subscriber_builder.with_env_filter(event_filter).json().init();
@@ -1236,7 +1236,6 @@ pub struct ClientConfig {
     pub cli_timeout_config: CLITimeoutConfig,
     pub disable_stalled_stream_protection: bool,
     pub request_checksum_calculation: RequestChecksumCalculation,
-    pub parallel_upload_semaphore: Arc<Semaphore>,
 }
 
 pub struct RetryConfig {

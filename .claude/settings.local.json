@@ -68,7 +68,8 @@
       "Bash(gh issue edit:*)",
       "Bash(gh pr edit:*)",
       "Bash(gh issue close:*)",
-      "mcp__context7__query-docs"
+      "mcp__context7__query-docs",
+      "Bash(git status:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

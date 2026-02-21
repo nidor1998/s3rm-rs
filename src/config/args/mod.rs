@@ -747,6 +747,7 @@ impl TryFrom<CLIArgs> for Config {
             batch_size,
             delete_all_versions: args.delete_all_versions,
             force: args.force,
+            test_user_defined_callback: false,
         })
     }
 }

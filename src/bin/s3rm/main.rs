@@ -3,7 +3,10 @@ use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use tracing::{debug, error, trace};
 
+use s3rm_rs::callback::user_defined_event_callback::UserDefinedEventCallback;
+use s3rm_rs::callback::user_defined_filter_callback::UserDefinedFilterCallback;
 use s3rm_rs::config::Config;
+use s3rm_rs::types::event_callback::EventType;
 use s3rm_rs::{CLIArgs, DeletionPipeline, create_pipeline_cancellation_token, is_cancelled_error};
 
 mod ctrl_c_handler;
@@ -60,7 +63,38 @@ fn start_tracing_if_necessary(config: &Config) -> bool {
     true
 }
 
-async fn run(config: Config) -> Result<()> {
+async fn run(mut config: Config) -> Result<()> {
+    // Note: Each type of callback is registered only once.
+    // The user-defined event callback is disabled by default.
+    let mut user_defined_event_callback = UserDefinedEventCallback::new();
+    // This is for testing purpose only.
+    if config.test_user_defined_callback {
+        user_defined_event_callback.enable = true;
+    }
+    if user_defined_event_callback.is_enabled() {
+        // By default, the user-defined event callback notifies all events.
+        // You can modify EventType::ALL_EVENTS to filter specific events
+        config.event_manager.register_callback(
+            EventType::ALL_EVENTS,
+            user_defined_event_callback,
+            config.dry_run,
+        );
+    }
+
+    // The user-defined filter callback is disabled by default.
+    // But you can modify the `UserDefinedFilterCallback` to enable it.
+    // User-defined filter callback allows us to filter objects while listing them.
+    let mut user_defined_filter_callback = UserDefinedFilterCallback::new();
+    // This is for testing purpose only.
+    if config.test_user_defined_callback {
+        user_defined_filter_callback.enable = true;
+    }
+    if user_defined_filter_callback.is_enabled() {
+        config
+            .filter_manager
+            .register_callback(user_defined_filter_callback);
+    }
+
     #[allow(unused_assignments)]
     let mut has_warning = false;
 

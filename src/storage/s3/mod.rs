@@ -882,6 +882,7 @@ mod tests {
             batch_size: 1000,
             delete_all_versions: false,
             force: false,
+            test_user_defined_callback: false,
         }
     }
 

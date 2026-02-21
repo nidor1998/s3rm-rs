@@ -60,6 +60,7 @@ use fancy_regex::Regex;
 ///     # allow_lua_unsafe_vm: false,
 ///     # lua_vm_memory_limit: 50 * 1024 * 1024,
 ///     # if_match: false,
+///     # test_user_defined_callback: false,
 /// };
 /// ```
 #[derive(Debug, Clone)]
@@ -94,6 +95,8 @@ pub struct Config {
     pub batch_size: u16,
     pub delete_all_versions: bool,
     pub force: bool,
+    // Testing flag: enables user-defined callbacks (for library testing)
+    pub test_user_defined_callback: bool,
 }
 
 /// AWS S3 client configuration.

@@ -62,7 +62,8 @@
       "mcp__filesystem__read_text_file",
       "Bash(gh pr list:*)",
       "Bash(gh issue list:*)",
-      "Bash(cargo run:*)"
+      "Bash(cargo run:*)",
+      "mcp__serena__insert_after_symbol"
     ]
   },
   "enableAllProjectMcpServers": true,

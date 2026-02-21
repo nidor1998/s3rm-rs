@@ -69,7 +69,9 @@
       "Bash(gh pr edit:*)",
       "Bash(gh issue close:*)",
       "mcp__context7__query-docs",
-      "Bash(git status:*)"
+      "Bash(git status:*)",
+      "Bash(xargs -I {} bash -c 'echo \"\"=== {} ===\"\" && head -100 {}')",
+      "Bash(done)"
     ]
   },
   "enableAllProjectMcpServers": true,

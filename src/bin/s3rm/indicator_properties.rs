@@ -70,7 +70,9 @@ mod tests {
                 for s in &stats {
                     let stat = match s {
                         DeletionStatistics::DeleteComplete { key } => {
-                            DeletionStatistics::DeleteComplete { key: key.clone() }
+                            DeletionStatistics::DeleteComplete {
+                                key: key.clone(),
+                            }
                         }
                         DeletionStatistics::DeleteBytes(b) => {
                             DeletionStatistics::DeleteBytes(*b)
@@ -126,7 +128,9 @@ mod tests {
                 for s in &stats {
                     let stat = match s {
                         DeletionStatistics::DeleteComplete { key } => {
-                            DeletionStatistics::DeleteComplete { key: key.clone() }
+                            DeletionStatistics::DeleteComplete {
+                                key: key.clone(),
+                            }
                         }
                         DeletionStatistics::DeleteBytes(b) => {
                             DeletionStatistics::DeleteBytes(*b)
@@ -175,7 +179,9 @@ mod tests {
                 for s in &stats {
                     let stat = match s {
                         DeletionStatistics::DeleteComplete { key } => {
-                            DeletionStatistics::DeleteComplete { key: key.clone() }
+                            DeletionStatistics::DeleteComplete {
+                                key: key.clone(),
+                            }
                         }
                         DeletionStatistics::DeleteBytes(b) => {
                             DeletionStatistics::DeleteBytes(*b)

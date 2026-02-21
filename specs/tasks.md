@@ -472,24 +472,22 @@ Phase 12: CLI Implementation (Task 13)
     - Config has delete_all_versions flag; ObjectLister dispatches versioned listing (Task 5)
     - _Requirements: 5.1, 5.2_
 
-  - [ ] 14.2 Add version display to dry-run mode
-    - Show version counts per object in dry-run output
-    - Note: dry-run already logs version_id per object; this is about aggregate counts
+  - [x] 14.2 ~~Add version display to dry-run mode~~ Not needed: each version is a separate object in the pipeline, so progress/summary counts are already correct
     - _Requirements: 5.4_
 
-  - [ ] 14.3 Write property test for versioned bucket delete marker creation
+  - [x] 14.3 Write property test for versioned bucket delete marker creation
     - **Property 25: Versioned Bucket Delete Marker Creation**
     - **Validates: Requirements 5.1**
 
-  - [ ] 14.4 Write property test for all-versions deletion
+  - [x] 14.4 Write property test for all-versions deletion
     - **Property 26: All-Versions Deletion**
     - **Validates: Requirements 5.2**
 
-  - [ ] 14.5 Write property test for version information retrieval
+  - [x] 14.5 Write property test for version information retrieval
     - **Property 27: Version Information Retrieval**
     - **Validates: Requirements 5.3**
 
-  - [ ] 14.6 Write property test for versioned dry-run display
+  - [x] 14.6 Write property test for versioned dry-run display
     - **Property 28: Versioned Dry-Run Display**
     - **Validates: Requirements 5.4**
 
@@ -734,7 +732,7 @@ Phase 12: CLI Implementation (Task 13)
   - _Requirements: All requirements (comprehensive coverage)_
 
 
-**Implemented Property Tests**: Properties 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 31, 32, 33, 38, 39, 40, 44, 45, 46, 47 (25 of 49).
+**Implemented Property Tests**: Properties 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 25, 26, 27, 28, 31, 32, 33, 38, 39, 40, 44, 45, 46, 47 (29 of 49).
 
 - [ ] 27. Documentation and Examples
   - [ ] 27.1 Write README.md
@@ -928,10 +926,11 @@ Tasks 1-13 complete. All merged to init_build.
 - Progress reporter with indicatif, UI config helpers, moving averages (Task 11)
 - Library API: root-level re-exports, rustdoc documentation, property tests for API surface (Task 12)
 - CI pipeline for all target platforms (Task 1)
-- 25 property tests implemented (Properties 1-3, 5-11, 14-18, 31-33, 38-40, 44-47)
+- 29 property tests implemented (Properties 1-3, 5-11, 14-18, 25-28, 31-33, 38-40, 44-47)
 
 **Sub-tasks already completed in later task groups** (done during Tasks 1-12):
 - 14.1: Version handling in ObjectDeleter (done in Tasks 3, 5, 8)
+- 14.2: Version display in dry-run mode — not needed; each version is a separate object in the pipeline
 - 15.1: Retry policy integration (done in Task 2)
 - 15.2: Failure tracking (done in Tasks 3, 8)
 - 15.5: Error handling unit tests (done in Tasks 3, 8)

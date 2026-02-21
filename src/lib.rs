@@ -180,6 +180,9 @@ pub use callback::filter_manager::FilterManager;
 mod lib_properties;
 
 #[cfg(test)]
+mod versioning_properties;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

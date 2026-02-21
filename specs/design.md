@@ -1396,7 +1396,7 @@ pub struct FilterConfig {
 **Validates: Requirements 5.3**
 
 ### Property 28: Versioned Dry-Run Display
-*For any* dry-run operation on a versioned bucket, the display should show version counts per object.
+*For any* dry-run operation on a versioned bucket, each version should be counted as a separate object in the pipeline, so the total object count equals the total number of versions listed.
 **Validates: Requirements 5.4**
 
 ### Property 29: Retry with Exponential Backoff

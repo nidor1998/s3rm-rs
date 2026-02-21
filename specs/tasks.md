@@ -465,7 +465,7 @@ Phase 12: CLI Implementation (Task 13)
     - **Validates: Requirements 10.5, 13.4**
 
 
-- [ ] 14. Implement Versioning Support
+- [-] 14. Implement Versioning Support
   - [x] 14.1 Add version handling to ObjectDeleter
     - S3Object enum supports NotVersioning, Versioning, and DeleteMarker variants (Task 3)
     - BatchDeleter and SingleDeleter include version_id in API requests (Task 8)

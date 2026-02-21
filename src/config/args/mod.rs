@@ -85,7 +85,7 @@ fn check_s3_target(s: &str) -> Result<String, String> {
 }
 
 fn parse_human_bytes(s: &str) -> Result<usize, String> {
-    let v = value_parser::human_bytes::parse_human_bytes_without_limit(s)?;
+    let v = value_parser::human_bytes::parse_human_bytes(s)?;
     usize::try_from(v).map_err(|e| e.to_string())
 }
 
@@ -225,7 +225,7 @@ Example: 2023-02-19T12:00:00Z"#
     #[arg(
         long,
         env,
-        value_parser = value_parser::human_bytes::check_human_bytes_without_limit,
+        value_parser = value_parser::human_bytes::check_human_bytes,
         help_heading = "Filtering",
         long_help = r#"Delete only objects smaller than the given size.
 Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
@@ -236,7 +236,7 @@ Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
     #[arg(
         long,
         env,
-        value_parser = value_parser::human_bytes::check_human_bytes_without_limit,
+        value_parser = value_parser::human_bytes::check_human_bytes,
         help_heading = "Filtering",
         long_help = r#"Delete only objects larger than or equal to the given size.
 Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
@@ -425,7 +425,7 @@ Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
         long,
         env,
         default_value = DEFAULT_LUA_VM_MEMORY_LIMIT,
-        value_parser = value_parser::human_bytes::check_human_bytes_without_limit,
+        value_parser = value_parser::human_bytes::check_human_bytes,
         help_heading = "Lua scripting support",
         long_help = "Memory limit for the Lua VM.\nSupported suffixes: KB, KiB, MB, MiB, GB, GiB.\nSet to 0 for no limit. Exceeding this limit terminates the process."
     )]

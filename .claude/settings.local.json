@@ -73,7 +73,8 @@
       "Bash(xargs -I {} bash -c 'echo \"\"=== {} ===\"\" && head -100 {}')",
       "Bash(done)",
       "mcp__serena__check_onboarding_performed",
-      "mcp__github__search_issues"
+      "mcp__github__search_issues",
+      "Bash(gh pr:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -640,10 +640,17 @@ impl TryFrom<CLIArgs> for Config {
         let target_client_config = args.build_client_config();
         let tracing_config = args.build_tracing_config(args.dry_run);
 
-        // Express One Zone: default batch_size to 1 unless parallel listings allowed
+        // Express One Zone: override batch_size to 1 unless parallel listings allowed
         let mut batch_size = args.batch_size;
         let StoragePath::S3 { ref bucket, .. } = target;
         if is_express_onezone_storage(bucket) && !args.allow_parallel_listings_in_express_one_zone {
+            if batch_size != DEFAULT_BATCH_SIZE {
+                tracing::warn!(
+                    "--batch-size={} is overridden to 1 for Express One Zone storage. \
+                     Use --allow-parallel-listings-in-express-one-zone to keep the specified value.",
+                    batch_size,
+                );
+            }
             batch_size = 1;
         }
 

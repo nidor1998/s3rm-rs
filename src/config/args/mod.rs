@@ -63,14 +63,6 @@ const DEFAULT_FORCE: bool = false;
 // ---------------------------------------------------------------------------
 
 const ERROR_MESSAGE_INVALID_TARGET: &str = "target must be an S3 path (e.g. s3://bucket/prefix)";
-const ERROR_MESSAGE_WORKER_SIZE_ZERO: &str = "--worker-size must be at least 1";
-const ERROR_MESSAGE_BATCH_SIZE_ZERO: &str = "--batch-size must be at least 1";
-const ERROR_MESSAGE_BATCH_SIZE_TOO_LARGE: &str = "--batch-size must be at most 1000 (S3 API limit)";
-const ERROR_MESSAGE_MAX_PARALLEL_LISTINGS_ZERO: &str = "--max-parallel-listings must be at least 1";
-const ERROR_MESSAGE_OBJECT_LISTING_QUEUE_SIZE_ZERO: &str =
-    "--object-listing-queue-size must be at least 1";
-const ERROR_MESSAGE_MAX_PARALLEL_LISTING_MAX_DEPTH_ZERO: &str =
-    "--max-parallel-listing-max-depth must be at least 1";
 
 // ---------------------------------------------------------------------------
 // Value parser helpers
@@ -135,11 +127,11 @@ pub struct CLIArgs {
     pub delete_all_versions: bool,
 
     /// Objects per batch deletion request (1-1000; 1 uses single-object deletion)
-    #[arg(long, env, default_value_t = DEFAULT_BATCH_SIZE, help_heading = "General")]
+    #[arg(long, env, default_value_t = DEFAULT_BATCH_SIZE, value_parser = clap::value_parser!(u16).range(1..=1000), help_heading = "General")]
     pub batch_size: u16,
 
     /// Stop deleting after this many objects have been deleted
-    #[arg(long, env, help_heading = "General")]
+    #[arg(long, env, value_parser = clap::value_parser!(u64).range(1..), help_heading = "General")]
     pub max_delete: Option<u64>,
 
     // -----------------------------------------------------------------------
@@ -321,23 +313,23 @@ Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
     // Performance options (same as s3sync)
     // -----------------------------------------------------------------------
     /// Number of concurrent deletion workers (1-65535)
-    #[arg(long, env, default_value_t = DEFAULT_WORKER_SIZE, help_heading = "Performance")]
+    #[arg(long, env, default_value_t = DEFAULT_WORKER_SIZE, value_parser = clap::value_parser!(u16).range(1..), help_heading = "Performance")]
     pub worker_size: u16,
 
     /// Number of concurrent listing operations
-    #[arg(long, env, default_value_t = DEFAULT_MAX_PARALLEL_LISTINGS, help_heading = "Performance")]
+    #[arg(long, env, default_value_t = DEFAULT_MAX_PARALLEL_LISTINGS, value_parser = clap::value_parser!(u16).range(1..), help_heading = "Performance")]
     pub max_parallel_listings: u16,
 
     /// Maximum depth for parallel listing operations
-    #[arg(long, env, default_value_t = DEFAULT_PARALLEL_LISTING_MAX_DEPTH, help_heading = "Performance")]
+    #[arg(long, env, default_value_t = DEFAULT_PARALLEL_LISTING_MAX_DEPTH, value_parser = clap::value_parser!(u16).range(1..), help_heading = "Performance")]
     pub max_parallel_listing_max_depth: u16,
 
     /// Maximum objects per second (rate limiting)
-    #[arg(long, env, help_heading = "Performance")]
+    #[arg(long, env, value_parser = clap::value_parser!(u32).range(10..), help_heading = "Performance")]
     pub rate_limit_objects: Option<u32>,
 
     /// Internal queue size for object listing
-    #[arg(long, env, default_value_t = DEFAULT_OBJECT_LISTING_QUEUE_SIZE, help_heading = "Performance")]
+    #[arg(long, env, default_value_t = DEFAULT_OBJECT_LISTING_QUEUE_SIZE, value_parser = clap::value_parser!(u32).range(1..), help_heading = "Performance")]
     pub object_listing_queue_size: u32,
 
     /// Allow parallel listings in Express One Zone storage
@@ -442,8 +434,8 @@ Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
     #[arg(long, env, default_value_t = DEFAULT_WARN_AS_ERROR, help_heading = "Advanced")]
     pub warn_as_error: bool,
 
-    /// Maximum keys per listing request
-    #[arg(long, env, default_value_t = DEFAULT_MAX_KEYS, help_heading = "Advanced")]
+    /// Maximum number of objects returned in a single list object request
+    #[arg(long, env, default_value_t = DEFAULT_MAX_KEYS, value_parser = clap::value_parser!(i32).range(1..=32767), help_heading = "Advanced")]
     pub max_keys: i32,
 
     /// Generate shell completions for the given shell
@@ -508,28 +500,6 @@ where
 // ---------------------------------------------------------------------------
 
 impl CLIArgs {
-    fn validate(&self) -> Result<(), String> {
-        if self.worker_size == 0 {
-            return Err(ERROR_MESSAGE_WORKER_SIZE_ZERO.to_string());
-        }
-        if self.batch_size == 0 {
-            return Err(ERROR_MESSAGE_BATCH_SIZE_ZERO.to_string());
-        }
-        if self.batch_size > 1000 {
-            return Err(ERROR_MESSAGE_BATCH_SIZE_TOO_LARGE.to_string());
-        }
-        if self.max_parallel_listings == 0 {
-            return Err(ERROR_MESSAGE_MAX_PARALLEL_LISTINGS_ZERO.to_string());
-        }
-        if self.object_listing_queue_size == 0 {
-            return Err(ERROR_MESSAGE_OBJECT_LISTING_QUEUE_SIZE_ZERO.to_string());
-        }
-        if self.max_parallel_listing_max_depth == 0 {
-            return Err(ERROR_MESSAGE_MAX_PARALLEL_LISTING_MAX_DEPTH_ZERO.to_string());
-        }
-        Ok(())
-    }
-
     fn build_filter_config(&self) -> FilterConfig {
         // value_parser already validated regexes at parse time, so unwrap is safe
         let compile_regex = |pattern: &Option<String>| -> Option<Regex> {
@@ -645,8 +615,6 @@ impl TryFrom<CLIArgs> for Config {
 
     #[allow(clippy::needless_late_init)]
     fn try_from(args: CLIArgs) -> Result<Self, Self::Error> {
-        args.validate()?;
-
         let target = args.parse_target()?;
         let filter_config = args.build_filter_config();
         let target_client_config = args.build_client_config();

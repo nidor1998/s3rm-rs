@@ -271,42 +271,68 @@ fn config_from_full_args() {
 }
 
 #[test]
-fn config_validates_batch_size_zero() {
+fn parse_rejects_batch_size_zero() {
     let args = vec!["s3rm", "s3://bucket/", "--batch-size", "0"];
-    let cli = parse_from_args(args).unwrap();
-    let result = Config::try_from(cli);
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .contains("--batch-size must be at least 1")
-    );
+    assert!(parse_from_args(args).is_err());
 }
 
 #[test]
-fn config_validates_batch_size_too_large() {
+fn parse_rejects_batch_size_too_large() {
     let args = vec!["s3rm", "s3://bucket/", "--batch-size", "1001"];
-    let cli = parse_from_args(args).unwrap();
-    let result = Config::try_from(cli);
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .contains("--batch-size must be at most 1000")
-    );
+    assert!(parse_from_args(args).is_err());
 }
 
 #[test]
-fn config_validates_worker_size_zero() {
+fn parse_rejects_worker_size_zero() {
     let args = vec!["s3rm", "s3://bucket/", "--worker-size", "0"];
-    let cli = parse_from_args(args).unwrap();
-    let result = Config::try_from(cli);
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .contains("--worker-size must be at least 1")
-    );
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_rejects_max_delete_zero() {
+    let args = vec!["s3rm", "s3://bucket/", "--max-delete", "0"];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_rejects_max_keys_zero() {
+    let args = vec!["s3rm", "s3://bucket/", "--max-keys", "0"];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_rejects_max_keys_too_large() {
+    let args = vec!["s3rm", "s3://bucket/", "--max-keys", "32768"];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_rejects_rate_limit_objects_below_minimum() {
+    let args = vec!["s3rm", "s3://bucket/", "--rate-limit-objects", "9"];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_rejects_max_parallel_listings_zero() {
+    let args = vec!["s3rm", "s3://bucket/", "--max-parallel-listings", "0"];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_rejects_object_listing_queue_size_zero() {
+    let args = vec!["s3rm", "s3://bucket/", "--object-listing-queue-size", "0"];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_rejects_max_parallel_listing_max_depth_zero() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--max-parallel-listing-max-depth",
+        "0",
+    ];
+    assert!(parse_from_args(args).is_err());
 }
 
 #[test]

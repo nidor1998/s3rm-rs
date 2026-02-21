@@ -14,6 +14,7 @@ use clap_verbosity_flag::{Verbosity, WarnLevel};
 use fancy_regex::Regex;
 use std::ffi::OsString;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
@@ -87,21 +88,8 @@ fn check_s3_target(s: &str) -> Result<String, String> {
 }
 
 fn parse_human_bytes(s: &str) -> Result<usize, String> {
-    let s = s.trim();
-    let (num_part, multiplier) = if let Some(stripped) = s.strip_suffix("GiB") {
-        (stripped, 1024 * 1024 * 1024)
-    } else if let Some(stripped) = s.strip_suffix("MiB") {
-        (stripped, 1024 * 1024)
-    } else if let Some(stripped) = s.strip_suffix("KiB") {
-        (stripped, 1024)
-    } else {
-        (s, 1)
-    };
-    let num: usize = num_part
-        .trim()
-        .parse()
-        .map_err(|e| format!("Invalid byte value '{s}': {e}"))?;
-    Ok(num * multiplier)
+    let byte = byte_unit::Byte::from_str(s.trim()).map_err(|e| e.to_string())?;
+    usize::try_from(byte.as_u128()).map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------

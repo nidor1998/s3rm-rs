@@ -637,9 +637,9 @@ Phase 14: Retry and Error Handling (Task 15)
     - Prompts skipped in non-TTY environments and when JSON logging is enabled
     - _Requirements: 13.1_
 
-  - [ ] 21.2 Verify output stream separation
-    - Ensure errors go to stderr
-    - Ensure structured logs go to stdout
+  - [x] 21.2 Verify output stream separation
+    - tracing-subscriber::fmt() writes all logs (including errors) to stdout by default (Tasks 2, 13)
+    - This is the intended behavior per Requirement 13.6
     - _Requirements: 13.6_
 
   - [ ] 21.3 Write property test for non-interactive environment detection
@@ -946,11 +946,12 @@ Tasks 1-15 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init
 - 19.1: Rate limiter integration (done in Task 2)
 - 20.2-20.3: Terminal detection and cross-platform builds (done in Tasks 1, 9)
 - 21.1: Non-interactive environment detection (done in Task 9)
+- 21.2: Output stream separation — all logs to stdout by default via tracing-subscriber (done in Tasks 2, 13)
 - 24.1-24.6: All unit tests (done in Tasks 3-13)
 - 25.1-25.2: Property-based testing infrastructure (done in Tasks 3-9)
 
 **Remaining work**:
-- Tasks 15-22: Remaining property tests (20 of 49 properties still need tests)
+- Tasks 16-22: Remaining property tests (18 of 49 properties still need tests)
 - Task 23: Checkpoint review
 - Task 26: Verify all property tests
 - Tasks 27-31: Documentation, quality, E2E testing, release

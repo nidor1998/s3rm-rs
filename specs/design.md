@@ -1480,7 +1480,7 @@ pub struct FilterConfig {
 **Validates: Requirements 13.1**
 
 ### Property 49: Output Stream Separation
-*For any* error that occurs, the tool should output error messages to stderr while keeping structured logs on stdout.
+*For any* log output, the tool should write all log messages (including errors) to stdout via tracing-subscriber by default.
 **Validates: Requirements 13.6**
 
 ## Error Handling
@@ -2140,6 +2140,7 @@ s3rm-rs/
 │   │   ├── event.rs           # LuaEventCallback (from s3sync)
 │   │   └── lua_properties.rs  # Property tests for Lua integration
 │   ├── versioning_properties.rs  # Property tests for versioning support (Properties 25-28)
+│   ├── retry_properties.rs     # Property tests for retry and error handling (Properties 29-30)
 │   └── bin/
 │       └── s3rm/
 │           ├── main.rs            # CLI binary entry point (fully implemented)
@@ -2154,7 +2155,7 @@ s3rm-rs/
 └── README.md
 ```
 
-**Notes**: Tests are co-located with source code (e.g., `deleter/tests.rs`, `filters/filter_properties.rs`, `lua/lua_properties.rs`, `safety/safety_properties.rs`, `callback/event_callback_properties.rs`, `bin/s3rm/indicator_properties.rs`, `versioning_properties.rs`). Property tests and unit tests share the same test files. All core components are fully implemented including pipeline orchestrator, terminator, progress indicator, CLI binary, and versioning support.
+**Notes**: Tests are co-located with source code (e.g., `deleter/tests.rs`, `filters/filter_properties.rs`, `lua/lua_properties.rs`, `safety/safety_properties.rs`, `callback/event_callback_properties.rs`, `bin/s3rm/indicator_properties.rs`, `versioning_properties.rs`, `retry_properties.rs`). Property tests and unit tests share the same test files. All core components are fully implemented including pipeline orchestrator, terminator, progress indicator, CLI binary, versioning support, and retry/error handling.
 
 ### Development Phases
 

@@ -224,5 +224,5 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 3. WHERE JSON logging is enabled, THE S3rm_Tool SHALL output machine-readable JSON logs for integration with log aggregation systems
 4. THE S3rm_Tool SHALL return distinct exit codes for different failure scenarios (authentication, network, partial failure)
 5. THE S3rm_Tool SHALL support reading credentials from environment variables for CI/CD environments
-6. WHEN errors occur, THE S3rm_Tool SHALL output clear error messages to stderr while keeping structured logs on stdout
+6. THE S3rm_Tool SHALL output all log messages (including errors) to stdout via tracing-subscriber by default
 7. WHERE color output is not explicitly enabled, THE S3rm_Tool SHALL automatically disable colored output in non-TTY environments

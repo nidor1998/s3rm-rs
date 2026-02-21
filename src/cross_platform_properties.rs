@@ -33,14 +33,27 @@ mod tests {
         ]
     }
 
-    /// Generate AWS config file path components.
+    /// Generate AWS config file path components appropriate for the current platform.
+    /// On Unix: forward-slash absolute paths. On Windows: drive-letter paths, backslash
+    /// separators, and UNC-style paths so the property actually covers platform differences.
     fn arb_aws_config_path() -> impl Strategy<Value = String> {
-        prop_oneof![
-            Just("/home/user/.aws/config".to_string()),
-            Just("/home/user/.aws/credentials".to_string()),
-            Just("/tmp/aws-config".to_string()),
-            Just("/etc/aws/config".to_string()),
-        ]
+        if cfg!(windows) {
+            prop_oneof![
+                Just(r"C:\Users\user\.aws\config".to_string()),
+                Just(r"C:\Users\user\.aws\credentials".to_string()),
+                Just(r"D:\aws\config".to_string()),
+                Just(r"\\server\share\.aws\credentials".to_string()),
+            ]
+            .boxed()
+        } else {
+            prop_oneof![
+                Just("/home/user/.aws/config".to_string()),
+                Just("/home/user/.aws/credentials".to_string()),
+                Just("/tmp/aws-config".to_string()),
+                Just("/etc/aws/config".to_string()),
+            ]
+            .boxed()
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -268,25 +281,31 @@ mod tests {
 
     #[test]
     fn test_lua_script_path_nonexistent_rejected() {
+        // Use a unique path under temp_dir that is guaranteed not to exist
+        let dir = tempfile::tempdir().unwrap();
+        let nonexistent = dir.path().join("filter.lua");
+        let path_str = nonexistent.to_str().unwrap().to_string();
         let args: Vec<&str> = vec![
             "s3rm",
             "s3://test-bucket/prefix/",
             "--filter-callback-lua-script",
-            "/nonexistent/path/to/filter.lua",
+            &path_str,
         ];
 
         let result = parse_from_args(args);
-        // Should fail because the file doesn't exist
         assert!(result.is_err());
     }
 
     #[test]
     fn test_lua_event_script_path_nonexistent_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let nonexistent = dir.path().join("event.lua");
+        let path_str = nonexistent.to_str().unwrap().to_string();
         let args: Vec<&str> = vec![
             "s3rm",
             "s3://test-bucket/prefix/",
             "--event-callback-lua-script",
-            "/nonexistent/path/to/event.lua",
+            &path_str,
         ];
 
         let result = parse_from_args(args);

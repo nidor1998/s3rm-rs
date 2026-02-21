@@ -29,7 +29,10 @@ mod tests {
 
     #[test]
     fn test_nonexistent_file_returns_err() {
-        let result = is_file_exist("/nonexistent/path/to/script.lua");
+        // Use a unique path under temp_dir that is guaranteed not to exist
+        let dir = tempfile::tempdir().unwrap();
+        let nonexistent = dir.path().join("does_not_exist.lua");
+        let result = is_file_exist(nonexistent.to_str().unwrap());
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("file not found"));
     }

@@ -157,25 +157,34 @@ mod tests {
             );
         }
 
-        /// **Property 37: Cross-Platform Path Handling (S3 URI never uses OS path separator)**
+        /// **Property 37: Cross-Platform Path Handling (backslashes in prefix preserved verbatim)**
         /// **Validates: Requirements 9.6**
         ///
-        /// S3 URIs should always be split on '/' (forward slash), never on the
-        /// platform's native path separator. This ensures consistent behavior on
-        /// Windows where std::path::MAIN_SEPARATOR is '\\'.
+        /// When a prefix contains backslashes, they must be preserved as literal
+        /// characters in the parsed result — never stripped or treated as path
+        /// separators. This would fail if parsing ever ran the key through
+        /// OS-level path normalization (e.g., PathBuf on Windows).
         #[test]
-        fn prop_s3_uri_split_on_forward_slash(
+        fn prop_s3_uri_backslash_in_prefix_preserved(
             bucket in arb_bucket_name(),
-            prefix in arb_s3_prefix(),
         ) {
-            let uri = format!("s3://{}/{}", bucket, prefix);
+            let raw_prefix = r"a\b\c";
+            let uri = format!("s3://{}/{}", bucket, raw_prefix);
             let target = S3Target::parse(&uri).unwrap();
 
-            // The bucket name must not be affected by platform path separators
+            let prefix = target.prefix.as_ref().unwrap();
+            // Count of backslashes must be identical to the input
+            let input_backslashes = raw_prefix.matches('\\').count();
+            let parsed_backslashes = prefix.matches('\\').count();
+            prop_assert_eq!(
+                parsed_backslashes,
+                input_backslashes,
+                "Backslashes must be preserved verbatim, not treated as separators"
+            );
+            // Forward slashes must not be introduced by the parser splitting on \\
             prop_assert!(
-                !target.bucket.contains(std::path::MAIN_SEPARATOR)
-                    || std::path::MAIN_SEPARATOR == '/',
-                "Bucket must not contain platform path separator"
+                !prefix.contains('/'),
+                "Parser must not convert backslashes to forward slashes"
             );
         }
     }

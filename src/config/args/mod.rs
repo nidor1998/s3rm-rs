@@ -244,13 +244,7 @@ Example: 2023-02-19T12:00:00Z"#
         value_parser = check_human_bytes,
         help_heading = "Filter",
         long_help = r#"Delete only objects smaller than given size.
-Allow suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB
-
-Examples:
-  --filter-smaller-size 1024        (1024 bytes)
-  --filter-smaller-size 64KiB       (65536 bytes)
-  --filter-smaller-size 10MB        (10000000 bytes)
-  --filter-smaller-size 1GiB        (1073741824 bytes)"#
+Allow suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
     )]
     pub filter_smaller_size: Option<String>,
 
@@ -261,13 +255,7 @@ Examples:
         value_parser = check_human_bytes,
         help_heading = "Filter",
         long_help = r#"Delete only objects larger than or equal to given size.
-Allow suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB
-
-Examples:
-  --filter-larger-size 1024         (1024 bytes)
-  --filter-larger-size 64KiB        (65536 bytes)
-  --filter-larger-size 10MB         (10000000 bytes)
-  --filter-larger-size 1GiB         (1073741824 bytes)"#
+Allow suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
     )]
     pub filter_larger_size: Option<String>,
 

@@ -198,6 +198,9 @@ mod aws_config_properties;
 mod rate_limiting_properties;
 
 #[cfg(test)]
+mod cross_platform_properties;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

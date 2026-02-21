@@ -576,16 +576,36 @@ impl CLIArgs {
         })
     }
 
-    fn build_tracing_config(&self) -> Option<TracingConfig> {
-        let log_level = self.verbosity.log_level()?;
-
-        Some(TracingConfig {
+    fn build_tracing_config(&self, dry_run: bool) -> Option<TracingConfig> {
+        let mut tracing_config = self.verbosity.log_level().map(|log_level| TracingConfig {
             tracing_level: log_level,
             json_tracing: self.json_tracing,
             aws_sdk_tracing: self.aws_sdk_tracing,
             span_events_tracing: self.span_events_tracing,
             disable_color_tracing: self.disable_color_tracing,
-        })
+        });
+
+        if dry_run {
+            if tracing_config.is_none() {
+                tracing_config = Some(TracingConfig {
+                    tracing_level: log::Level::Info,
+                    json_tracing: DEFAULT_JSON_TRACING,
+                    aws_sdk_tracing: DEFAULT_AWS_SDK_TRACING,
+                    span_events_tracing: DEFAULT_SPAN_EVENTS_TRACING,
+                    disable_color_tracing: DEFAULT_DISABLE_COLOR_TRACING,
+                });
+            } else if tracing_config.unwrap().tracing_level < log::Level::Info {
+                tracing_config = Some(TracingConfig {
+                    tracing_level: log::Level::Info,
+                    json_tracing: tracing_config.unwrap().json_tracing,
+                    aws_sdk_tracing: tracing_config.unwrap().aws_sdk_tracing,
+                    span_events_tracing: tracing_config.unwrap().span_events_tracing,
+                    disable_color_tracing: tracing_config.unwrap().disable_color_tracing,
+                });
+            }
+        }
+
+        tracing_config
     }
 
     fn parse_target(&self) -> Result<StoragePath, String> {
@@ -618,7 +638,7 @@ impl TryFrom<CLIArgs> for Config {
         let target = args.parse_target()?;
         let filter_config = args.build_filter_config();
         let target_client_config = args.build_client_config();
-        let tracing_config = args.build_tracing_config();
+        let tracing_config = args.build_tracing_config(args.dry_run);
 
         // Express One Zone: default batch_size to 1 unless parallel listings allowed
         let mut batch_size = args.batch_size;

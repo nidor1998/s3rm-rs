@@ -9,7 +9,7 @@ You are working on the s3rm-rs project, a high-performance S3 deletion tool.
 
 ## PRIMARY POLICY: Maximum Code Reuse from s3sync
 
-**CRITICAL: s3rm-rs is built as a sibling to s3sync with ~80% code reuse.**
+**CRITICAL: s3rm-rs is built as a sibling to s3sync with ~90% code reuse.**
 
 Before implementing ANY component:
 1. **Check s3sync first**: https://github.com/nidor1998/s3sync
@@ -99,6 +99,7 @@ When the user confirms the task review is complete, do BOTH:
 - **LIMIT** verification to 2 attempts maximum
 - **STOP** after completing the requested task
 - **DON'T** automatically continue to next task
+- **NEVER** commit code and push to branch before user approval
 
 ## Commands
 

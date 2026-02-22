@@ -15,6 +15,12 @@ use fancy_regex::Regex;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+#[cfg(feature = "version")]
+use shadow_rs::shadow;
+
+#[cfg(feature = "version")]
+shadow!(build);
+
 mod value_parser;
 
 #[cfg(test)]
@@ -95,7 +101,9 @@ fn parse_human_bytes(s: &str) -> Result<usize, String> {
 ///   s3rm s3://my-bucket/temp/ --filter-include-regex '.*\.tmp$' --force
 ///   s3rm s3://my-bucket/old-data/ --delete-all-versions -vv
 #[derive(Parser, Clone, Debug)]
-#[command(name = "s3rm", version, about, long_about = None)]
+#[cfg_attr(feature = "version", command(version = format!("{} ({} {}), {}", build::PKG_VERSION, build::SHORT_COMMIT, build::BUILD_TARGET, build::RUST_VERSION)))]
+#[cfg_attr(not(feature = "version"), command(version))]
+#[command(name = "s3rm", about, long_about = None)]
 pub struct CLIArgs {
     /// S3 target path: s3://<BUCKET_NAME>[/prefix]
     #[arg(

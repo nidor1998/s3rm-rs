@@ -82,7 +82,8 @@
       "Bash(head:*)",
       "mcp__serena__initial_instructions",
       "mcp__serena__onboarding",
-      "mcp__serena__write_memory"
+      "mcp__serena__write_memory",
+      "Bash(git:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

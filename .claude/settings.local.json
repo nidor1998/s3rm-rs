@@ -17,7 +17,9 @@
       "mcp__serena__read_memory",
       "mcp__serena__replace_symbol_body",
       "WebSearch",
-      "WebFetch(domain:vijay.eu)"
+      "WebFetch(domain:vijay.eu)",
+      "mcp__filesystem__list_directory",
+      "Bash(find .:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

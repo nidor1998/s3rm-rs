@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 3ca63031d5b62437ef0f98b7a5c4b083a42ba41e331861e1ac362b2d7bad85e6 # shrinks to (flags, _) = (["-qq"], None), json_tracing = true

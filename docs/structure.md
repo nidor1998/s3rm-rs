@@ -21,8 +21,9 @@
 │   └── bin/s3rm/           # CLI binary entry point
 ├── Cargo.toml              # Package manifest and dependencies
 ├── Cargo.lock              # Dependency lock file
-├── specs/                  # Feature specifications (requirements, design, tasks)
-├── steering/               # Project steering documents
+├── docs/                   # Permanent documentation (requirements, design, product, tech, structure)
+├── steering/
+│   └── init_build/         # Active build phase (tasks, phase README)
 └── .git/                   # Git repository
 ```
 

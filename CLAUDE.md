@@ -74,7 +74,7 @@ Before implementing ANY component:
 
 ### Task Structure
 
-Tasks are organized in `specs/tasks.md` using markdown checkbox syntax:
+Tasks are organized in `steering/init_build/tasks.md` using markdown checkbox syntax:
 
 ```markdown
 - [ ] Task not started
@@ -166,15 +166,15 @@ cargo fmt
 
 ## Key Files and Locations
 
-### Specification Files
-- @specs/requirements.md - User stories and acceptance criteria
-- specs/design.md - Architecture and component design
-- specs/tasks.md - Implementation task list
+### Documentation
+- @docs/requirements.md - User stories and acceptance criteria
+- docs/design.md - Architecture and component design
+- @docs/tech.md - Technology stack and common commands
+- @docs/structure.md - Project structure and organization
+- @docs/product.md - Product overview and features
 
-### Steering Documents
-- @steering/tech.md - Technology stack and common commands
-- @steering/structure.md - Project structure and organization
-- @steering/product.md - Product overview and features
+### Steering (Active Phase)
+- steering/init_build/tasks.md - Implementation task list
 
 ### Source Code
 - `src/lib.rs` - Library entry point and public API

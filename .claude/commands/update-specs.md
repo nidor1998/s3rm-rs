@@ -4,7 +4,7 @@ The implementation is the source of truth. Specs must be updated to reflect the 
 
 ## Step 1: Audit design.md and requirements.md
 
-Thoroughly explore the source tree under `src/` to understand actual types, traits, structs, enums, function signatures, module structure, and dependencies in `Cargo.toml`. Cross-reference against `specs/design.md` and `specs/requirements.md`. Look for:
+Thoroughly explore the source tree under `src/` to understand actual types, traits, structs, enums, function signatures, module structure, and dependencies in `Cargo.toml`. Cross-reference against `docs/design.md` and `docs/requirements.md`. Look for:
 
 - Type definitions that differ (struct vs enum, field names/types, trait signatures)
 - Architectural patterns that differ (e.g., hierarchical vs flat config, standalone vs integrated retry)
@@ -16,7 +16,7 @@ Report all discrepancies found, then update both spec files to match the impleme
 
 ## Step 2: Audit tasks.md
 
-Review `specs/tasks.md` against the actual source code at the **sub-task level**. Many sub-tasks in later phases may have already been completed during earlier tasks. For each unchecked sub-task, check whether the implementation already exists in the codebase. If so, mark it `[x]` with a note indicating which earlier task completed it. Also update:
+Review `steering/init_build/tasks.md` against the actual source code at the **sub-task level**. Many sub-tasks in later phases may have already been completed during earlier tasks. For each unchecked sub-task, check whether the implementation already exists in the codebase. If so, mark it `[x]` with a note indicating which earlier task completed it. Also update:
 
 - The status summary and completed phases list
 - The "Implemented Property Tests" line (check which property tests actually exist)

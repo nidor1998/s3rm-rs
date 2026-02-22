@@ -20,8 +20,8 @@ Every test you write must answer the question: "What specific risk does this tes
 ### Phase 1: Discovery and Analysis
 
 Before writing any test:
-1. **Read the requirements**: Check `specs/requirements.md` for acceptance criteria relevant to the code under test
-2. **Read the design**: Check `specs/design.md` for architectural decisions and component contracts
+1. **Read the requirements**: Check `docs/requirements.md` for acceptance criteria relevant to the code under test
+2. **Read the design**: Check `docs/design.md` for architectural decisions and component contracts
 3. **Examine the implementation**: Use MCP tools (Serena, Context, filesystem) to thoroughly understand the code being tested — its public API, internal logic, error handling, and edge cases
 4. **Review existing tests**: Search for existing tests in the module and related modules to avoid duplication and maintain consistency with established patterns
 5. **Check s3sync tests**: Look at the s3sync repository for similar test patterns, generators, and helper functions that can be reused

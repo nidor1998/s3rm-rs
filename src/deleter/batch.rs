@@ -6,7 +6,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use aws_sdk_s3::types::ObjectIdentifier;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 use crate::config::Config;
 use crate::types::S3Object;
@@ -158,7 +158,8 @@ impl Deleter for BatchDeleter {
                                     attempt = attempt + 1,
                                     max_attempts = force_retry_count + 1,
                                     error = %e,
-                                    "single delete fallback attempt failed."
+                                    "S3 DeleteObject fallback attempt {}/{} failed for key '{}'.",
+                                    attempt + 1, force_retry_count + 1, key,
                                 );
                             }
                         }
@@ -170,7 +171,11 @@ impl Deleter for BatchDeleter {
                             version_id = version_id,
                             code = code,
                             message = message,
-                            "object failed after batch + single delete retries."
+                            "S3 DeleteObject fallback exhausted all {} retries for key '{}': {} ({}).",
+                            force_retry_count + 1,
+                            key,
+                            code,
+                            message,
                         );
                         result.failed.push(FailedKey {
                             key,
@@ -181,12 +186,15 @@ impl Deleter for BatchDeleter {
                     }
                 } else {
                     // Non-retryable error: add directly to failures
-                    warn!(
+                    error!(
                         key = key,
                         version_id = version_id,
                         code = code,
                         message = message,
-                        "object failed in batch delete (non-retryable)."
+                        "S3 DeleteObjects partial failure for key '{}': {} ({}).",
+                        key,
+                        code,
+                        message,
                     );
 
                     result.failed.push(FailedKey {

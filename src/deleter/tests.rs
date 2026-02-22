@@ -749,7 +749,7 @@ async fn object_deleter_processes_objects() {
     let config = make_test_config();
     let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
 
-    let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
+    let stats_report = Arc::new(DeletionStatsReport::new());
     let delete_counter = Arc::new(AtomicU64::new(0));
 
     let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter.clone());
@@ -780,7 +780,7 @@ async fn object_deleter_processes_objects() {
     assert_eq!(single_calls.len(), 0);
 
     // Verify stats
-    let report = stats_report.lock().unwrap();
+    let report = &*stats_report;
     assert_eq!(report.stats_deleted_objects.load(Ordering::SeqCst), 2);
     assert_eq!(report.stats_deleted_bytes.load(Ordering::SeqCst), 3072); // 1024 + 2048
 
@@ -802,7 +802,7 @@ async fn object_deleter_max_delete_threshold() {
     config.max_delete = Some(2); // Allow only 2 deletions
     let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
 
-    let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
+    let stats_report = Arc::new(DeletionStatsReport::new());
     let delete_counter = Arc::new(AtomicU64::new(0));
 
     let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter.clone());
@@ -849,7 +849,7 @@ async fn object_deleter_cancellation() {
         has_warning,
     );
 
-    let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
+    let stats_report = Arc::new(DeletionStatsReport::new());
     let delete_counter = Arc::new(AtomicU64::new(0));
     let mut deleter = ObjectDeleter::new(stage, 0, stats_report, delete_counter);
 
@@ -883,7 +883,7 @@ async fn object_deleter_content_type_include_filter() {
     config.filter_config.include_content_type_regex = Some(Regex::new("application/json").unwrap());
     let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
 
-    let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
+    let stats_report = Arc::new(DeletionStatsReport::new());
     let delete_counter = Arc::new(AtomicU64::new(0));
     let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
@@ -923,7 +923,7 @@ async fn object_deleter_content_type_exclude_filter() {
     config.filter_config.exclude_content_type_regex = Some(Regex::new("text/.*").unwrap());
     let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
 
-    let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
+    let stats_report = Arc::new(DeletionStatsReport::new());
     let delete_counter = Arc::new(AtomicU64::new(0));
     let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
@@ -961,7 +961,7 @@ async fn object_deleter_metadata_include_filter() {
     config.filter_config.include_metadata_regex = Some(Regex::new("env=production").unwrap());
     let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
 
-    let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
+    let stats_report = Arc::new(DeletionStatsReport::new());
     let delete_counter = Arc::new(AtomicU64::new(0));
     let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
@@ -998,7 +998,7 @@ async fn object_deleter_tag_include_filter() {
     config.filter_config.include_tag_regex = Some(Regex::new("env=dev").unwrap());
     let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
 
-    let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
+    let stats_report = Arc::new(DeletionStatsReport::new());
     let delete_counter = Arc::new(AtomicU64::new(0));
     let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
@@ -1035,7 +1035,7 @@ async fn object_deleter_tag_exclude_filter() {
     config.filter_config.exclude_tag_regex = Some(Regex::new("retain=true").unwrap());
     let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
 
-    let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
+    let stats_report = Arc::new(DeletionStatsReport::new());
     let delete_counter = Arc::new(AtomicU64::new(0));
     let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
@@ -1076,7 +1076,7 @@ async fn object_deleter_filter_combination_and_logic() {
     config.filter_config.include_metadata_regex = Some(Regex::new("env=production").unwrap());
     let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
 
-    let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
+    let stats_report = Arc::new(DeletionStatsReport::new());
     let delete_counter = Arc::new(AtomicU64::new(0));
     let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
@@ -1108,7 +1108,7 @@ async fn object_deleter_no_head_without_filters() {
     let config = make_test_config(); // No filters
     let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
 
-    let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
+    let stats_report = Arc::new(DeletionStatsReport::new());
     let delete_counter = Arc::new(AtomicU64::new(0));
     let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
@@ -1148,7 +1148,7 @@ async fn object_deleter_batch_size_1_uses_single_deleter() {
     config.batch_size = 1; // Force SingleDeleter
     let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
 
-    let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
+    let stats_report = Arc::new(DeletionStatsReport::new());
     let delete_counter = Arc::new(AtomicU64::new(0));
     let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
@@ -1174,7 +1174,7 @@ async fn object_deleter_batch_size_1_uses_single_deleter() {
     let batch_calls = mock.delete_objects_calls.lock().unwrap();
     assert_eq!(batch_calls.len(), 0);
 
-    let report = stats_report.lock().unwrap();
+    let report = &*stats_report;
     assert_eq!(report.stats_deleted_objects.load(Ordering::SeqCst), 2);
     assert_eq!(report.stats_deleted_bytes.load(Ordering::SeqCst), 300);
 }
@@ -1196,7 +1196,7 @@ async fn object_deleter_if_match_uses_batch_with_etags() {
     config.if_match = true; // Enable if-match mode
     let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
 
-    let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
+    let stats_report = Arc::new(DeletionStatsReport::new());
     let delete_counter = Arc::new(AtomicU64::new(0));
     let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
@@ -1224,7 +1224,7 @@ async fn object_deleter_if_match_uses_batch_with_etags() {
     assert_eq!(batch_calls[0].identifiers[0].key(), "if-match/obj.txt");
     assert_eq!(batch_calls[0].identifiers[0].e_tag(), Some("\"etag123\""));
 
-    let report = stats_report.lock().unwrap();
+    let report = &*stats_report;
     assert_eq!(report.stats_deleted_objects.load(Ordering::SeqCst), 1);
 }
 
@@ -1245,7 +1245,7 @@ async fn object_deleter_flushes_at_batch_size_boundary() {
     config.batch_size = 3; // Small batch for testing
     let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
 
-    let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
+    let stats_report = Arc::new(DeletionStatsReport::new());
     let delete_counter = Arc::new(AtomicU64::new(0));
     let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
 
@@ -1266,7 +1266,7 @@ async fn object_deleter_flushes_at_batch_size_boundary() {
     assert_eq!(batch_calls[1].identifiers.len(), 3);
     assert_eq!(batch_calls[2].identifiers.len(), 3);
 
-    let report = stats_report.lock().unwrap();
+    let report = &*stats_report;
     assert_eq!(report.stats_deleted_objects.load(Ordering::SeqCst), 9);
 }
 
@@ -1386,7 +1386,7 @@ async fn prop_concurrent_workers_process_all_objects() {
     }
     drop(input_sender);
 
-    let stats_report = Arc::new(Mutex::new(DeletionStatsReport::new()));
+    let stats_report = Arc::new(DeletionStatsReport::new());
     let delete_counter = Arc::new(AtomicU64::new(0));
 
     let mut handles = Vec::new();
@@ -1422,7 +1422,7 @@ async fn prop_concurrent_workers_process_all_objects() {
     }
 
     // All objects should have been processed
-    let report = stats_report.lock().unwrap();
+    let report = &*stats_report;
     assert_eq!(
         report.stats_deleted_objects.load(Ordering::SeqCst),
         total_objects as u64
@@ -1530,7 +1530,7 @@ async fn object_deleter_dry_run_skips_api_calls() {
         Some(output_sender),
     );
 
-    let stats_report = Arc::new(Mutex::new(crate::types::DeletionStatsReport::new()));
+    let stats_report = Arc::new(crate::types::DeletionStatsReport::new());
     let delete_counter = Arc::new(AtomicU64::new(0));
 
     let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter.clone());
@@ -1559,7 +1559,7 @@ async fn object_deleter_dry_run_skips_api_calls() {
     );
 
     // Verify statistics report all 3 objects as deleted
-    let report = stats_report.lock().unwrap();
+    let report = &*stats_report;
     let snapshot = report.snapshot();
     assert_eq!(
         snapshot.stats_deleted_objects, 3,
@@ -1603,7 +1603,7 @@ async fn object_deleter_dry_run_single_mode() {
         Some(output_sender),
     );
 
-    let stats_report = Arc::new(Mutex::new(crate::types::DeletionStatsReport::new()));
+    let stats_report = Arc::new(crate::types::DeletionStatsReport::new());
     let delete_counter = Arc::new(AtomicU64::new(0));
 
     let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
@@ -1619,7 +1619,7 @@ async fn object_deleter_dry_run_single_mode() {
     assert_eq!(mock.delete_objects_calls.lock().unwrap().len(), 0);
 
     // Stats recorded
-    let report = stats_report.lock().unwrap();
+    let report = &*stats_report;
     let snapshot = report.snapshot();
     assert_eq!(snapshot.stats_deleted_objects, 1);
     assert_eq!(snapshot.stats_deleted_bytes, 500);
@@ -1646,7 +1646,7 @@ async fn object_deleter_dry_run_versioned_objects() {
         Some(output_sender),
     );
 
-    let stats_report = Arc::new(Mutex::new(crate::types::DeletionStatsReport::new()));
+    let stats_report = Arc::new(crate::types::DeletionStatsReport::new());
     let delete_counter = Arc::new(AtomicU64::new(0));
 
     let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
@@ -1662,7 +1662,7 @@ async fn object_deleter_dry_run_versioned_objects() {
     assert_eq!(mock.delete_objects_calls.lock().unwrap().len(), 0);
 
     // Stats recorded
-    let report = stats_report.lock().unwrap();
+    let report = &*stats_report;
     let snapshot = report.snapshot();
     assert_eq!(snapshot.stats_deleted_objects, 1);
     assert_eq!(snapshot.stats_deleted_bytes, 1024);

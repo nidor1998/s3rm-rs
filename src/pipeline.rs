@@ -73,7 +73,7 @@ pub struct DeletionPipeline {
     errors: Arc<Mutex<VecDeque<anyhow::Error>>>,
     ready: bool,
     prerequisites_checked: bool,
-    deletion_stats_report: Arc<Mutex<DeletionStatsReport>>,
+    deletion_stats_report: Arc<DeletionStatsReport>,
 }
 
 impl DeletionPipeline {
@@ -106,7 +106,7 @@ impl DeletionPipeline {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         }
     }
 
@@ -193,7 +193,7 @@ impl DeletionPipeline {
 
     /// Get a snapshot of the current deletion statistics.
     pub fn get_deletion_stats(&self) -> DeletionStats {
-        self.deletion_stats_report.lock().unwrap().snapshot()
+        self.deletion_stats_report.snapshot()
     }
 
     /// Close the stats sender to signal the progress reporter to finish.
@@ -277,18 +277,16 @@ impl DeletionPipeline {
     /// Fire PIPELINE_END or PIPELINE_ERROR events.
     async fn fire_completion_events(&self) {
         if self.has_error() {
+            let unknown = "Unknown error".to_string();
             let mut event_data = EventData::new(EventType::PIPELINE_ERROR);
             event_data.message = Some(
                 self.get_error_messages()
                     .unwrap_or_default()
                     .first()
-                    .unwrap_or(&"Unknown error".to_string())
+                    .unwrap_or(&unknown)
                     .to_string(),
             );
-            self.config
-                .event_manager
-                .trigger_event(event_data.clone())
-                .await;
+            self.config.event_manager.trigger_event(event_data).await;
         }
 
         self.config
@@ -637,7 +635,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
@@ -683,7 +681,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         let (shared_sender, shared_receiver) = async_channel::bounded::<S3Object>(10);
@@ -746,7 +744,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         assert!(!pipeline.has_error());
@@ -774,7 +772,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         pipeline.record_error(anyhow::anyhow!("test error"));
@@ -808,7 +806,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         let stats = pipeline.get_deletion_stats();
@@ -841,7 +839,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         // Create a stage and verify cancellation propagates
@@ -995,7 +993,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         pipeline.run().await;
@@ -1036,7 +1034,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         pipeline.run().await;
@@ -1077,7 +1075,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         pipeline.run().await;
@@ -1125,7 +1123,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         pipeline.run().await;
@@ -1168,7 +1166,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         pipeline.run().await;
@@ -1219,7 +1217,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         pipeline.run().await;
@@ -1268,7 +1266,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         pipeline.run().await;
@@ -1307,7 +1305,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         pipeline.run().await;
@@ -1345,7 +1343,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         pipeline.run().await;
@@ -1380,7 +1378,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         pipeline.run().await;
@@ -1438,7 +1436,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         pipeline.run().await;
@@ -1517,7 +1515,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         pipeline.run().await;
@@ -1612,7 +1610,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         pipeline.run().await;
@@ -1797,7 +1795,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         pipeline.run().await;
@@ -1936,7 +1934,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         pipeline.run().await;
@@ -1999,7 +1997,7 @@ mod tests {
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
             prerequisites_checked: false,
-            deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
         pipeline.run().await;

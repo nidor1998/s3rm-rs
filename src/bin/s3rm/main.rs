@@ -17,6 +17,7 @@ mod tracing_init;
 pub mod ui_config;
 
 const EXIT_CODE_WARNING: i32 = 3;
+const EXIT_CODE_ABNORMAL_TERMINATION: i32 = 101;
 
 /// s3rm - Fast Amazon S3 object deletion tool.
 ///
@@ -124,11 +125,18 @@ async fn run(mut config: Config) -> Result<()> {
         );
 
         pipeline.run().await;
-        indicator_join_handle.await?;
+        if let Err(e) = indicator_join_handle.await {
+            error!("indicator task panicked: {}", e);
+            std::process::exit(EXIT_CODE_ABNORMAL_TERMINATION);
+        }
 
         let duration_sec = format!("{:.3}", start_time.elapsed().as_secs_f32());
 
         if pipeline.has_error() {
+            if pipeline.has_panic() {
+                error!(duration_sec = duration_sec, "s3rm abnormal termination.");
+                std::process::exit(EXIT_CODE_ABNORMAL_TERMINATION);
+            }
             let errors = pipeline.get_errors_and_consume().unwrap();
             for err in &errors {
                 if is_cancelled_error(err) {

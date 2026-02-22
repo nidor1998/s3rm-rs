@@ -69,6 +69,7 @@ pub struct DeletionPipeline {
     cancellation_token: PipelineCancellationToken,
     stats_receiver: Receiver<DeletionStatistics>,
     has_error: Arc<AtomicBool>,
+    has_panic: Arc<AtomicBool>,
     has_warning: Arc<AtomicBool>,
     errors: Arc<Mutex<VecDeque<anyhow::Error>>>,
     ready: bool,
@@ -102,6 +103,7 @@ impl DeletionPipeline {
             cancellation_token,
             stats_receiver,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -150,6 +152,11 @@ impl DeletionPipeline {
     /// Check if any error occurred during the pipeline execution.
     pub fn has_error(&self) -> bool {
         self.has_error.load(Ordering::SeqCst)
+    }
+
+    /// Check if any spawned task panicked during the pipeline execution.
+    pub fn has_panic(&self) -> bool {
+        self.has_panic.load(Ordering::SeqCst)
     }
 
     /// Check if any warning occurred during the pipeline execution.
@@ -251,6 +258,7 @@ impl DeletionPipeline {
 
         // Wait for the terminator to finish (all upstream stages complete)
         if let Err(e) = terminator_handle.await {
+            self.has_panic.store(true, Ordering::SeqCst);
             error!("terminator task panicked: {}", e);
             self.record_error(anyhow::anyhow!("terminator task panicked: {}", e));
         }
@@ -348,6 +356,7 @@ impl DeletionPipeline {
     /// Uses the double-spawn pattern from s3sync to catch panics.
     fn spawn_filter(&self, filter: Box<dyn ObjectFilter + Send + Sync>) {
         let has_error = self.has_error.clone();
+        let has_panic = self.has_panic.clone();
         let error_list = self.errors.clone();
         let cancellation_token = self.cancellation_token.clone();
 
@@ -365,6 +374,7 @@ impl DeletionPipeline {
                 Err(e) => {
                     cancellation_token.cancel();
                     has_error.store(true, Ordering::SeqCst);
+                    has_panic.store(true, Ordering::SeqCst);
                     error!("filter task panicked: {}", e);
                     error_list
                         .lock()
@@ -385,6 +395,7 @@ impl DeletionPipeline {
 
         let max_keys = self.config.max_keys;
         let has_error = self.has_error.clone();
+        let has_panic = self.has_panic.clone();
         let error_list = self.errors.clone();
         let cancellation_token = self.cancellation_token.clone();
 
@@ -405,6 +416,7 @@ impl DeletionPipeline {
                 Err(e) => {
                     cancellation_token.cancel();
                     has_error.store(true, Ordering::SeqCst);
+                    has_panic.store(true, Ordering::SeqCst);
                     error!("object lister task panicked: {}", e);
                     error_list
                         .lock()
@@ -488,6 +500,7 @@ impl DeletionPipeline {
                 self.create_spsc_stage(Some(previous_stage_receiver), self.has_warning.clone());
 
             let has_error = self.has_error.clone();
+            let has_panic = self.has_panic.clone();
             let error_list = self.errors.clone();
             let cancellation_token = self.cancellation_token.clone();
 
@@ -506,6 +519,7 @@ impl DeletionPipeline {
                     Err(e) => {
                         cancellation_token.cancel();
                         has_error.store(true, Ordering::SeqCst);
+                        has_panic.store(true, Ordering::SeqCst);
                         error!("user defined filter task panicked: {}", e);
                         error_list
                             .lock()
@@ -545,6 +559,7 @@ impl DeletionPipeline {
             );
 
             let has_error = self.has_error.clone();
+            let has_panic = self.has_panic.clone();
             let error_list = self.errors.clone();
             let cancellation_token = self.cancellation_token.clone();
 
@@ -569,6 +584,7 @@ impl DeletionPipeline {
                     Err(e) => {
                         cancellation_token.cancel();
                         has_error.store(true, Ordering::SeqCst);
+                        has_panic.store(true, Ordering::SeqCst);
                         error!(worker_index, "delete worker task panicked: {}", e);
                         error_list
                             .lock()
@@ -631,6 +647,7 @@ mod tests {
             cancellation_token: cancellation_token.clone(),
             stats_receiver: async_channel::unbounded().1,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -677,6 +694,7 @@ mod tests {
             cancellation_token: cancellation_token.clone(),
             stats_receiver: async_channel::unbounded().1,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -740,6 +758,7 @@ mod tests {
             cancellation_token,
             stats_receiver,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -768,6 +787,7 @@ mod tests {
             cancellation_token,
             stats_receiver,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -802,6 +822,7 @@ mod tests {
             cancellation_token,
             stats_receiver,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -835,6 +856,7 @@ mod tests {
             cancellation_token: cancellation_token.clone(),
             stats_receiver: async_channel::unbounded().1,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -989,6 +1011,7 @@ mod tests {
             cancellation_token,
             stats_receiver,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -1030,6 +1053,7 @@ mod tests {
             cancellation_token,
             stats_receiver,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -1071,6 +1095,7 @@ mod tests {
             cancellation_token,
             stats_receiver,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -1119,6 +1144,7 @@ mod tests {
             cancellation_token,
             stats_receiver,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -1162,6 +1188,7 @@ mod tests {
             cancellation_token,
             stats_receiver,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -1213,6 +1240,7 @@ mod tests {
             cancellation_token,
             stats_receiver,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -1262,6 +1290,7 @@ mod tests {
             cancellation_token,
             stats_receiver,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -1301,6 +1330,7 @@ mod tests {
             cancellation_token,
             stats_receiver,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -1339,6 +1369,7 @@ mod tests {
             cancellation_token,
             stats_receiver,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -1374,6 +1405,7 @@ mod tests {
             cancellation_token,
             stats_receiver,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -1432,6 +1464,7 @@ mod tests {
             cancellation_token,
             stats_receiver,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning: has_warning.clone(),
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -1511,6 +1544,7 @@ mod tests {
             cancellation_token,
             stats_receiver,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -1606,6 +1640,7 @@ mod tests {
             cancellation_token,
             stats_receiver,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -1791,6 +1826,7 @@ mod tests {
             cancellation_token,
             stats_receiver,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -1930,6 +1966,7 @@ mod tests {
             cancellation_token,
             stats_receiver,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
@@ -1993,6 +2030,7 @@ mod tests {
             cancellation_token,
             stats_receiver,
             has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,

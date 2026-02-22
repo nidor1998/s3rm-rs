@@ -242,7 +242,7 @@ The default settings are tuned for reliable, high-performance deletion in most s
 For example, in an IAM role environment, the following command will preview all objects that would be deleted:
 
 ```bash
-s3rm s3://bucket-name/prefix --dry-run
+s3rm --dry-run s3://bucket-name/prefix
 ```
 
 And the following command will delete them with confirmation:
@@ -303,7 +303,7 @@ end
 ```
 
 ```bash
-s3rm s3://my-bucket/data/ --filter-callback-lua-script my_filter.lua --force
+s3rm --filter-callback-lua-script my_filter.lua --force s3://my-bucket/data/
 ```
 
 ### User-defined filter callback
@@ -466,7 +466,7 @@ Type "yes" to continue:
 Preview exactly what would happen without deleting anything:
 
 ```bash
-s3rm s3://my-bucket/logs/2023/ --dry-run
+s3rm --dry-run s3://my-bucket/logs/2023/
 ```
 
 Each object that would be deleted is logged at info level with a `[dry-run]` prefix, and summary statistics are displayed at the end.
@@ -476,7 +476,7 @@ Each object that would be deleted is logged at info level with a `[dry-run]` pre
 Skip the confirmation prompt for automated use:
 
 ```bash
-s3rm s3://my-bucket/temp/ --force
+s3rm --force s3://my-bucket/temp/
 ```
 
 ### Delete with regex filter
@@ -484,13 +484,13 @@ s3rm s3://my-bucket/temp/ --force
 Delete only `.tmp` files:
 
 ```bash
-s3rm s3://my-bucket/data/ --filter-include-regex '.*\.tmp$' --force
+s3rm --filter-include-regex '.*\.tmp$' --force s3://my-bucket/data/
 ```
 
 Exclude certain files from deletion:
 
 ```bash
-s3rm s3://my-bucket/data/ --filter-exclude-regex '.*\.keep$' --force
+s3rm --filter-exclude-regex '.*\.keep$' --force s3://my-bucket/data/
 ```
 
 ### Delete by size
@@ -498,13 +498,13 @@ s3rm s3://my-bucket/data/ --filter-exclude-regex '.*\.keep$' --force
 Delete objects smaller than 1 KB (likely empty or corrupt):
 
 ```bash
-s3rm s3://my-bucket/uploads/ --filter-smaller-size 1KB --force
+s3rm --filter-smaller-size 1KB --force s3://my-bucket/uploads/
 ```
 
 Delete objects larger than 1 GB:
 
 ```bash
-s3rm s3://my-bucket/backups/ --filter-larger-size 1GiB --force
+s3rm --filter-larger-size 1GiB --force s3://my-bucket/backups/
 ```
 
 ### Delete by modified time
@@ -512,13 +512,13 @@ s3rm s3://my-bucket/backups/ --filter-larger-size 1GiB --force
 Delete objects older than a specific date:
 
 ```bash
-s3rm s3://my-bucket/logs/ --filter-mtime-before 2023-01-01T00:00:00Z --force
+s3rm --filter-mtime-before 2023-01-01T00:00:00Z --force s3://my-bucket/logs/
 ```
 
 Delete objects modified after a specific date:
 
 ```bash
-s3rm s3://my-bucket/temp/ --filter-mtime-after 2024-06-01T00:00:00Z --force
+s3rm --filter-mtime-after 2024-06-01T00:00:00Z --force s3://my-bucket/temp/
 ```
 
 ### Combined filters
@@ -526,11 +526,12 @@ s3rm s3://my-bucket/temp/ --filter-mtime-after 2024-06-01T00:00:00Z --force
 Filters combine with logical AND. Delete `.log` files older than 90 days and smaller than 10 MB:
 
 ```bash
-s3rm s3://my-bucket/logs/ \
+s3rm \
   --filter-include-regex '.*\.log$' \
   --filter-mtime-before 2024-09-01T00:00:00Z \
   --filter-smaller-size 10MiB \
-  --force
+  --force \
+  s3://my-bucket/logs/
 ```
 
 ### Delete all versions
@@ -538,7 +539,7 @@ s3rm s3://my-bucket/logs/ \
 On versioned buckets, delete every version of every object under a prefix:
 
 ```bash
-s3rm s3://my-bucket/old-data/ --delete-all-versions --force
+s3rm --delete-all-versions --force s3://my-bucket/old-data/
 ```
 
 ### Set a deletion limit
@@ -546,7 +547,7 @@ s3rm s3://my-bucket/old-data/ --delete-all-versions --force
 Stop after deleting 1,000 objects (safety net for large buckets):
 
 ```bash
-s3rm s3://my-bucket/data/ --max-delete 1000 --force
+s3rm --max-delete 1000 --force s3://my-bucket/data/
 ```
 
 ### Custom endpoint
@@ -555,22 +556,23 @@ You can specify an S3-compatible storage endpoint (MinIO, Wasabi, Cloudflare R2,
 Warning: You may need to specify `--target-force-path-style`.
 
 ```bash
-s3rm s3://my-bucket/data/ \
+s3rm \
   --target-endpoint-url https://minio.example.com:9000 \
   --target-force-path-style \
-  --force
+  --force \
+  s3://my-bucket/data/
 ```
 
 ### Specify credentials
 
 ```bash
-s3rm --target-access-key YOUR_KEY --target-secret-access-key YOUR_SECRET s3://bucket-name/prefix --force
+s3rm --target-access-key YOUR_KEY --target-secret-access-key YOUR_SECRET --force s3://bucket-name/prefix
 ```
 
 ### Specify region
 
 ```bash
-s3rm --target-region us-west-2 s3://bucket-name/prefix --force
+s3rm --target-region us-west-2 --force s3://bucket-name/prefix
 ```
 
 ## Detailed information
@@ -948,7 +950,7 @@ s3rm is designed to work seamlessly in automated pipelines.
 In non-TTY environments (CI/CD pipelines, cron jobs), s3rm automatically disables interactive prompts. Always use `--force` for unattended execution:
 
 ```bash
-s3rm s3://my-bucket/temp/ --force
+s3rm --force s3://my-bucket/temp/
 ```
 
 ### JSON logging
@@ -956,7 +958,7 @@ s3rm s3://my-bucket/temp/ --force
 Enable structured JSON logs for log aggregation systems (Datadog, Splunk, CloudWatch, etc.):
 
 ```bash
-s3rm s3://my-bucket/temp/ --json-tracing --force
+s3rm --json-tracing --force s3://my-bucket/temp/
 ```
 
 ### Quiet mode
@@ -964,7 +966,7 @@ s3rm s3://my-bucket/temp/ --json-tracing --force
 Suppress progress output for cleaner CI logs:
 
 ```bash
-s3rm s3://my-bucket/temp/ --show-no-progress --force
+s3rm --show-no-progress --force s3://my-bucket/temp/
 ```
 
 ### Example CI script
@@ -976,11 +978,12 @@ Note: The `date -d` syntax below is GNU coreutils (Linux). On macOS, use `date -
 set -e
 
 # Delete temp objects older than 30 days
-s3rm s3://my-bucket/temp/ \
+s3rm \
   --filter-mtime-before "$(date -u -d '30 days ago' +%Y-%m-%dT%H:%M:%SZ)" \
   --force \
   --json-tracing \
-  --show-no-progress
+  --show-no-progress \
+  s3://my-bucket/temp/
 
 exit_code=$?
 if [ $exit_code -eq 3 ]; then
@@ -993,11 +996,12 @@ fi
 ```yaml
 - name: Cleanup old staging data
   run: |
-    s3rm s3://staging-bucket/deployments/ \
+    s3rm \
       --filter-mtime-before "$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)" \
       --max-delete 10000 \
       --force \
-      --json-tracing
+      --json-tracing \
+      s3://staging-bucket/deployments/
   env:
     AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
     AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

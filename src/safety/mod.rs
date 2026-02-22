@@ -73,7 +73,9 @@ impl PromptHandler for StdioPromptHandler {
                 target_display,
             );
         }
-        println!("Use --dry-run to preview which objects would be deleted without actually removing them.\n");
+        println!(
+            "Use --dry-run to preview which objects would be deleted without actually removing them.\n"
+        );
         print!("Type 'yes' to confirm deletion: ");
         std::io::stdout().flush()?;
 

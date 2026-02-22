@@ -328,9 +328,9 @@ fn config_rejects_rate_limit_below_batch_size() {
     let result = Config::try_from(cli);
     assert!(result.is_err());
     assert!(
-        result
-            .unwrap_err()
-            .contains("--rate-limit-objects (50) must be greater than or equal to --batch-size (200)")
+        result.unwrap_err().contains(
+            "--rate-limit-objects (50) must be greater than or equal to --batch-size (200)"
+        )
     );
 }
 

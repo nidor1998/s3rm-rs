@@ -430,7 +430,11 @@ impl ObjectDeleter {
             let version_id_str = dk.version_id.as_deref().unwrap_or("");
             let last_modified_str = obj_by_key
                 .get(&lookup_key)
-                .map(|o| o.last_modified().fmt(DateTimeFormat::DateTime).unwrap_or_default())
+                .map(|o| {
+                    o.last_modified()
+                        .fmt(DateTimeFormat::DateTime)
+                        .unwrap_or_default()
+                })
                 .unwrap_or_default();
             if is_dry_run {
                 info!(

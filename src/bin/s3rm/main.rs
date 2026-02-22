@@ -107,6 +107,14 @@ async fn run(mut config: Config) -> Result<()> {
         debug!("deletion pipeline start.");
 
         let mut pipeline = DeletionPipeline::new(config.clone(), cancellation_token).await;
+
+        // Check prerequisites (confirmation prompt) before starting the indicator,
+        // so the progress bar doesn't interfere with the prompt.
+        if let Err(e) = pipeline.check_prerequisites().await {
+            pipeline.close_stats_sender();
+            return Err(e);
+        }
+
         let indicator_join_handle = indicator::show_indicator(
             pipeline.get_stats_receiver(),
             ui_config::is_progress_indicator_needed(&config),

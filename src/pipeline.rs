@@ -72,6 +72,7 @@ pub struct DeletionPipeline {
     has_warning: Arc<AtomicBool>,
     errors: Arc<Mutex<VecDeque<anyhow::Error>>>,
     ready: bool,
+    prerequisites_checked: bool,
     deletion_stats_report: Arc<Mutex<DeletionStatsReport>>,
 }
 
@@ -104,6 +105,7 @@ impl DeletionPipeline {
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
+            prerequisites_checked: false,
             deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
         }
     }
@@ -125,11 +127,14 @@ impl DeletionPipeline {
             .await;
 
         // Check prerequisites (confirmation prompt, safety checks, versioning)
-        if let Err(e) = self.check_prerequisites().await {
-            self.record_error(e);
-            self.shutdown();
-            self.fire_completion_events().await;
-            return;
+        // Skip if already checked via explicit check_prerequisites() call.
+        if !self.prerequisites_checked {
+            if let Err(e) = self.check_prerequisites().await {
+                self.record_error(e);
+                self.shutdown();
+                self.fire_completion_events().await;
+                return;
+            }
         }
 
         // Run the pipeline stages
@@ -204,7 +209,14 @@ impl DeletionPipeline {
     // -----------------------------------------------------------------------
 
     /// Check safety prerequisites before running the pipeline.
-    async fn check_prerequisites(&self) -> Result<()> {
+    ///
+    /// This includes the confirmation prompt, dry-run check, force flag,
+    /// and versioning validation. Call this before `run()` if you need
+    /// to perform actions (e.g., starting a progress indicator) between
+    /// the confirmation prompt and pipeline execution.
+    ///
+    /// If not called explicitly, `run()` will call it automatically.
+    pub async fn check_prerequisites(&mut self) -> Result<()> {
         // Safety checks (confirmation prompt, dry-run, force flag)
         let checker = SafetyChecker::new(&self.config);
         checker.check_before_deletion()?;
@@ -219,6 +231,7 @@ impl DeletionPipeline {
             }
         }
 
+        self.prerequisites_checked = true;
         Ok(())
     }
 
@@ -623,6 +636,7 @@ mod tests {
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
+            prerequisites_checked: false,
             deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
         };
 
@@ -668,6 +682,7 @@ mod tests {
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
+            prerequisites_checked: false,
             deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
         };
 
@@ -730,6 +745,7 @@ mod tests {
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
+            prerequisites_checked: false,
             deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
         };
 
@@ -757,6 +773,7 @@ mod tests {
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
+            prerequisites_checked: false,
             deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
         };
 
@@ -790,6 +807,7 @@ mod tests {
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
+            prerequisites_checked: false,
             deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
         };
 
@@ -822,6 +840,7 @@ mod tests {
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
+            prerequisites_checked: false,
             deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
         };
 
@@ -975,6 +994,7 @@ mod tests {
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
+            prerequisites_checked: false,
             deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
         };
 
@@ -1015,6 +1035,7 @@ mod tests {
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
+            prerequisites_checked: false,
             deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
         };
 
@@ -1055,6 +1076,7 @@ mod tests {
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
+            prerequisites_checked: false,
             deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
         };
 
@@ -1102,6 +1124,7 @@ mod tests {
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
+            prerequisites_checked: false,
             deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
         };
 
@@ -1144,6 +1167,7 @@ mod tests {
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
+            prerequisites_checked: false,
             deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
         };
 
@@ -1194,6 +1218,7 @@ mod tests {
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
+            prerequisites_checked: false,
             deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
         };
 
@@ -1242,6 +1267,7 @@ mod tests {
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
+            prerequisites_checked: false,
             deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
         };
 
@@ -1280,6 +1306,7 @@ mod tests {
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
+            prerequisites_checked: false,
             deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
         };
 
@@ -1317,6 +1344,7 @@ mod tests {
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
+            prerequisites_checked: false,
             deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
         };
 
@@ -1351,6 +1379,7 @@ mod tests {
             has_warning,
             errors: Arc::new(Mutex::new(VecDeque::new())),
             ready: true,
+            prerequisites_checked: false,
             deletion_stats_report: Arc::new(Mutex::new(DeletionStatsReport::new())),
         };
 

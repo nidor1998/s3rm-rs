@@ -2,9 +2,6 @@
 .idea/
 .vscode/
 
-# Serena
-.serena/
-
 # Rust build artifacts
 /target/
 **/*.rs.bk

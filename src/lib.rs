@@ -204,6 +204,9 @@ mod cross_platform_properties;
 mod cicd_properties;
 
 #[cfg(test)]
+mod additional_properties;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

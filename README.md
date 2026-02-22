@@ -13,7 +13,7 @@ Delete thousands to millions of S3 objects at speeds approaching Amazon S3's own
 ## Table of contents
 
 <details>
-<summary>Click to expand to view table of contents </summary>
+<summary>Click to expand to view table of contents</summary>
 
 - [Overview](#overview)
     * [Why s3rm?](#why-s3rm)
@@ -38,7 +38,6 @@ Delete thousands to millions of S3 objects at speeds approaching Amazon S3's own
     * [User-defined event callback](#user-defined-event-callback)
     * [Library-first design](#library-first-design)
 - [Requirements](#requirements)
-- [License](#license)
 - [Installation](#installation)
     * [Pre-built binaries](#pre-built-binaries)
     * [Build from source](#build-from-source)
@@ -91,6 +90,7 @@ Delete thousands to millions of S3 objects at speeds approaching Amazon S3's own
 - [About testing](#about-testing)
 - [AI-generated software](#ai-generated-software)
 - [Acknowledgments](#acknowledgments)
+- [License](#license)
 
 </details>
 
@@ -110,7 +110,7 @@ Deleting millions of S3 objects is a surprisingly painful problem:
 - **`aws s3 rm --recursive`** deletes objects one at a time in a single thread. Deleting 6 million objects can take **weeks**.
 - **S3 Lifecycle Policies** are free but can take **up to 24 hours** to execute, and offer no filtering beyond prefix and tags.
 - **`s5cmd`** is fast for general S3 operations and supports batch deletion, but lacks deletion-specific safety features (no confirmation prompts, no max-delete threshold, no regex filtering, no versioning support).
-- **`rclone`** is a versatile multi-cloud sync tool with filtering support, but does not use the S3 batch `DeleteObjects` API — it deletes objects one at a time, limiting throughput.
+- **`rclone`** is a versatile multi-cloud sync tool with filtering support, but as of its current implementation does not appear to use the S3 batch `DeleteObjects` API — it deletes objects one at a time, limiting throughput.
 - **`s3wipe`** (Python) brought multi-threaded batch deletes but is unmaintained and lacks filtering, versioning support, and safety features.
 
 s3rm solves all of these problems:
@@ -149,7 +149,7 @@ Objects stream through the pipeline one stage at a time. The lister fetches keys
 ### High performance
 
 s3rm is implemented in Rust and uses the AWS SDK for Rust, which supports multithreaded asynchronous I/O.
-The default configuration (`--worker-size 24`, `--batch-size 200`) is tuned to approach Amazon S3's practical throughput limit of approximately 3,500 DELETE requests per second per prefix partition.
+The default configuration (`--worker-size 24`, `--batch-size 200`) is tuned to approach Amazon S3's practical throughput limit of approximately 3,500 objects per second per prefix partition.
 
 - **Batch deletion** using S3's `DeleteObjects` API — up to 1,000 objects per request
 - **Parallel workers** — up to 65,535 concurrent deletion workers
@@ -241,21 +241,21 @@ The default settings are tuned for reliable, high-performance deletion in most s
 
 For example, in an IAM role environment, the following command will preview all objects that would be deleted:
 
-  ```bash
-  s3rm s3://bucket-name/prefix --dry-run
-  ```
+```bash
+s3rm s3://bucket-name/prefix --dry-run
+```
 
 And the following command will delete them with confirmation:
 
-  ```bash
-  s3rm s3://bucket-name/prefix
-  ```
+```bash
+s3rm s3://bucket-name/prefix
+```
 
 ### Flexibility
 
 s3rm is designed to adapt to a wide range of deletion scenarios:
 
-- **13 built-in filter types** — regex on keys, content-type, user-defined metadata, and tags; size thresholds; modification time ranges; plus Lua scripting callbacks. See [Filtering order](#filtering-order) for the complete list.
+- **12 CLI filter options plus programmable Lua/Rust filter callbacks** — regex on keys, content-type, user-defined metadata, and tags; size thresholds; modification time ranges; plus Lua scripting callbacks. See [Filtering order](#filtering-order) for the complete list.
 - **S3-compatible services** — works with MinIO, Wasabi, Cloudflare R2, and other S3-compatible storage via `--target-endpoint-url` and `--target-force-path-style`. See [Custom endpoint](#custom-endpoint).
 - **S3 Express One Zone** — automatically detects Express One Zone directory buckets and adjusts listing behavior accordingly. See [S3 Express One Zone support](#s3-express-one-zone-support).
 - **CLI and library** — use s3rm as a standalone CLI tool or embed it as a Rust library in your own applications with custom filter and event callbacks.
@@ -276,7 +276,7 @@ s3rm automatically detects Express One Zone directory buckets (by the `--x-s3` b
 
 - **Progress bar** — real-time display of objects deleted, bytes reclaimed, and deletion rate (using [indicatif](https://docs.rs/indicatif/latest/indicatif/))
 - **Configurable verbosity** — from silent (`-qq`) to debug (`-vvv`)
-- **JSON logging** (`--json-tracing`) — structured logs for integration with log aggregation systems
+- **JSON logging** (`--json-tracing`, requires `--force`) — structured logs for integration with log aggregation systems
 - **Event callbacks** — receive real-time deletion events via Lua scripts or Rust callbacks
 - **Colored output** — ANSI colors for improved readability (automatically disabled in non-TTY environments)
 
@@ -289,7 +289,22 @@ Lua is widely recognized as a fast scripting language. The Lua engine is embedde
 By default, Lua scripts run in safe mode, so they cannot use Lua's OS or I/O library functions.
 If you want to allow more Lua libraries, you can use `--allow-lua-os-library` or `--allow-lua-unsafe-vm` options.
 
-Lua scripting requires building with `--features lua_support`.
+Lua scripting support is included by default. To build without it, use `cargo build --release --no-default-features`.
+
+Example Lua filter script (`my_filter.lua`):
+
+```lua
+-- Return true to delete the object, false to skip it.
+-- The 'obj' table has fields: key, size, last_modified, version_id, e_tag
+function filter(obj)
+    -- Delete only .tmp files larger than 1 KB
+    return string.find(obj.key, "%.tmp$") ~= nil and obj.size > 1024
+end
+```
+
+```bash
+s3rm s3://my-bucket/data/ --filter-callback-lua-script my_filter.lua --force
+```
 
 ### User-defined filter callback
 
@@ -309,7 +324,7 @@ struct MyFilter;
 impl FilterCallback for MyFilter {
     async fn filter(&mut self, object: &S3Object) -> Result<bool> {
         // Return true to delete, false to skip
-        Ok(object.key.ends_with(".tmp"))
+        Ok(object.key().ends_with(".tmp"))
     }
 }
 ```
@@ -359,10 +374,6 @@ AWS credentials are required. s3rm supports all standard AWS credential mechanis
 
 For more information, see [SDK authentication with AWS](https://docs.aws.amazon.com/sdk-for-rust/latest/dg/credentials.html).
 
-## License
-
-This project is licensed under the Apache-2.0 License.
-
 ## Installation
 
 ### Pre-built binaries
@@ -398,10 +409,10 @@ cargo build --release
 # The binary is at ./target/release/s3rm
 ```
 
-With Lua scripting support:
+Lua scripting support is included by default. To build without it:
 
 ```bash
-cargo build --release --features lua_support
+cargo build --release --no-default-features
 ```
 
 ### As a Rust library
@@ -637,7 +648,7 @@ With `--dry-run`, s3rm runs the full pipeline (listing, filtering) but simulates
 
 - Each object that would be deleted is logged at info level with a `[dry-run]` prefix
 - Summary statistics (object count, total size) are displayed at the end
-- Verbosity is forced to at least info level so you always see results
+- The minimum verbosity level is info, regardless of `-q` flags, so that deletion previews are always visible
 - No confirmation prompt is shown (since nothing will be deleted)
 
 This is the recommended first step when targeting any new prefix or filter combination.
@@ -811,7 +822,7 @@ For more information, see `s3rm -h`.
 ## All command line options
 
 <details>
-<summary>Click to expand to view all command line options </summary>
+<summary>Click to expand to view all command line options</summary>
 
 ### General
 
@@ -847,7 +858,7 @@ For more information, see `s3rm -h`.
 |--------|---------|-------------|
 | `-v` / `-vv` / `-vvv` | Warn | Increase verbosity level |
 | `-q` / `-qq` | | Decrease verbosity (quiet / silent) |
-| `--json-tracing` | `false` | Output structured JSON logs |
+| `--json-tracing` | `false` | Output structured JSON logs (requires `--force`) |
 | `--aws-sdk-tracing` | `false` | Include AWS SDK internal traces |
 | `--span-events-tracing` | `false` | Include span open/close events |
 | `--disable-color-tracing` | `false` | Disable colored log output |
@@ -907,7 +918,7 @@ For more information, see `s3rm -h`.
 | `--max-keys` | `1000` | Max objects per list request (1–32767) |
 | `--auto-complete-shell` | | Generate shell completions (bash, zsh, fish, powershell, elvish) |
 
-### Lua scripting support (requires `lua_support` feature)
+### Lua scripting support (enabled by default)
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -922,7 +933,7 @@ For more information, see `s3rm -h`.
 |--------|---------|-------------|
 | `--allow-lua-unsafe-vm` | `false` | Remove all Lua sandbox restrictions |
 
-All options can also be set via environment variables. The environment variable name matches the long option name in `SCREAMING_SNAKE_CASE` (e.g., `--worker-size` becomes `WORKER_SIZE`).
+All options can also be set via environment variables. The environment variable name matches the long option name in `SCREAMING_SNAKE_CASE` with hyphens converted to underscores (e.g., `--worker-size` becomes `WORKER_SIZE`, `--aws-max-attempts` becomes `AWS_MAX_ATTEMPTS`, `--filter-include-regex` becomes `FILTER_INCLUDE_REGEX`).
 
 **Precedence:** CLI arguments > environment variables > defaults.
 
@@ -957,6 +968,8 @@ s3rm s3://my-bucket/temp/ --show-no-progress --force
 ```
 
 ### Example CI script
+
+Note: The `date -d` syntax below is GNU coreutils (Linux). On macOS, use `date -u -v-30d` instead.
 
 ```bash
 #!/bin/bash
@@ -998,13 +1011,15 @@ s3rm is designed library-first. All CLI functionality is available programmatica
 ### Basic usage
 
 ```rust
-use s3rm_rs::config::Config;
-use s3rm_rs::pipeline::DeletionPipeline;
-use s3rm_rs::types::token::create_pipeline_cancellation_token;
+use s3rm_rs::Config;
+use s3rm_rs::DeletionPipeline;
+use s3rm_rs::create_pipeline_cancellation_token;
 
 #[tokio::main]
 async fn main() {
-    let config = Config::try_from(cli_args).unwrap();
+    // Build a Config from CLI args, environment, or programmatically.
+    let config: Config = todo!("construct or parse your Config here");
+
     let cancellation_token = create_pipeline_cancellation_token();
     let mut pipeline = DeletionPipeline::new(config, cancellation_token).await;
     pipeline.close_stats_sender();
@@ -1014,6 +1029,10 @@ async fn main() {
         let errors = pipeline.get_errors_and_consume().unwrap();
         eprintln!("Errors: {:?}", errors);
     }
+
+    let stats = pipeline.get_deletion_stats();
+    println!("Deleted {} objects ({} bytes)",
+        stats.stats_deleted_objects, stats.stats_deleted_bytes);
 }
 ```
 
@@ -1059,3 +1078,7 @@ A human engineer authored the requirements, design specifications, and s3sync re
 s3rm is built on the architecture and proven patterns of [s3sync](https://github.com/nidor1998/s3sync). Approximately 90% of the codebase — including the AWS client layer, retry logic, filtering engine, Lua integration, progress reporting, and pipeline architecture — is reused from s3sync.
 
 Built with the [AWS SDK for Rust](https://github.com/awslabs/aws-sdk-rust).
+
+## License
+
+This project is licensed under the Apache-2.0 License.

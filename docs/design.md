@@ -856,7 +856,7 @@ pub struct CLIArgs {
     // Performance (same as s3sync)
     pub worker_size: u16,                  // value_parser range(1..)
     pub max_parallel_listings: u16,        // value_parser range(1..)
-    pub max_parallel_listing_max_depth: u16, // default 0 (disabled)
+    pub max_parallel_listing_max_depth: u16, // default 2, value_parser range(1..)
     pub rate_limit_objects: Option<u32>,    // value_parser range(10..)
     pub object_listing_queue_size: u32,    // value_parser range(1..)
     pub allow_parallel_listings_in_express_one_zone: bool,
@@ -1610,7 +1610,7 @@ impl S3rmError {
 - Exponential multiplier: 2.0
 - Max backoff: configurable (default 20s)
 - Jitter: ±25% to prevent thundering herd
-- Max attempts: configurable (default 3)
+- Max attempts: configurable (default 10)
 
 ### Partial Failure Handling
 
@@ -1956,7 +1956,7 @@ async fn test_batch_deletion_with_partial_failure() {
 
 - **Line Coverage**: >97% (matching s3sync's 97.88% coverage standard)
 - **Branch Coverage**: >95%
-- **Property Coverage**: 47 of 49 properties tested (missing: Properties 19, 20)
+- **Property Coverage**: 49 of 49 properties tested
 - **Critical Path Coverage**: 100% (deletion logic, safety checks, error handling)
 
 **Note**: Like s3sync, achieving 97%+ line coverage requires comprehensive unit tests, property-based tests, and manual E2E tests for network operations.
@@ -2066,14 +2066,8 @@ simple_moving_average = "1.0.2"
 # Uses std::io::IsTerminal (stable since Rust 1.70) instead of atty
 # Uses ANSI escape code constants instead of colored crate
 
-# Serialization (same as s3sync)
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-
 # Utilities
 dyn-clone = "1.0.20"
-futures = "0.3.31"
-futures-util = "0.3.31"
 url = "2.5.8"
 urlencoding = "2.1.3"
 

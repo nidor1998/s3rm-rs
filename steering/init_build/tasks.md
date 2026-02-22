@@ -8,7 +8,7 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-22 complete (plus Tasks 24-25). Task 28 partially complete (28.1, 28.2, 28.4 done). Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration property tests, rate limiting property tests, cross-platform support, CI/CD integration, and additional property tests (Properties 4, 12, 13) established. Code quality checks (clippy, rustfmt, cargo-deny) all pass.
+**Current Achievement**: Tasks 1-25 complete. Task 27 partially complete (27.1, 27.2, 27.3, 27.5 done). Task 28 partially complete (28.1, 28.2, 28.4 done). All 49 correctness properties have property-based tests. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, CI/CD integration, additional property tests, comprehensive unit tests, and property testing infrastructure all established. Rustdoc documentation, examples, and CONTRIBUTING.md added. Code quality checks (clippy, rustfmt, cargo-deny) all pass.
 
 ## Current Status
 
@@ -755,9 +755,9 @@ Phase 21: Additional Property Tests (Task 22)
   - _Requirements: All requirements (comprehensive coverage)_
 
 
-**Implemented Property Tests**: Properties 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49 (47 of 49). Missing: 19, 20.
+**Implemented Property Tests**: Properties 1-49 (49 of 49). All correctness properties have property-based tests.
 
-- [ ] 27. Documentation and Examples
+- [-] 27. Documentation and Examples
   - [x] 27.1 Write README.md (completed in commit 4082dbe on build/init/task23)
     - Include project overview and features
     - Include installation instructions
@@ -767,7 +767,7 @@ Phase 21: Additional Property Tests (Task 22)
     - Include links to documentation
     - _Requirements: 10.1, 10.7, 12.9_
 
-  - [ ] 27.2 Write rustdoc documentation
+  - [x] 27.2 Write rustdoc documentation (completed in commit c9bedf8 on build/init/task23)
     - Document all public API types and functions in lib.rs
     - Include code examples in doc comments
     - Document library-first architecture
@@ -776,7 +776,7 @@ Phase 21: Additional Property Tests (Task 22)
     - Run `cargo doc --open` to verify
     - _Requirements: 12.9_
 
-  - [ ] 27.3 Create example scripts
+  - [x] 27.3 Create example scripts (completed in commit c9bedf8 on build/init/task23)
     - Create example Lua filter script (examples/filter.lua)
     - Create example Lua event callback script (examples/event.lua)
     - Create example Rust library usage (examples/library_usage.rs)
@@ -789,7 +789,7 @@ Phase 21: Additional Property Tests (Task 22)
     - Document breaking changes (if any)
     - _Requirements: N/A (documentation)_
 
-  - [ ] 27.5 Write CONTRIBUTING.md
+  - [x] 27.5 Write CONTRIBUTING.md (completed in commit c9bedf8 on build/init/task23)
     - Document development setup
     - Document testing requirements
     - Document code style guidelines
@@ -929,9 +929,9 @@ Phase 21: Additional Property Tests (Task 22)
 
 ## Implementation Status Summary
 
-Tasks 1-22 complete (+ Tasks 24, 25 with all sub-tasks done). Task 28 partially complete (28.1 clippy, 28.2 rustfmt, 28.4 cargo-deny all pass). All merged to init_build.
+Tasks 1-25 complete. Task 27 partially complete (27.1, 27.2, 27.3, 27.5 done). Task 28 partially complete (28.1 clippy, 28.2 rustfmt, 28.4 cargo-deny all pass). All merged to init_build.
 
-**Already implemented across Tasks 1-21** (infrastructure available for remaining tasks):
+**Already implemented across Tasks 1-25** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)
 - All core data types: S3Object, DeletionStats, DeletionError, DeletionEvent, S3Target (Task 3)
 - Storage trait, S3 storage with versioning, conditional deletion, rate limiting (Task 4)
@@ -955,10 +955,11 @@ Tasks 1-22 complete (+ Tasks 24, 25 with all sub-tasks done). Task 28 partially 
 - Cross-platform property tests: Property 37 covering S3 URI handling, path normalization (Task 20)
 - CI/CD integration property tests: Properties 48-49 covering non-interactive detection, output stream separation (Task 21)
 - CI pipeline for all target platforms (Task 1)
-- 47 property tests implemented (Properties 1-18, 21-49; missing: 19, 20)
+- All 49 property tests implemented (Properties 1-49)
 - Comprehensive unit tests for all components (Task 24, all sub-tasks done in Tasks 3-13)
+- Rustdoc documentation, examples (Lua filter/event, Rust library usage), and CONTRIBUTING.md (Task 27.2, 27.3, 27.5)
 
-**Sub-tasks already completed in later task groups** (done during Tasks 1-21):
+**Sub-tasks already completed in later task groups** (done during Tasks 1-25):
 - 14.1: Version handling in ObjectDeleter (done in Tasks 3, 5, 8)
 - 14.2: Version display in dry-run mode — not needed; each version is a separate object in the pipeline
 - 15.1: Retry policy integration (done in Task 2)
@@ -976,10 +977,13 @@ Tasks 1-22 complete (+ Tasks 24, 25 with all sub-tasks done). Task 28 partially 
 - 21.3-21.4: CI/CD integration property tests (done in Task 21)
 - 24.1-24.6: All unit tests (done in Tasks 3-13)
 - 25.1-25.2: Property-based testing infrastructure (done in Tasks 3-9)
+- 27.2: Rustdoc documentation (done in Task 23, commit c9bedf8)
+- 27.3: Example scripts — filter.lua, event.lua, library_usage.rs (done in Task 23, commit c9bedf8)
+- 27.5: CONTRIBUTING.md (done in Task 23, commit c9bedf8)
 
 **Remaining work**:
 - Task 23: Checkpoint review (in progress)
-- Task 26: Verify all property tests (2 of 49 properties still need tests: 19, 20)
-- Task 27: Documentation and Examples (27.1 README.md done; 27.2-27.5 remain)
+- Task 26: Verify all property tests (all 49 properties now have tests; verification pass still needed)
+- Task 27: Documentation and Examples (27.1, 27.2, 27.3, 27.5 done; 27.4 CHANGELOG.md remains)
 - Task 28: Code quality (28.1 clippy done, 28.2 rustfmt done, 28.4 cargo-deny done; 28.3 coverage and 28.5 benchmarks remain)
 - Tasks 29-31: E2E testing, final checkpoint, release

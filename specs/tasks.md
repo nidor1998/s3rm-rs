@@ -671,7 +671,7 @@ Phase 20: CI/CD Integration (Task 21)
     - Implemented in src/cicd_properties.rs (Task 21)
 
 
-- [ ] 22. Implement Additional Property Tests
+- [-] 22. Implement Additional Property Tests
   - [ ] 22.1 Write property test for worker count configuration validation
     - **Property 4: Worker Count Configuration Validation**
     - **Validates: Requirements 1.4**

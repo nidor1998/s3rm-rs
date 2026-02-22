@@ -12,9 +12,9 @@
 //! **Validates: Requirements 2.9**
 //!
 //! **Property 13: Delete-All Behavior**
-//! For any invocation with the delete-all flag (empty prefix targeting an
-//! entire bucket), the tool should delete all objects in the specified bucket
-//! without applying additional filters.
+//! When a bucket-only target is provided (no prefix), the tool targets all
+//! objects in the bucket for deletion. With no filters configured, every
+//! listed object passes through the pipeline unfiltered.
 //! **Validates: Requirements 2.10**
 
 #[cfg(test)]
@@ -331,10 +331,11 @@ mod tests {
     // Property 13: Delete-All Behavior
     // **Validates: Requirements 2.10**
     //
-    // When invoked with a bucket-only target (empty prefix), the tool should
-    // delete all objects — no prefix filtering is applied. The configuration
-    // should have an empty prefix and default (empty) FilterConfig, meaning
-    // every listed object passes through the pipeline.
+    // "Delete all" is expressed by providing a bucket-only target with no
+    // prefix (e.g., `s3://bucket`) and no filter options. There is no
+    // dedicated --delete-all flag; the empty prefix causes the lister to
+    // enumerate every object, and the absence of filters lets them all
+    // pass through the pipeline to the deletion stage.
     // -----------------------------------------------------------------------
 
     proptest! {
@@ -407,8 +408,8 @@ mod tests {
         /// **Property 13: Delete-All Behavior (Prefix vs Bucket-Only)**
         /// When a prefix IS provided, only objects under that prefix are
         /// targeted; when no prefix is given, ALL objects are targeted.
-        /// This verifies that delete-all (no prefix) differs from
-        /// prefix-filtered deletion.
+        /// This verifies that a bucket-only target (delete all) differs
+        /// from a prefixed target.
         #[test]
         fn property_13_prefix_vs_bucket_only(
             bucket in "[a-z][a-z0-9-]{2,20}",
@@ -426,7 +427,7 @@ mod tests {
             let cli_with = parse_from_args(args_with_prefix).unwrap();
             let config_with = Config::try_from(cli_with).unwrap();
 
-            // Without prefix — delete all
+            // Without prefix — targets all objects in the bucket
             let args_no_prefix = vec![
                 "s3rm".to_string(),
                 format!("s3://{bucket}"),

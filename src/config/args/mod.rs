@@ -248,7 +248,7 @@ Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
     #[command(flatten)]
     pub verbosity: Verbosity<WarnLevel>,
 
-    /// Output structured logs in JSON format (requires --force)
+    /// Output structured logs in JSON format (requires -f/--force)
     #[arg(long, env, default_value_t = DEFAULT_JSON_TRACING, requires = "force", help_heading = "Tracing/Logging")]
     pub json_tracing: bool,
 

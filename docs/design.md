@@ -813,7 +813,7 @@ where
 #[command(name = "s3rm", version, about)]
 pub struct CLIArgs {
     // Target
-    pub target_url: String,  // s3://bucket/prefix (validated by value_parser)
+    pub target: String,  // s3://bucket/prefix (validated by value_parser)
 
     // General options
     pub dry_run: bool,       // -d / --dry-run
@@ -833,8 +833,8 @@ pub struct CLIArgs {
     pub filter_exclude_metadata_regex: Option<String>,
     pub filter_include_tag_regex: Option<String>,
     pub filter_exclude_tag_regex: Option<String>,
-    pub filter_mtime_before: Option<String>,   // parsed via humantime
-    pub filter_mtime_after: Option<String>,    // parsed via humantime
+    pub filter_mtime_before: Option<DateTime<Utc>>,  // RFC 3339 format
+    pub filter_mtime_after: Option<DateTime<Utc>>,   // RFC 3339 format
     pub filter_smaller_size: Option<String>,   // human-readable (e.g. "64MiB")
     pub filter_larger_size: Option<String>,    // human-readable (e.g. "1GiB")
 
@@ -878,7 +878,6 @@ pub struct CLIArgs {
     pub target_accelerate: bool,
     pub target_request_payer: bool,
     pub disable_stalled_stream_protection: bool,
-    pub request_checksum_calculation: Option<String>,
 
     // Lua (feature-gated: #[cfg(feature = "lua_support")])
     pub filter_callback_lua_script: Option<String>,
@@ -892,7 +891,6 @@ pub struct CLIArgs {
     pub warn_as_error: bool,
     pub max_keys: i32,                 // value_parser range(1..=32767)
     pub auto_complete_shell: Option<clap_complete::shells::Shell>,
-    pub test_user_defined_callback: bool,   // for testing user-defined callbacks
 }
 ```
 
@@ -1752,9 +1750,9 @@ fn arbitrary_s3_object() -> impl Strategy<Value = S3Object> {
 }
 ```
 
-#### 3. End-to-End (E2E) Tests
+#### 3. End-to-End (E2E) Tests (Planned — Not Yet Implemented)
 
-E2E tests validate s3rm-rs functionality with real AWS S3 buckets and S3-compatible services. These tests are designed for manual execution by humans with AWS credentials.
+E2E tests will validate s3rm-rs functionality with real AWS S3 buckets and S3-compatible services. These tests are designed for manual execution by humans with AWS credentials. The `tests/` directory does not exist yet; it will be created as part of Task 29.
 
 **Test Design Philosophy**:
 - **Library-First Approach**: All E2E tests use the s3rm-rs library API directly (not the CLI binary)
@@ -1936,7 +1934,7 @@ async fn test_batch_deletion_with_partial_failure() {
 
 - **Line Coverage**: >97% (matching s3sync's 97.88% coverage standard)
 - **Branch Coverage**: >95%
-- **Property Coverage**: 100% (all 49 properties tested)
+- **Property Coverage**: 47 of 49 properties tested (missing: Properties 19, 20)
 - **Critical Path Coverage**: 100% (deletion logic, safety checks, error handling)
 
 **Note**: Like s3sync, achieving 97%+ line coverage requires comprehensive unit tests, property-based tests, and manual E2E tests for network operations.
@@ -2150,6 +2148,7 @@ s3rm-rs/
 │   ├── rate_limiting_properties.rs # Property tests for rate limiting (Property 36)
 │   ├── cross_platform_properties.rs # Property tests for cross-platform paths (Property 37)
 │   ├── cicd_properties.rs      # Property tests for CI/CD integration (Properties 48-49)
+│   ├── additional_properties.rs # Property tests for Properties 4, 12, 13
 │   └── bin/
 │       └── s3rm/
 │           ├── main.rs            # CLI binary entry point (fully implemented)
@@ -2164,7 +2163,7 @@ s3rm-rs/
 └── README.md
 ```
 
-**Notes**: Tests are co-located with source code (e.g., `deleter/tests.rs`, `filters/filter_properties.rs`, `lua/lua_properties.rs`, `safety/safety_properties.rs`, `callback/event_callback_properties.rs`, `bin/s3rm/indicator_properties.rs`, `versioning_properties.rs`, `retry_properties.rs`, `optimistic_locking_properties.rs`, `logging_properties.rs`, `aws_config_properties.rs`, `rate_limiting_properties.rs`, `cross_platform_properties.rs`, `cicd_properties.rs`). Property tests and unit tests share the same test files. All core components are fully implemented including pipeline orchestrator, terminator, progress indicator, CLI binary, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, and CI/CD integration.
+**Notes**: Tests are co-located with source code (e.g., `deleter/tests.rs`, `filters/filter_properties.rs`, `lua/lua_properties.rs`, `safety/safety_properties.rs`, `callback/event_callback_properties.rs`, `bin/s3rm/indicator_properties.rs`, `versioning_properties.rs`, `retry_properties.rs`, `optimistic_locking_properties.rs`, `logging_properties.rs`, `aws_config_properties.rs`, `rate_limiting_properties.rs`, `cross_platform_properties.rs`, `cicd_properties.rs`, `additional_properties.rs`). Property tests and unit tests share the same test files. All core components are fully implemented including pipeline orchestrator, terminator, progress indicator, CLI binary, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, and CI/CD integration.
 
 ### Development Phases
 

@@ -1,6 +1,22 @@
 {
   "permissions": {
-    "allow": []
+    "allow": [
+      "Bash(cargo fmt:*)",
+      "Bash(head:*)",
+      "Bash(cargo test:*)",
+      "Bash(tail:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "mcp__serena__check_onboarding_performed",
+      "mcp__serena__find_symbol",
+      "mcp__serena__get_symbols_overview",
+      "Bash(cargo check:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "mcp__serena__search_for_pattern",
+      "mcp__serena__list_dir",
+      "mcp__serena__read_memory",
+      "mcp__serena__replace_symbol_body"
+    ]
   },
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [

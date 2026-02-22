@@ -758,7 +758,7 @@ Phase 21: Additional Property Tests (Task 22)
 **Implemented Property Tests**: Properties 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49 (47 of 49). Missing: 19, 20.
 
 - [ ] 27. Documentation and Examples
-  - [ ] 27.1 Write README.md
+  - [x] 27.1 Write README.md (completed in commit 4082dbe on build/init/task23)
     - Include project overview and features
     - Include installation instructions
     - Include usage examples (CLI and library)
@@ -958,7 +958,7 @@ Tasks 1-22 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init
 - Cross-platform property tests: Property 37 covering S3 URI handling, path normalization (Task 20)
 - CI/CD integration property tests: Properties 48-49 covering non-interactive detection, output stream separation (Task 21)
 - CI pipeline for all target platforms (Task 1)
-- 44 property tests implemented (Properties 1-3, 5-11, 14-18, 21-37, 38-49)
+- 47 property tests implemented (Properties 1-18, 21-49; missing: 19, 20)
 - Comprehensive unit tests for all components (Task 24, all sub-tasks done in Tasks 3-13)
 
 **Sub-tasks already completed in later task groups** (done during Tasks 1-21):
@@ -981,6 +981,7 @@ Tasks 1-22 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init
 - 25.1-25.2: Property-based testing infrastructure (done in Tasks 3-9)
 
 **Remaining work**:
-- Task 23: Checkpoint review
+- Task 23: Checkpoint review (in progress)
 - Task 26: Verify all property tests (2 of 49 properties still need tests: 19, 20)
-- Tasks 27-31: Documentation, quality, E2E testing, release
+- Task 27: Documentation and Examples (27.1 README.md done; 27.2-27.5 remain)
+- Tasks 28-31: Code quality, E2E testing, final checkpoint, release

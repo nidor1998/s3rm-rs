@@ -74,6 +74,7 @@ mod tests {
                 prefix: String::new(),
             },
             show_no_progress: false,
+            report_deletion_status: false,
             target_client_config: None,
             force_retry_config: ForceRetryConfig {
                 force_retry_count: 0,

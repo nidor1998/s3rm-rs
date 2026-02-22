@@ -43,6 +43,7 @@ use fancy_regex::Regex;
 ///     event_manager: EventManager::new(),
 ///     // ... other fields
 ///     # show_no_progress: false,
+///     # report_deletion_status: false,
 ///     # target_client_config: None,
 ///     # force_retry_config: ForceRetryConfig { force_retry_count: 3, force_retry_interval_milliseconds: 1000 },
 ///     # tracing_config: None,
@@ -67,6 +68,7 @@ use fancy_regex::Regex;
 pub struct Config {
     pub target: StoragePath,
     pub show_no_progress: bool,
+    pub report_deletion_status: bool,
     pub target_client_config: Option<ClientConfig>,
     pub force_retry_config: ForceRetryConfig,
     pub tracing_config: Option<TracingConfig>,

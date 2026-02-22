@@ -96,7 +96,7 @@ mod tests {
                     receiver,
                     show_progress,
                     show_result,
-                    false, // log_deletion_summary
+                    false, // log_sync_summary
                     false, // dry_run
                 );
 

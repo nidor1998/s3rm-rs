@@ -54,6 +54,7 @@ const DEFAULT_ALLOW_PARALLEL_LISTINGS_IN_EXPRESS_ONE_ZONE: bool = false;
 const DEFAULT_ACCELERATE: bool = false;
 const DEFAULT_REQUEST_PAYER: bool = false;
 const DEFAULT_SHOW_NO_PROGRESS: bool = false;
+const DEFAULT_REPORT_DELETION_STATUS: bool = true;
 const DEFAULT_IF_MATCH: bool = false;
 #[allow(dead_code)]
 const DEFAULT_ALLOW_LUA_OS_LIBRARY: bool = false;
@@ -129,6 +130,10 @@ pub struct CLIArgs {
     /// Hide the progress bar
     #[arg(long, env, default_value_t = DEFAULT_SHOW_NO_PROGRESS, help_heading = "General")]
     pub show_no_progress: bool,
+
+    /// Report deletion status (suppresses the deletion summary log)
+    #[arg(long, env, default_value_t = DEFAULT_REPORT_DELETION_STATUS, help_heading = "General")]
+    pub report_deletion_status: bool,
 
     /// Delete all versions of matching objects, including delete markers
     #[arg(long, env, default_value_t = DEFAULT_DELETE_ALL_VERSIONS, help_heading = "General")]
@@ -748,6 +753,7 @@ impl TryFrom<CLIArgs> for Config {
         Ok(Config {
             target,
             show_no_progress: args.show_no_progress,
+            report_deletion_status: args.report_deletion_status,
             target_client_config,
             force_retry_config: ForceRetryConfig {
                 force_retry_count: args.force_retry_count,

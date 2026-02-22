@@ -27,7 +27,7 @@ const REFRESH_INTERVAL: f32 = 1.0;
 /// - `stats_receiver` - Channel receiver for `DeletionStatistics` events
 /// - `show_progress` - Whether to display the live-updating progress line
 /// - `show_result` - Whether to display the final summary line
-/// - `log_deletion_summary` - Whether to emit a structured `info!` log at completion
+/// - `log_sync_summary` - Whether to emit a structured `info!` log at completion
 /// - `dry_run` - Whether we're in dry-run mode (suppresses throughput in display)
 ///
 /// The task runs until `stats_receiver` is closed (all senders dropped).
@@ -36,7 +36,7 @@ pub fn show_indicator(
     stats_receiver: Receiver<DeletionStatistics>,
     show_progress: bool,
     show_result: bool,
-    log_deletion_summary: bool,
+    log_sync_summary: bool,
     dry_run: bool,
 ) -> JoinHandle<()> {
     let progress_style = ProgressStyle::with_template("{wide_msg}").unwrap();
@@ -98,7 +98,7 @@ pub fn show_indicator(
                         objects_per_sec = 0;
                     }
 
-                    if log_deletion_summary {
+                    if log_sync_summary {
                         info!(
                             message = "deletion summary",
                             deleted_bytes = total_delete_bytes,
@@ -255,7 +255,7 @@ mod tests {
 
         drop(sender);
 
-        // log_deletion_summary=true triggers the info! log (but no subscriber in test)
+        // log_sync_summary=true triggers the info! log (but no subscriber in test)
         let handle = show_indicator(receiver, false, false, true, false);
         tokio::time::timeout(std::time::Duration::from_secs(5), handle)
             .await

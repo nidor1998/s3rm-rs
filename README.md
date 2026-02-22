@@ -295,7 +295,8 @@ Example Lua filter script (`my_filter.lua`):
 
 ```lua
 -- Return true to delete the object, false to skip it.
--- The 'obj' table has fields: key, size, last_modified, version_id, e_tag
+-- The 'obj' table has fields: key, size, last_modified, version_id,
+-- e_tag, is_latest, is_delete_marker
 function filter(obj)
     -- Delete only .tmp files larger than 1 KB
     return string.find(obj.key, "%.tmp$") ~= nil and obj.size > 1024
@@ -457,8 +458,10 @@ s3rm s3://my-bucket/logs/2023/
 You'll be asked to confirm before any objects are deleted:
 
 ```
-You are about to delete objects from: s3://my-bucket/logs/2023/
-Type "yes" to continue:
+WARNING: All objects matching prefix s3://my-bucket/logs/2023/  will be deleted.
+Use --dry-run to preview which objects would be deleted without actually removing them.
+
+Type 'yes' to confirm deletion:
 ```
 
 ### Dry-run mode
@@ -630,14 +633,16 @@ Filters that require additional API calls (content type, metadata, tags) are app
 
 ### Confirmation prompt detail
 
-By default, s3rm displays the target S3 path with colored text and requires explicit confirmation before proceeding:
+By default, s3rm displays a warning with the target S3 path in colored text and requires explicit confirmation before proceeding:
 
 ```
-You are about to delete objects from: s3://my-bucket/important-data/
-Type "yes" to continue:
+WARNING: All objects matching prefix s3://my-bucket/important-data/  will be deleted.
+Use --dry-run to preview which objects would be deleted without actually removing them.
+
+Type 'yes' to confirm deletion:
 ```
 
-Only the full word "yes" is accepted. Abbreviated responses like "y", "Y", "Yes", or "YES" are all rejected — this is intentional to prevent accidental deletions.
+Only the exact string "yes" is accepted. Any other input — including "y", "Y", "Yes", or "YES" — is rejected, and the operation is cancelled. This is intentional to prevent accidental deletions.
 
 The confirmation prompt is skipped when:
 - `--force` flag is provided
@@ -816,6 +821,7 @@ s3rm --auto-complete-shell bash
 s3rm --auto-complete-shell zsh
 s3rm --auto-complete-shell fish
 s3rm --auto-complete-shell powershell
+s3rm --auto-complete-shell elvish
 ```
 
 ### -h/--help
@@ -834,6 +840,7 @@ For more information, see `s3rm -h`.
 | `--dry-run` | `-d` | `false` | Preview deletions without executing them |
 | `--force` | `-f` | `false` | Skip confirmation prompt |
 | `--show-no-progress` | | `false` | Hide the progress bar |
+| `--report-deletion-status` | | `true` | Report deletion status (suppresses the deletion summary log) |
 | `--delete-all-versions` | | `false` | Delete all versions including delete markers |
 | `--batch-size` | | `200` | Objects per batch deletion request (1–1000) |
 | `--max-delete` | | | Stop after deleting this many objects |

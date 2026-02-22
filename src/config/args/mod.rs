@@ -126,10 +126,6 @@ pub struct CLIArgs {
     #[arg(long, env, default_value_t = DEFAULT_DELETE_ALL_VERSIONS, help_heading = "General")]
     pub delete_all_versions: bool,
 
-    /// Objects per batch deletion request (1-1000; 1 uses single-object deletion)
-    #[arg(long, env, default_value_t = DEFAULT_BATCH_SIZE, value_parser = clap::value_parser!(u16).range(1..=1000), help_heading = "General")]
-    pub batch_size: u16,
-
     /// Stop deleting after this many objects have been deleted
     #[arg(long, env, value_parser = clap::value_parser!(u64).range(1..), help_heading = "General")]
     pub max_delete: Option<u64>,
@@ -321,6 +317,10 @@ Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
     /// Number of concurrent deletion workers (1-65535)
     #[arg(long, env, default_value_t = DEFAULT_WORKER_SIZE, value_parser = clap::value_parser!(u16).range(1..), help_heading = "Performance")]
     pub worker_size: u16,
+
+    /// Objects per batch deletion request (1-1000; 1 uses single-object deletion)
+    #[arg(long, env, default_value_t = DEFAULT_BATCH_SIZE, value_parser = clap::value_parser!(u16).range(1..=1000), help_heading = "Performance")]
+    pub batch_size: u16,
 
     /// Number of concurrent listing operations
     #[arg(long, env, default_value_t = DEFAULT_MAX_PARALLEL_LISTINGS, value_parser = clap::value_parser!(u16).range(1..), help_heading = "Performance")]

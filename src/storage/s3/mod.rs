@@ -355,91 +355,26 @@ impl StorageTrait for S3Storage {
     }
 
     async fn delete_objects(&self, objects: Vec<ObjectIdentifier>) -> Result<DeleteObjectsOutput> {
-        let force_retry_count = self.config.force_retry_config.force_retry_count;
-        let force_retry_interval = self
-            .config
-            .force_retry_config
-            .force_retry_interval_milliseconds;
+        self.exec_rate_limit_objects_per_sec_n(objects.len()).await;
 
-        let mut remaining_objects = objects;
-        let mut all_deleted: Vec<aws_sdk_s3::types::DeletedObject> = Vec::new();
-        let mut last_errors: Vec<aws_sdk_s3::types::Error> = Vec::new();
+        let delete = Delete::builder()
+            .set_objects(Some(objects))
+            .build()
+            .context("Failed to build Delete request")?;
 
-        // 0..=force_retry_count: first iteration is the initial attempt,
-        // subsequent iterations are retries. When force_retry_count=0,
-        // only the initial attempt runs (no retry).
-        for attempt in 0..=force_retry_count {
-            if remaining_objects.is_empty() || self.cancellation_token.is_cancelled() {
-                break;
-            }
+        let output = self
+            .client
+            .as_ref()
+            .unwrap()
+            .delete_objects()
+            .set_request_payer(self.request_payer.clone())
+            .bucket(&self.bucket)
+            .delete(delete)
+            .send()
+            .await
+            .context("aws_sdk_s3::client::delete_objects() failed.")?;
 
-            if attempt > 0 {
-                tokio::time::sleep(std::time::Duration::from_millis(force_retry_interval)).await;
-            }
-
-            self.exec_rate_limit_objects_per_sec_n(remaining_objects.len())
-                .await;
-
-            let delete = Delete::builder()
-                .set_objects(Some(remaining_objects))
-                .build()
-                .context("Failed to build Delete request")?;
-
-            let output = self
-                .client
-                .as_ref()
-                .unwrap()
-                .delete_objects()
-                .set_request_payer(self.request_payer.clone())
-                .bucket(&self.bucket)
-                .delete(delete)
-                .send()
-                .await
-                .context("aws_sdk_s3::client::delete_objects() failed.")?;
-
-            // Accumulate successfully deleted objects
-            all_deleted.extend_from_slice(output.deleted());
-
-            // Check for partial failures
-            let errors = output.errors();
-            if errors.is_empty() {
-                last_errors.clear();
-                break;
-            }
-
-            // Extract failed objects as ObjectIdentifiers for retry
-            remaining_objects = errors
-                .iter()
-                .filter_map(|e| {
-                    e.key().map(|key| {
-                        ObjectIdentifier::builder()
-                            .key(key)
-                            .set_version_id(e.version_id().map(String::from))
-                            .build()
-                            .expect("ObjectIdentifier key is present")
-                    })
-                })
-                .collect();
-
-            last_errors = errors.to_vec();
-
-            tracing::warn!(
-                attempt = attempt + 1,
-                force_retry_count = force_retry_count,
-                failed_count = remaining_objects.len(),
-                "Batch deletion partial failure, retrying failed objects."
-            );
-        }
-
-        // Build final output with accumulated results
-        Ok(DeleteObjectsOutput::builder()
-            .set_deleted(Some(all_deleted))
-            .set_errors(if last_errors.is_empty() {
-                None
-            } else {
-                Some(last_errors)
-            })
-            .build())
+        Ok(output)
     }
 
     async fn is_versioning_enabled(&self) -> Result<bool> {

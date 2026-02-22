@@ -67,8 +67,8 @@ struct MockStorage {
     head_object_metadata: Arc<Mutex<Option<HashMap<String, String>>>>,
     /// Configurable get_object_tagging response.
     tagging_response_tags: Arc<Mutex<Option<Vec<Tag>>>>,
-    /// Batch delete: keys that should appear in errors (not deleted).
-    batch_error_keys: Arc<Mutex<Vec<String>>>,
+    /// Batch delete: keys that should appear in errors, mapped to error code.
+    batch_error_keys: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl MockStorage {
@@ -82,7 +82,7 @@ impl MockStorage {
             head_object_content_type: Arc::new(Mutex::new(None)),
             head_object_metadata: Arc::new(Mutex::new(None)),
             tagging_response_tags: Arc::new(Mutex::new(None)),
-            batch_error_keys: Arc::new(Mutex::new(Vec::new())),
+            batch_error_keys: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -174,12 +174,12 @@ impl StorageTrait for MockStorage {
 
         for ident in &objects {
             let key = ident.key();
-            if batch_error_keys.contains(&key.to_string()) {
+            if let Some(error_code) = batch_error_keys.get(key) {
                 builder = builder.errors(
                     aws_sdk_s3::types::Error::builder()
                         .key(key)
-                        .code("AccessDenied")
-                        .message("Access Denied")
+                        .code(error_code.as_str())
+                        .message(format!("{} error", error_code))
                         .build(),
                 );
             } else {
@@ -516,16 +516,16 @@ async fn batch_deleter_with_version_ids() {
 
 #[tokio::test]
 async fn batch_deleter_partial_failure() {
-    // Some objects fail in the batch, but the call itself doesn't error.
+    // Some objects fail in the batch with non-retryable error, no single-delete fallback.
     init_dummy_tracing_subscriber();
     let (stats_sender, _stats_receiver) = async_channel::unbounded();
     let (boxed, mock) = make_mock_storage_boxed(stats_sender);
 
-    // Configure "key/1" to fail in batch
+    // Configure "key/1" to fail in batch with non-retryable error
     mock.batch_error_keys
         .lock()
         .unwrap()
-        .push("key/1".to_string());
+        .insert("key/1".to_string(), "AccessDenied".to_string());
 
     let deleter = BatchDeleter::new(boxed);
     let config = make_test_config();
@@ -536,9 +536,14 @@ async fn batch_deleter_partial_failure() {
         make_s3_object("key/2", 300),
     ];
     let result = deleter.delete(&objects, &config).await.unwrap();
-    // Only 2 of 3 should be counted as deleted
+    // Only 2 of 3 should be counted as deleted (AccessDenied is non-retryable)
     assert_eq!(result.deleted.len(), 2);
     assert_eq!(result.failed.len(), 1);
+    assert_eq!(result.failed[0].error_code, "AccessDenied");
+
+    // Non-retryable errors should NOT trigger single delete fallback
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(single_calls.len(), 0);
 }
 
 #[tokio::test]
@@ -1431,7 +1436,9 @@ proptest! {
     ) {
         // Determine which indices should fail
         let fail_count = (total * fail_pct / 100).max(1).min(total - 1);
-        let fail_keys: Vec<String> = (0..fail_count).map(|i| format!("key/{i}")).collect();
+        let fail_keys: HashMap<String, String> = (0..fail_count)
+            .map(|i| (format!("key/{i}"), "AccessDenied".to_string()))
+            .collect();
 
         let objects: Vec<S3Object> = (0..total)
             .map(|i| make_s3_object(&format!("key/{i}"), 100))
@@ -1658,4 +1665,204 @@ async fn object_deleter_dry_run_versioned_objects() {
     let forwarded = output_receiver.try_recv().unwrap();
     assert_eq!(forwarded.key(), "versioned/file.txt");
     assert_eq!(forwarded.version_id(), Some("ver-001"));
+}
+
+// ---------------------------------------------------------------------------
+// is_retryable_error_code unit test
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_is_retryable_error_code() {
+    use crate::deleter::batch::is_retryable_error_code;
+
+    // Retryable codes
+    assert!(is_retryable_error_code("InternalError"));
+    assert!(is_retryable_error_code("SlowDown"));
+    assert!(is_retryable_error_code("ServiceUnavailable"));
+    assert!(is_retryable_error_code("RequestTimeout"));
+
+    // "unknown" is retryable (err on the side of retrying)
+    assert!(is_retryable_error_code("unknown"));
+
+    // Non-retryable codes
+    assert!(!is_retryable_error_code("AccessDenied"));
+    assert!(!is_retryable_error_code("NoSuchKey"));
+    assert!(!is_retryable_error_code("InvalidArgument"));
+    assert!(!is_retryable_error_code(""));
+}
+
+// ---------------------------------------------------------------------------
+// Batch-to-single fallback tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn batch_deleter_retryable_error_falls_back_to_single() {
+    // Retryable batch error triggers single-delete fallback that succeeds.
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Configure "key/1" to fail in batch with retryable error
+    mock.batch_error_keys
+        .lock()
+        .unwrap()
+        .insert("key/1".to_string(), "InternalError".to_string());
+
+    let deleter = BatchDeleter::new(boxed);
+    let config = make_test_config();
+
+    let objects = vec![
+        make_s3_object("key/0", 100),
+        make_s3_object("key/1", 200),
+        make_s3_object("key/2", 300),
+    ];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    // All 3 should be deleted (2 via batch + 1 via single fallback)
+    assert_eq!(result.deleted.len(), 3);
+    assert_eq!(result.failed.len(), 0);
+
+    // Verify single delete was called for "key/1"
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(single_calls.len(), 1);
+    assert_eq!(single_calls[0].key, "key/1");
+}
+
+#[tokio::test]
+async fn batch_deleter_non_retryable_skips_single_fallback() {
+    // Non-retryable batch error does NOT trigger single-delete fallback.
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Configure "key/1" to fail with non-retryable error
+    mock.batch_error_keys
+        .lock()
+        .unwrap()
+        .insert("key/1".to_string(), "AccessDenied".to_string());
+
+    let deleter = BatchDeleter::new(boxed);
+    let config = make_test_config();
+
+    let objects = vec![make_s3_object("key/0", 100), make_s3_object("key/1", 200)];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    assert_eq!(result.deleted.len(), 1);
+    assert_eq!(result.failed.len(), 1);
+    assert_eq!(result.failed[0].error_code, "AccessDenied");
+
+    // No single delete calls should have been made
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(single_calls.len(), 0);
+}
+
+#[tokio::test]
+async fn batch_deleter_retryable_fallback_exhausted() {
+    // Retryable batch error, but single-delete also fails → verify retry count and final failure.
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Configure "key/0" to fail in batch with retryable error
+    mock.batch_error_keys
+        .lock()
+        .unwrap()
+        .insert("key/0".to_string(), "SlowDown".to_string());
+
+    // Also configure single delete to fail for "key/0"
+    mock.delete_object_error_keys
+        .lock()
+        .unwrap()
+        .insert("key/0".to_string(), "SlowDown error".to_string());
+
+    let deleter = BatchDeleter::new(boxed);
+    let mut config = make_test_config();
+    config.force_retry_config.force_retry_count = 2; // 1 initial + 2 retries = 3 attempts
+
+    let objects = vec![make_s3_object("key/0", 100)];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    // Object should be in failed list after exhausting retries
+    assert_eq!(result.deleted.len(), 0);
+    assert_eq!(result.failed.len(), 1);
+    assert_eq!(result.failed[0].key, "key/0");
+    assert_eq!(result.failed[0].error_code, "SlowDown");
+
+    // Verify 3 single delete attempts were made (initial + 2 retries)
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(single_calls.len(), 3);
+}
+
+#[tokio::test]
+async fn batch_deleter_mixed_retryable_non_retryable() {
+    // Mixed errors: retryable gets single-delete fallback, non-retryable does not.
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // "key/0" fails with retryable error, "key/2" fails with non-retryable
+    {
+        let mut errors = mock.batch_error_keys.lock().unwrap();
+        errors.insert("key/0".to_string(), "InternalError".to_string());
+        errors.insert("key/2".to_string(), "NoSuchKey".to_string());
+    }
+
+    let deleter = BatchDeleter::new(boxed);
+    let config = make_test_config();
+
+    let objects = vec![
+        make_s3_object("key/0", 100),
+        make_s3_object("key/1", 200),
+        make_s3_object("key/2", 300),
+    ];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    // key/0 recovered via single fallback, key/1 batch ok, key/2 failed (non-retryable)
+    assert_eq!(result.deleted.len(), 2); // key/0 (fallback) + key/1 (batch)
+    assert_eq!(result.failed.len(), 1);
+    assert_eq!(result.failed[0].key, "key/2");
+    assert_eq!(result.failed[0].error_code, "NoSuchKey");
+
+    // Single delete called only for retryable "key/0"
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(single_calls.len(), 1);
+    assert_eq!(single_calls[0].key, "key/0");
+}
+
+#[tokio::test]
+async fn batch_deleter_retryable_fallback_with_if_match() {
+    // Verify ETag is passed to single delete during fallback when if_match is enabled.
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Configure "key/0" to fail with retryable error
+    mock.batch_error_keys
+        .lock()
+        .unwrap()
+        .insert("key/0".to_string(), "ServiceUnavailable".to_string());
+
+    let deleter = BatchDeleter::new(boxed);
+    let mut config = make_test_config();
+    config.if_match = true;
+
+    // Create object with ETag
+    let objects = vec![S3Object::NotVersioning(
+        Object::builder()
+            .key("key/0")
+            .size(100)
+            .e_tag("\"abc123\"")
+            .build(),
+    )];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    // Object should be recovered via single fallback
+    assert_eq!(result.deleted.len(), 1);
+    assert_eq!(result.failed.len(), 0);
+
+    // Verify single delete was called with the correct ETag
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(single_calls.len(), 1);
+    assert_eq!(single_calls[0].key, "key/0");
+    assert_eq!(single_calls[0].if_match, Some("\"abc123\"".to_string()));
 }

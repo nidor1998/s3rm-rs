@@ -161,10 +161,6 @@ mod tests {
         );
     }
 
-    proptest! {
-        #![proptest_config(ProptestConfig::with_cases(100))]
-    }
-
     // -----------------------------------------------------------------------
     // Feature: s3rm-rs, Property 42: If-Match Flag Propagation
     // -----------------------------------------------------------------------

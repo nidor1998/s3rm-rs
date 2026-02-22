@@ -10,10 +10,10 @@ Create a git commit with an appropriate summary and detailed description.
    - **Body (if needed)**: Add a blank line after the summary, then provide details about the "why" or list significant changes. Skip the body if the summary is self-explanatory.
    - Do NOT commit files that likely contain secrets (`.env`, credentials, etc.)
 5. Stage all relevant changed files by name (do NOT use `git add -A` or `git add .`).
-6. Create the commit using a HEREDOC for the message. Always append the co-author trailer:
+6. Create the commit using a HEREDOC for the message. **Always sign with GPG (`-S` flag).** Always append the co-author trailer:
 
 ```
-git commit -m "$(cat <<'EOF'
+git commit -S -m "$(cat <<'EOF'
 Summary line here
 
 Optional detailed description here.

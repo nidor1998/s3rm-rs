@@ -265,6 +265,7 @@ Based on the current status, the remaining work includes:
 5. **Follow Patterns**: Reuse patterns from s3sync where applicable
 6. **Property Tests**: Focus on correctness properties, not just examples
 7. **No auto `/check-commit-push`**: Never run `/check-commit-push` automatically. Only run it when the user explicitly asks.
+8. **No autonomous commits**: Never run `git commit` or `mcp__git__git_commit` without explicit human approval. The settings file enforces this — commit operations are not in the allow list and will always prompt for confirmation.
 
 ## Getting Help
 

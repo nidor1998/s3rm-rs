@@ -443,30 +443,33 @@ mod tests {
             prop_assert!(p_no.is_empty(), "Bucket-only target should have empty prefix");
         }
 
-        /// **Property 13: Delete-All Behavior (Default FilterConfig passes all)**
-        /// A default FilterConfig should not reject any object — all filter
-        /// fields being None means every object passes through unfiltered.
-        #[test]
-        fn property_13_default_filter_config_passes_all(
-            _dummy in 0u8..1,
-        ) {
-            // Feature: s3rm-rs, Property 13: Delete-All Behavior
-            // **Validates: Requirements 2.10**
-            let fc = FilterConfig::default();
+    }
 
-            // Every field should be None
-            prop_assert!(fc.include_regex.is_none());
-            prop_assert!(fc.exclude_regex.is_none());
-            prop_assert!(fc.include_content_type_regex.is_none());
-            prop_assert!(fc.exclude_content_type_regex.is_none());
-            prop_assert!(fc.include_metadata_regex.is_none());
-            prop_assert!(fc.exclude_metadata_regex.is_none());
-            prop_assert!(fc.include_tag_regex.is_none());
-            prop_assert!(fc.exclude_tag_regex.is_none());
-            prop_assert!(fc.larger_size.is_none());
-            prop_assert!(fc.smaller_size.is_none());
-            prop_assert!(fc.before_time.is_none());
-            prop_assert!(fc.after_time.is_none());
-        }
+    /// **Property 13: Delete-All Behavior (Default FilterConfig passes all)**
+    /// A default FilterConfig should not reject any object — all filter
+    /// fields being None means every object passes through unfiltered.
+    #[test]
+    fn property_13_default_filter_config_passes_all() {
+        // Feature: s3rm-rs, Property 13: Delete-All Behavior
+        // **Validates: Requirements 2.10**
+        let fc = FilterConfig::default();
+
+        // Every field should be None
+        assert!(fc.include_regex.is_none());
+        assert!(fc.exclude_regex.is_none());
+        assert!(fc.include_content_type_regex.is_none());
+        assert!(fc.exclude_content_type_regex.is_none());
+        assert!(fc.include_metadata_regex.is_none());
+        assert!(fc.exclude_metadata_regex.is_none());
+        assert!(fc.include_tag_regex.is_none());
+        assert!(fc.exclude_tag_regex.is_none());
+        assert!(fc.larger_size.is_none());
+        assert!(fc.smaller_size.is_none());
+        assert!(fc.before_time.is_none());
+        assert!(fc.after_time.is_none());
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
     }
 }

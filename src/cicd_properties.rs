@@ -240,64 +240,12 @@ mod tests {
         /// Feature: s3rm-rs, Property 49: Output Stream Separation
         /// **Validates: Requirements 13.6**
         ///
-        /// For any TracingConfig, the configuration is valid for init_tracing
-        /// and routes all output to stdout by default (tracing_subscriber::fmt()
-        /// defaults to stdout).
-        #[test]
-        fn property_49_tracing_config_defaults_to_stdout(
-            json_tracing in proptest::bool::ANY,
-            aws_sdk_tracing in proptest::bool::ANY,
-            disable_color in proptest::bool::ANY,
-            span_events in proptest::bool::ANY,
-            level in prop_oneof![
-                Just(log::Level::Error),
-                Just(log::Level::Warn),
-                Just(log::Level::Info),
-                Just(log::Level::Debug),
-                Just(log::Level::Trace),
-            ],
-        ) {
-            // Feature: s3rm-rs, Property 49: Output Stream Separation
-            // **Validates: Requirements 13.6**
-            //
-            // The init_tracing function in bin/s3rm/tracing_init.rs uses
-            // tracing_subscriber::fmt() which writes to stdout by default.
-            // There is no with_writer(stderr) override anywhere in the code.
-            // We verify the TracingConfig is well-formed and can be constructed
-            // with any combination of settings.
-            let config = TracingConfig {
-                tracing_level: level,
-                json_tracing,
-                aws_sdk_tracing,
-                span_events_tracing: span_events,
-                disable_color_tracing: disable_color,
-            };
-
-            // Verify the config can be used in init_tracing's subscriber_builder:
-            // - with_ansi takes a bool from !disable_color_tracing
-            // - json mode branches on json_tracing
-            // - span_events derives from span_events_tracing
-            // All these should produce valid configurations.
-            prop_assert_eq!(config.tracing_level, level);
-            prop_assert_eq!(config.json_tracing, json_tracing);
-            prop_assert_eq!(config.aws_sdk_tracing, aws_sdk_tracing);
-            prop_assert_eq!(config.span_events_tracing, span_events);
-            prop_assert_eq!(config.disable_color_tracing, disable_color);
-
-            // The key property: tracing_subscriber::fmt() outputs to stdout.
-            // There is no .with_writer(io::stderr()) call in init_tracing,
-            // meaning ALL log messages (errors included) go to stdout.
-            // This is verified structurally by the init_tracing implementation.
-        }
-
-        /// Feature: s3rm-rs, Property 49: Output Stream Separation
-        /// **Validates: Requirements 13.6**
-        ///
         /// For any verbosity flag combination parsed from CLI args, the resulting
-        /// Config produces a TracingConfig (or None for silent mode) that will
-        /// route all logs to stdout when passed to init_tracing.
+        /// Config produces a TracingConfig (or None for silent mode) that preserves
+        /// the json_tracing flag correctly — ensuring JSON mode uses the same
+        /// stdout-based tracing path.
         #[test]
-        fn property_49_cli_tracing_config_uses_stdout(
+        fn property_49_cli_tracing_config_json_propagation(
             verbosity_idx in 0..6usize,
             json_tracing in proptest::bool::ANY,
         ) {
@@ -324,19 +272,10 @@ mod tests {
             let config = Config::try_from(cli).unwrap();
 
             // Silent mode (-qq): no tracing config at all — acceptable per design
-            // All other modes: TracingConfig is present and init_tracing uses
-            // tracing_subscriber::fmt() which defaults to stdout
+            // All other modes: TracingConfig is present and json_tracing is propagated
             if let Some(tc) = &config.tracing_config {
-                // json_tracing flag should be propagated correctly
-                prop_assert_eq!(tc.json_tracing, json_tracing);
-
-                // Key structural property: the TracingConfig does NOT contain
-                // any stderr writer configuration. init_tracing uses fmt()
-                // which defaults to stdout for all output.
-                // This assertion is structural — we verify the config exists
-                // and is well-formed, and the init_tracing code is audited
-                // to confirm stdout usage.
-                prop_assert!(tc.tracing_level <= log::Level::Trace);
+                prop_assert_eq!(tc.json_tracing, json_tracing,
+                    "json_tracing flag must propagate through CLI -> Config pipeline");
             }
         }
     }

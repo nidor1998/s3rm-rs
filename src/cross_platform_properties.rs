@@ -265,22 +265,34 @@ mod tests {
             );
         }
 
-        /// **Property 37: Cross-Platform Path Handling (PathBuf preserves original path)**
+        /// **Property 37: Cross-Platform Path Handling (both config paths round-trip)**
         /// **Validates: Requirements 9.6**
         ///
-        /// PathBuf::from() followed by to_str() must round-trip the path string
-        /// for any valid path on the current platform.
+        /// When both --aws-config-file and --aws-shared-credentials-file are
+        /// provided, both paths must round-trip through the CLI → Config pipeline.
         #[test]
-        fn prop_pathbuf_roundtrip(
+        fn prop_both_aws_config_paths_roundtrip(
             config_path in arb_aws_config_path(),
+            cred_path in arb_aws_config_path(),
         ) {
-            let path_buf = PathBuf::from(&config_path);
-            let back_to_str = path_buf.to_str().unwrap();
-            prop_assert_eq!(
-                back_to_str,
-                config_path.as_str(),
-                "PathBuf must round-trip the path string"
-            );
+            let args: Vec<&str> = vec![
+                "s3rm",
+                "s3://test-bucket/prefix/",
+                "--aws-config-file",
+                &config_path,
+                "--aws-shared-credentials-file",
+                &cred_path,
+            ];
+
+            let cli = parse_from_args(args).unwrap();
+            let config = Config::try_from(cli).unwrap();
+
+            let client_config = config.target_client_config.as_ref().unwrap();
+            let stored_config = client_config.client_config_location.aws_config_file.as_ref().unwrap();
+            let stored_cred = client_config.client_config_location.aws_shared_credentials_file.as_ref().unwrap();
+
+            prop_assert_eq!(stored_config, &PathBuf::from(&config_path));
+            prop_assert_eq!(stored_cred, &PathBuf::from(&cred_path));
         }
     }
 

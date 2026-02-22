@@ -22,8 +22,8 @@
 
 #[cfg(test)]
 mod tests {
+    use crate::config::Config;
     use crate::config::args::parse_from_args;
-    use crate::config::{Config, TracingConfig};
     use crate::types::DeletionError;
     use proptest::prelude::*;
 
@@ -242,32 +242,43 @@ mod tests {
             }
         }
 
-        /// **Property 23: Color Output Control (init_tracing ansi)**
+        /// **Property 23: Color Output Control (disable-color flag with verbosity)**
         /// **Validates: Requirements 4.8, 4.9**
         ///
-        /// The TracingConfig's disable_color_tracing field controls the
-        /// `with_ansi(!disable_color_tracing)` parameter in init_tracing.
-        /// Verify the config correctly propagates the disable_color flag.
+        /// The --disable-color-tracing flag must propagate correctly through the
+        /// CLI parser for all verbosity levels.
         #[test]
-        fn prop_color_config_propagation(
-            disable_color in proptest::bool::ANY,
+        fn prop_color_config_propagation_with_verbosity(
+            (flags, _) in arb_verbosity_flags(),
             json_tracing in proptest::bool::ANY,
         ) {
-            let config = TracingConfig {
-                tracing_level: log::Level::Info,
-                json_tracing,
-                aws_sdk_tracing: false,
-                span_events_tracing: false,
-                disable_color_tracing: disable_color,
-            };
+            // With color disabled
+            let mut args_disabled: Vec<&str> = vec![
+                "s3rm", "s3://bucket/prefix/",
+                "--disable-color-tracing",
+            ];
+            args_disabled.extend(flags.clone());
+            if json_tracing { args_disabled.push("--json-tracing"); }
 
-            // The init_tracing function uses `!config.disable_color_tracing` for with_ansi.
-            // We verify the config field is correctly set.
-            prop_assert_eq!(config.disable_color_tracing, disable_color);
+            let cli_disabled = parse_from_args(args_disabled).unwrap();
+            let config_disabled = Config::try_from(cli_disabled).unwrap();
 
-            // When color is disabled, ANSI codes should be suppressed (ansi = false).
-            let expected_ansi = !disable_color;
-            prop_assert_eq!(!config.disable_color_tracing, expected_ansi);
+            // With color enabled (default)
+            let mut args_enabled: Vec<&str> = vec!["s3rm", "s3://bucket/prefix/"];
+            args_enabled.extend(flags);
+            if json_tracing { args_enabled.push("--json-tracing"); }
+
+            let cli_enabled = parse_from_args(args_enabled).unwrap();
+            let config_enabled = Config::try_from(cli_enabled).unwrap();
+
+            // Color disabled: disable_color_tracing must be true
+            if let Some(tc) = config_disabled.tracing_config {
+                prop_assert!(tc.disable_color_tracing, "disable_color_tracing must be true when --disable-color-tracing is set");
+            }
+            // Color enabled (default): disable_color_tracing must be false
+            if let Some(tc) = config_enabled.tracing_config {
+                prop_assert!(!tc.disable_color_tracing, "disable_color_tracing must be false by default");
+            }
         }
     }
 

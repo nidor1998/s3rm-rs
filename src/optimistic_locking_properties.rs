@@ -146,18 +146,23 @@ mod tests {
             })?;
         }
 
-        /// **Property 41: If-Match Conditional Deletion (PreconditionFailed is non-retryable)**
-        /// **Validates: Requirements 11.2**
-        ///
-        /// PreconditionFailed errors (ETag mismatch) are never retryable — the
-        /// object should be skipped rather than retried.
-        #[test]
-        fn prop_precondition_failed_is_not_retryable(_dummy in 0u32..1) {
-            prop_assert!(
-                !DeletionError::PreconditionFailed.is_retryable(),
-                "PreconditionFailed must not be retryable — object should be skipped"
-            );
-        }
+    }
+
+    /// **Property 41: If-Match Conditional Deletion (PreconditionFailed is non-retryable)**
+    /// **Validates: Requirements 11.2**
+    ///
+    /// PreconditionFailed errors (ETag mismatch) are never retryable — the
+    /// object should be skipped rather than retried.
+    #[test]
+    fn precondition_failed_is_not_retryable() {
+        assert!(
+            !DeletionError::PreconditionFailed.is_retryable(),
+            "PreconditionFailed must not be retryable — object should be skipped"
+        );
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
     }
 
     // -----------------------------------------------------------------------
@@ -197,8 +202,8 @@ mod tests {
         /// **Property 42: If-Match Flag Propagation (default)**
         /// **Validates: Requirements 11.3**
         ///
-        /// When --if-match is omitted and the IF_MATCH env var is unset,
-        /// Config.if_match defaults to false for any valid bucket name.
+        /// When --if-match is omitted, Config.if_match defaults to false
+        /// for any valid bucket name.
         #[test]
         fn prop_if_match_default_is_false(
             bucket in "[a-z][a-z0-9-]{2,10}",
@@ -207,16 +212,11 @@ mod tests {
                 .with_env_filter("dummy=trace")
                 .try_init();
 
-            // Ensure the env var is not influencing the result.
-            // SAFETY: This test is the only writer of IF_MATCH in this process;
-            // proptest runs cases sequentially within a single test function.
-            unsafe { std::env::remove_var("IF_MATCH") };
-
             let target = format!("s3://{}/", bucket);
             let args = vec!["s3rm", target.as_str()];
             let parsed = parse_from_args(args).unwrap();
             let config = Config::try_from(parsed).unwrap();
-            prop_assert!(!config.if_match, "Default if_match must be false when flag and env var are absent");
+            prop_assert!(!config.if_match, "Default if_match must be false when flag is absent");
         }
     }
 

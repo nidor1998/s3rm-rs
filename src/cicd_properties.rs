@@ -266,6 +266,7 @@ mod tests {
             args.extend(verbosity_flags[verbosity_idx].clone());
             if json_tracing {
                 args.push("--json-tracing");
+                args.push("--force");
             }
 
             let cli = parse_from_args(args).unwrap();
@@ -312,7 +313,13 @@ mod tests {
     fn property_49_json_logging_routes_to_stdout() {
         use crate::config::args::parse_from_args;
 
-        let args = vec!["s3rm", "s3://bucket/prefix/", "--json-tracing", "-v"];
+        let args = vec![
+            "s3rm",
+            "s3://bucket/prefix/",
+            "--json-tracing",
+            "--force",
+            "-v",
+        ];
         let cli = parse_from_args(args).unwrap();
         let config = Config::try_from(cli).unwrap();
 

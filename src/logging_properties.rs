@@ -161,7 +161,7 @@ mod tests {
             disable_color in proptest::bool::ANY,
             aws_sdk_tracing in proptest::bool::ANY,
         ) {
-            let mut args: Vec<&str> = vec!["s3rm", "s3://bucket/prefix/", "--json-tracing"];
+            let mut args: Vec<&str> = vec!["s3rm", "s3://bucket/prefix/", "--json-tracing", "--force"];
             args.extend(flags.clone());
             if disable_color {
                 args.push("--disable-color-tracing");
@@ -258,7 +258,10 @@ mod tests {
                 "--disable-color-tracing",
             ];
             args_disabled.extend(flags.clone());
-            if json_tracing { args_disabled.push("--json-tracing"); }
+            if json_tracing {
+                args_disabled.push("--json-tracing");
+                args_disabled.push("--force");
+            }
 
             let cli_disabled = parse_from_args(args_disabled).unwrap();
             let config_disabled = Config::try_from(cli_disabled).unwrap();
@@ -266,7 +269,10 @@ mod tests {
             // With color enabled (default)
             let mut args_enabled: Vec<&str> = vec!["s3rm", "s3://bucket/prefix/"];
             args_enabled.extend(flags);
-            if json_tracing { args_enabled.push("--json-tracing"); }
+            if json_tracing {
+                args_enabled.push("--json-tracing");
+                args_enabled.push("--force");
+            }
 
             let cli_enabled = parse_from_args(args_enabled).unwrap();
             let config_enabled = Config::try_from(cli_enabled).unwrap();

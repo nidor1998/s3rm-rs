@@ -146,10 +146,12 @@ fn parse_logging_options() {
         "s3://bucket/",
         "-vvv",
         "--json-tracing",
+        "--force",
         "--disable-color-tracing",
     ];
     let cli = parse_from_args(args).unwrap();
     assert!(cli.json_tracing);
+    assert!(cli.force);
     assert!(cli.disable_color_tracing);
 }
 

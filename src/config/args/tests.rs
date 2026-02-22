@@ -233,8 +233,8 @@ fn config_from_minimal_args() {
     assert_eq!(prefix, "prefix/");
     assert!(!config.dry_run);
     assert!(!config.force);
-    assert_eq!(config.batch_size, 1000);
-    assert_eq!(config.worker_size, 16);
+    assert_eq!(config.batch_size, 200);
+    assert_eq!(config.worker_size, 32);
 }
 
 #[test]
@@ -360,7 +360,7 @@ fn config_express_onezone_with_parallel_listings_keeps_batch_size() {
     ];
     let cli = parse_from_args(args).unwrap();
     let config = Config::try_from(cli).unwrap();
-    assert_eq!(config.batch_size, 1000);
+    assert_eq!(config.batch_size, 200);
 }
 
 #[test]

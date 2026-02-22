@@ -21,6 +21,8 @@
 │   └── bin/s3rm/           # CLI binary entry point
 ├── Cargo.toml              # Package manifest and dependencies
 ├── Cargo.lock              # Dependency lock file
+├── deny.toml               # cargo-deny config (license, advisory, ban checks)
+├── LICENSE                  # Apache License 2.0
 ├── README.md               # Project overview, CLI reference, usage examples
 ├── docs/                   # Permanent documentation (requirements, design, product, tech, structure)
 ├── steering/
@@ -55,7 +57,7 @@ src/
 │   └── s3/
 │       ├── mod.rs          # S3Storage implementation
 │       └── client_builder.rs # AWS client builder with credentials, retry, rate limiting
-├── lister.rs               # ObjectLister (reused from s3sync)
+├── lister.rs               # ObjectLister (reused from s3sync) + Property 5 tests
 ├── filters/
 │   ├── mod.rs              # ObjectFilter trait, ObjectFilterBase
 │   ├── mtime_before.rs     # MtimeBeforeFilter
@@ -70,7 +72,7 @@ src/
 │   ├── mod.rs              # ObjectDeleter, Deleter trait, DeleteResult types
 │   ├── batch.rs            # BatchDeleter (S3 DeleteObjects API)
 │   ├── single.rs           # SingleDeleter (S3 DeleteObject API)
-│   └── tests.rs            # Unit + property tests for deletion (Properties 1-3, 5-6)
+│   └── tests.rs            # Unit + property tests for deletion (Properties 1-3, 6)
 ├── callback/
 │   ├── mod.rs              # Re-exports
 │   ├── event_manager.rs    # EventManager (event callback registration and dispatch)

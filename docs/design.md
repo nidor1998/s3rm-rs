@@ -113,8 +113,12 @@ impl DeletionPipeline {
     // Run the deletion pipeline (similar to s3sync's pipeline.run())
     pub async fn run(&mut self);
 
+    // Explicit safety checks (confirmation prompt, versioning)
+    pub async fn check_prerequisites(&mut self) -> Result<()>;
+
     // Check for errors
     pub fn has_error(&self) -> bool;
+    pub fn has_panic(&self) -> bool;
     pub fn get_errors_and_consume(&self) -> Option<Vec<Error>>;
 
     // Check for warnings
@@ -221,10 +225,12 @@ pub struct DeletionPipeline {
     cancellation_token: PipelineCancellationToken,
     stats_receiver: Receiver<DeletionStatistics>,
     has_error: Arc<AtomicBool>,
+    has_panic: Arc<AtomicBool>,
     has_warning: Arc<AtomicBool>,
     errors: Arc<Mutex<VecDeque<anyhow::Error>>>,
     ready: bool,
-    deletion_stats_report: Arc<Mutex<DeletionStatsReport>>,
+    prerequisites_checked: bool,
+    deletion_stats_report: Arc<DeletionStatsReport>,  // uses atomic counters, no Mutex needed
 }
 
 impl DeletionPipeline {
@@ -236,20 +242,22 @@ impl DeletionPipeline {
     }
 
     pub async fn run(&mut self) {
+        // Note: check_prerequisites() must be called before run().
         // 1. Fire PIPELINE_START event
-        // 2. Check prerequisites (confirmation prompt, versioning)
-        //    Note: dry-run does NOT abort — the pipeline runs fully
-        //    but the deletion layer simulates deletions
-        // 3. List objects (using s3sync's parallel lister)
-        // 4. Filter objects (using s3sync's filter stages)
-        // 5. Delete objects (using deletion workers; dry-run skips S3 API calls)
-        // 6. Terminate pipeline
-        // 7. Fire PIPELINE_END / PIPELINE_ERROR events
+        // 2. List objects (using s3sync's parallel lister)
+        // 3. Filter objects (using s3sync's filter stages)
+        // 4. Delete objects (using deletion workers; dry-run skips S3 API calls)
+        // 5. Terminate pipeline
+        // 6. Fire PIPELINE_END / PIPELINE_ERROR events
         // Note: All stages connected by async channels
     }
 
+    // Safety checks (run before pipeline execution)
+    pub async fn check_prerequisites(&mut self) -> Result<()>;
+
     // Error handling (from s3sync)
     pub fn has_error(&self) -> bool;
+    pub fn has_panic(&self) -> bool;
     pub fn get_errors_and_consume(&self) -> Option<Vec<anyhow::Error>>;
     pub fn has_warning(&self) -> bool;
 
@@ -298,7 +306,7 @@ graph LR
 ```
 
 **Workflow**:
-1. **Check Prerequisites**: Validate configuration, check versioning, handle confirmation prompt (dry-run skips confirmation but pipeline still runs fully)
+1. **Check Prerequisites** (via `check_prerequisites()`): Validate configuration, check versioning, handle confirmation prompt (dry-run skips confirmation but pipeline still runs fully). Called separately before `run()` so the progress bar doesn't interfere with prompts.
 2. **List Stage**: Spawn ObjectLister to list target objects into channel
 3. **Filter Stages**: Chain filter stages (each reads from previous, writes to next)
    - MtimeBeforeFilter (if configured)
@@ -432,9 +440,9 @@ impl ObjectFilter for MtimeBeforeFilter {
 pub struct ObjectDeleter {
     worker_index: u16,
     base: Stage,
-    deletion_stats_report: Arc<Mutex<DeletionStatsReport>>,
+    deletion_stats_report: Arc<DeletionStatsReport>,  // uses atomic counters, no Mutex needed
     delete_counter: Arc<AtomicU64>,         // shared counter for --max-delete enforcement
-    deleter: Box<dyn Deleter + Send + Sync>, // BatchDeleter or SingleDeleter
+    deleter: Box<dyn Deleter>,              // BatchDeleter or SingleDeleter
     buffer: Vec<S3Object>,                  // objects pending deletion, flushed at batch boundaries
     effective_batch_size: usize,            // min(config.batch_size, MAX_BATCH_SIZE)
 }
@@ -443,7 +451,7 @@ impl ObjectDeleter {
     pub fn new(
         base: Stage,
         worker_index: u16,
-        deletion_stats_report: Arc<Mutex<DeletionStatsReport>>,
+        deletion_stats_report: Arc<DeletionStatsReport>,
         delete_counter: Arc<AtomicU64>,
     ) -> Self;
 
@@ -948,8 +956,17 @@ async fn run(mut config: Config) -> Result<()> {
     let cancellation_token = create_pipeline_cancellation_token();
     ctrl_c_handler::spawn_ctrl_c_handler(cancellation_token.clone());
 
-    // Create pipeline with progress indicator
+    // Create pipeline
     let mut pipeline = DeletionPipeline::new(config.clone(), cancellation_token).await;
+
+    // Check prerequisites (confirmation prompt) BEFORE starting progress indicator,
+    // so the progress bar doesn't interfere with the prompt.
+    if let Err(e) = pipeline.check_prerequisites().await {
+        pipeline.close_stats_sender();
+        return Err(e);
+    }
+
+    // Start progress indicator after prerequisites pass
     let indicator_join_handle = indicator::show_indicator(
         pipeline.get_stats_receiver(),
         ui_config::is_progress_indicator_needed(&config),
@@ -960,8 +977,13 @@ async fn run(mut config: Config) -> Result<()> {
     pipeline.run().await;
     indicator_join_handle.await?;
 
-    // Handle errors — exit code 1
+    // Handle panics — exit code 101
     if pipeline.has_error() {
+        if pipeline.has_panic() {
+            error!("s3rm abnormal termination.");
+            std::process::exit(EXIT_CODE_ABNORMAL_TERMINATION); // 101
+        }
+        // Handle errors — exit code 1
         let errors = pipeline.get_errors_and_consume().unwrap();
         for err in &errors {
             if is_cancelled_error(err) { return Ok(()); }

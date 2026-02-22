@@ -31,7 +31,7 @@ mod tests {
 
     impl PromptHandler for NonInteractiveHandler {
         fn read_confirmation(&self, _target_display: &str, _use_color: bool) -> Result<String> {
-            panic!("read_confirmation must not be called in non-interactive mode")
+            unreachable!("read_confirmation must not be called in non-interactive mode")
         }
 
         fn is_interactive(&self) -> bool {

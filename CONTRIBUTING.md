@@ -1,7 +1,9 @@
 # Contributing to s3rm-rs
 
-Thank you for your interest in contributing to s3rm-rs! This guide covers
-development setup, testing, code style, and the pull request process.
+> **Important:** All code, tests, and documentation in this repository are created and maintained exclusively by AI. We do not accept pull requests. If you find a bug or have a feature request, please [open an issue](https://github.com/nidor1998/s3rm-rs/issues) instead.
+
+The rest of this document describes the development setup and conventions used
+in the project, for reference.
 
 ## Development Setup
 

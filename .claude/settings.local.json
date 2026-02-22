@@ -83,7 +83,11 @@
       "mcp__serena__initial_instructions",
       "mcp__serena__onboarding",
       "mcp__serena__write_memory",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "mcp__serena__read_memory",
+      "mcp__github__search_pull_requests",
+      "Bash(tail:*)",
+      "Bash(timeout 120 bash:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

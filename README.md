@@ -746,6 +746,7 @@ An event callback Lua script does not stop the operation — just shows a warnin
 - 1: Exit with error
 - 2: Invalid arguments
 - 3: Exit with warning (partial failure; use `--warn-as-error` to treat as error)
+- 101: Abnormal termination (internal panic)
 
 ## Advanced options
 

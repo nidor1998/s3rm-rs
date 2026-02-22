@@ -1584,7 +1584,7 @@ impl S3rmError {
 - AWS SDK error handling and classification
 - Retry logic for transient errors
 - Error logging and formatting
-- Exit code mapping (0=success, 1=error, 2=invalid arguments, 3=warnings)
+- Exit code mapping (0=success, 1=error, 2=invalid arguments, 3=warnings, 101=abnormal termination)
 - Ctrl-C signal handling with cancellation token
 
 **New for s3rm**:

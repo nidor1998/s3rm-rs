@@ -184,7 +184,7 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 2. THE S3rm_Tool SHALL validate all required arguments and provide clear error messages for invalid input
 3. WHEN invoked without required arguments, THE S3rm_Tool SHALL display usage information
 4. THE S3rm_Tool SHALL support both short flags (-d) and long flags (--dry-run) for all options
-5. THE S3rm_Tool SHALL return appropriate exit codes (0 for success, non-zero for errors)
+5. THE S3rm_Tool SHALL return appropriate exit codes: 0 for success, 1 for errors, 2 for invalid arguments, 3 for warnings (partial failure), and 101 for abnormal termination (internal panic)
 6. THE S3rm_Tool SHALL provide version information via --version flag
 7. THE S3rm_Tool SHALL provide an intuitive command structure that is easy to learn and remember
 

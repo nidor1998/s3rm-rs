@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput;
+use aws_sdk_s3::primitives::DateTimeFormat;
 use aws_sdk_s3::types::Tag;
 use aws_smithy_runtime_api::client::result::SdkError;
 use aws_smithy_runtime_api::http::Response;
@@ -427,11 +428,16 @@ impl ObjectDeleter {
             // Per-object info logging (matching s3sync pattern).
             // Dry-run uses "[dry-run]" prefix like s3sync's storage layer.
             let version_id_str = dk.version_id.as_deref().unwrap_or("");
+            let last_modified_str = obj_by_key
+                .get(&lookup_key)
+                .map(|o| o.last_modified().fmt(DateTimeFormat::DateTime).unwrap_or_default())
+                .unwrap_or_default();
             if is_dry_run {
                 info!(
                     key = dk.key.as_str(),
                     version_id = version_id_str,
                     size = size,
+                    last_modified = last_modified_str.as_str(),
                     "[dry-run] delete completed.",
                 );
             } else {
@@ -439,6 +445,7 @@ impl ObjectDeleter {
                     key = dk.key.as_str(),
                     version_id = version_id_str,
                     size = size,
+                    last_modified = last_modified_str.as_str(),
                     "delete completed.",
                 );
             }

@@ -1,21 +1,21 @@
 // Property-based tests for the s3rm-rs library API.
 //
-// **Property 44: Library API Configuration**
+// Feature: s3rm-rs, Property 44: Library API Configuration
 // For any configuration option available in the CLI, the library API should
 // provide equivalent programmatic configuration functions.
 // **Validates: Requirements 12.4**
 //
-// **Property 45: Library Callback Registration**
+// Feature: s3rm-rs, Property 45: Library Callback Registration
 // For any Rust filter or event callback registered via the library API, the
 // callback should be invoked at the appropriate times with correct data.
 // **Validates: Requirements 12.5, 12.6**
 //
-// **Property 46: Library Lua Callback Support**
+// Feature: s3rm-rs, Property 46: Library Lua Callback Support
 // For any Lua script path provided to the library API, the library should load
 // and execute the script for filter or event operations.
 // **Validates: Requirements 12.7**
 //
-// **Property 47: Library Async Result Handling**
+// Feature: s3rm-rs, Property 47: Library Async Result Handling
 // For any library API function call, the function should return a Result type
 // that allows proper error handling.
 // **Validates: Requirements 12.8**
@@ -163,13 +163,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 44: Library API Configuration
+    // Feature: s3rm-rs, Property 44: Library API Configuration
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
 
-        /// **Property 44: Library API Configuration**
+        /// Feature: s3rm-rs, Property 44: Library API Configuration
         /// **Validates: Requirements 12.4**
         ///
         /// For any valid configuration values, the Config struct should:
@@ -194,7 +194,7 @@ mod tests {
             prop_assert_eq!(config.max_delete, max_delete);
         }
 
-        /// **Property 44: Library API Configuration (Clone)**
+        /// Feature: s3rm-rs, Property 44: Library API Configuration (Clone)
         /// **Validates: Requirements 12.4**
         ///
         /// Config should be cloneable and preserve all values through cloning.
@@ -219,7 +219,7 @@ mod tests {
             prop_assert_eq!(cloned.warn_as_error, config.warn_as_error);
         }
 
-        /// **Property 44: Library API Configuration (Filter Config)**
+        /// Feature: s3rm-rs, Property 44: Library API Configuration (Filter Config)
         /// **Validates: Requirements 12.4**
         ///
         /// Filter configuration should be settable via the library API,
@@ -244,13 +244,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 45: Library Callback Registration
+    // Feature: s3rm-rs, Property 45: Library Callback Registration
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
 
-        /// **Property 45: Library Callback Registration (Filter)**
+        /// Feature: s3rm-rs, Property 45: Library Callback Registration (Filter)
         /// **Validates: Requirements 12.5, 12.6**
         ///
         /// For any registered Rust filter callback, the callback should be invoked
@@ -278,7 +278,7 @@ mod tests {
             })?;
         }
 
-        /// **Property 45: Library Callback Registration (Event)**
+        /// Feature: s3rm-rs, Property 45: Library Callback Registration (Event)
         /// **Validates: Requirements 12.5, 12.6**
         ///
         /// For any registered Rust event callback and sequence of events,
@@ -317,7 +317,7 @@ mod tests {
             })?;
         }
 
-        /// **Property 45: Library Callback Registration (Selective Events)**
+        /// Feature: s3rm-rs, Property 45: Library Callback Registration (Selective Events)
         /// **Validates: Requirements 12.5, 12.6**
         ///
         /// Event callbacks registered with specific event flags should only
@@ -354,13 +354,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 46: Library Lua Callback Support
+    // Feature: s3rm-rs, Property 46: Library Lua Callback Support
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
 
-        /// **Property 46: Library Lua Callback Support**
+        /// Feature: s3rm-rs, Property 46: Library Lua Callback Support
         /// **Validates: Requirements 12.7**
         ///
         /// Lua callback script paths set on Config should be preserved and
@@ -391,40 +391,54 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 47: Library Async Result Handling
+    // Feature: s3rm-rs, Property 47: Library Async Result Handling
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
 
-        /// **Property 47: Library Async Result Handling**
+        /// Feature: s3rm-rs, Property 47: Library Async Result Handling
         /// **Validates: Requirements 12.8**
         ///
-        /// The create_pipeline_cancellation_token function should always succeed
-        /// and return a usable token that supports cancellation signaling.
+        /// Multiple independently-created cancellation tokens should be
+        /// isolated — cancelling one must not affect another.
         #[test]
-        fn cancellation_token_creation_always_succeeds(_dummy in 0u8..1) {
-            let token = create_pipeline_cancellation_token();
-            prop_assert!(!token.is_cancelled());
+        fn cancellation_token_creation_always_succeeds(
+            token_count in 2usize..10,
+        ) {
+            let tokens: Vec<_> = (0..token_count)
+                .map(|_| create_pipeline_cancellation_token())
+                .collect();
 
-            // Cancel and verify
-            token.cancel();
-            prop_assert!(token.is_cancelled());
+            // None should be cancelled initially
+            for t in &tokens {
+                prop_assert!(!t.is_cancelled());
+            }
+
+            // Cancel the first token — others must remain uncancelled
+            tokens[0].cancel();
+            prop_assert!(tokens[0].is_cancelled());
+            for t in &tokens[1..] {
+                prop_assert!(!t.is_cancelled(), "cancelling one token must not affect others");
+            }
         }
 
-        /// **Property 47: Library Async Result Handling (Filter Errors)**
+        /// Feature: s3rm-rs, Property 47: Library Async Result Handling (Filter Errors)
         /// **Validates: Requirements 12.8**
         ///
         /// Filter callbacks that return errors should propagate errors correctly
-        /// through the async Result type.
+        /// through the async Result type, regardless of the object being filtered.
         #[test]
-        fn filter_callback_error_propagation(_dummy in 0u8..1) {
+        fn filter_callback_error_propagation(
+            key in "[a-z0-9/_.-]{1,40}",
+            size in 0i64..10_000,
+        ) {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
                 let mut manager = FilterManager::new();
                 manager.register_callback(ErrorFilter);
 
-                let object = make_test_object("test/key.txt", 100);
+                let object = make_test_object(&key, size);
                 let result = manager.execute_filter(&object).await;
 
                 prop_assert!(result.is_err());
@@ -433,7 +447,7 @@ mod tests {
             })?;
         }
 
-        /// **Property 47: Library Async Result Handling (S3Target Parsing)**
+        /// Feature: s3rm-rs, Property 47: Library Async Result Handling (S3Target Parsing)
         /// **Validates: Requirements 12.8**
         ///
         /// S3Target::parse should return Ok for valid URIs and Err for invalid ones,
@@ -456,7 +470,7 @@ mod tests {
             prop_assert_eq!(&target.bucket, &bucket);
         }
 
-        /// **Property 47: Library Async Result Handling (Invalid URI)**
+        /// Feature: s3rm-rs, Property 47: Library Async Result Handling (Invalid URI)
         /// **Validates: Requirements 12.8**
         ///
         /// S3Target::parse should return Err with descriptive messages for invalid URIs.
@@ -473,24 +487,29 @@ mod tests {
             }
         }
 
-        /// **Property 47: Library Async Result Handling (Error Exit Codes)**
+        /// Feature: s3rm-rs, Property 47: Library Async Result Handling (Error Exit Codes)
         /// **Validates: Requirements 12.8**
         ///
-        /// All S3rmError variants should map to a well-defined exit code.
+        /// All S3rmError variants should map to a well-defined exit code,
+        /// regardless of the message content or count values.
         #[test]
-        fn error_exit_codes_are_well_defined(_dummy in 0u8..1) {
+        fn error_exit_codes_are_well_defined(
+            msg in "[a-zA-Z0-9 ]{1,30}",
+            deleted in 0u64..10_000,
+            failed in 0u64..10_000,
+        ) {
             use crate::types::error::S3rmError;
 
             let errors = vec![
-                (S3rmError::AwsSdk("test".into()), 1),
-                (S3rmError::InvalidConfig("test".into()), 2),
-                (S3rmError::InvalidUri("test".into()), 2),
-                (S3rmError::InvalidRegex("test".into()), 2),
-                (S3rmError::LuaScript("test".into()), 1),
-                (S3rmError::Io("test".into()), 1),
+                (S3rmError::AwsSdk(msg.clone()), 1),
+                (S3rmError::InvalidConfig(msg.clone()), 2),
+                (S3rmError::InvalidUri(msg.clone()), 2),
+                (S3rmError::InvalidRegex(msg.clone()), 2),
+                (S3rmError::LuaScript(msg.clone()), 1),
+                (S3rmError::Io(msg.clone()), 1),
                 (S3rmError::Cancelled, 0),
-                (S3rmError::PartialFailure { deleted: 1, failed: 1 }, 3),
-                (S3rmError::Pipeline("test".into()), 1),
+                (S3rmError::PartialFailure { deleted, failed }, 3),
+                (S3rmError::Pipeline(msg), 1),
             ];
 
             for (error, expected_code) in errors {

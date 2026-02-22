@@ -407,7 +407,7 @@ pub(crate) mod tests {
 
 /// Property-based tests for ObjectLister parallel listing configuration.
 ///
-/// **Property 5: Parallel Listing Configuration**
+/// Feature: s3rm-rs, Property 5: Parallel Listing Configuration
 /// **Validates: Requirements 1.5, 1.6, 1.7**
 ///
 /// For any parallel listing configuration, the Object Lister should use the
@@ -467,7 +467,7 @@ mod property_tests {
         }
     }
 
-    // Property 5: Parallel Listing Configuration
+    // Feature: s3rm-rs, Property 5: Parallel Listing Configuration
     // Validates: Requirements 1.5, 1.6, 1.7
     //
     // For any valid parallel listing configuration, the config correctly

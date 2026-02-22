@@ -1,12 +1,12 @@
 // Property-based tests for AWS configuration support.
 //
-// **Property 34: AWS Credential Loading**
+// Feature: s3rm-rs, Property 34: AWS Credential Loading
 // For any AWS credential configuration (environment variables, credentials file,
 // IAM roles), the tool should successfully load credentials through standard
 // AWS SDK mechanisms.
 // **Validates: Requirements 8.4**
 //
-// **Property 35: Custom Endpoint Support**
+// Feature: s3rm-rs, Property 35: Custom Endpoint Support
 // For any custom endpoint specified, the tool should use that endpoint for
 // S3 API calls, enabling support for S3-compatible services.
 // **Validates: Requirements 8.6**
@@ -71,13 +71,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 34: AWS Credential Loading
+    // Feature: s3rm-rs, Property 34: AWS Credential Loading
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
 
-        /// **Property 34: AWS Credential Loading (access keys via CLI)**
+        /// Feature: s3rm-rs, Property 34: AWS Credential Loading (access keys via CLI)
         /// **Validates: Requirements 8.4**
         ///
         /// For any access key and secret key provided via CLI args, the parsed
@@ -138,7 +138,7 @@ mod tests {
             }
         }
 
-        /// **Property 34: AWS Credential Loading (profile via CLI)**
+        /// Feature: s3rm-rs, Property 34: AWS Credential Loading (profile via CLI)
         /// **Validates: Requirements 8.4**
         ///
         /// For any profile name provided via CLI args, the parsed Config should
@@ -177,7 +177,7 @@ mod tests {
             }
         }
 
-        /// **Property 34: AWS Credential Loading (environment default)**
+        /// Feature: s3rm-rs, Property 34: AWS Credential Loading (environment default)
         /// **Validates: Requirements 8.4**
         ///
         /// When no explicit credentials are provided via CLI, the Config should
@@ -213,7 +213,7 @@ mod tests {
             }
         }
 
-        /// **Property 34: AWS Credential Loading (client creation with access keys)**
+        /// Feature: s3rm-rs, Property 34: AWS Credential Loading (client creation with access keys)
         /// **Validates: Requirements 8.4**
         ///
         /// For any access key credentials, ClientConfig::create_client() should
@@ -276,13 +276,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 35: Custom Endpoint Support
+    // Feature: s3rm-rs, Property 35: Custom Endpoint Support
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
 
-        /// **Property 35: Custom Endpoint Support (CLI propagation)**
+        /// Feature: s3rm-rs, Property 35: Custom Endpoint Support (CLI propagation)
         /// **Validates: Requirements 8.6**
         ///
         /// For any custom endpoint URL provided via CLI args, the parsed Config
@@ -310,7 +310,7 @@ mod tests {
             );
         }
 
-        /// **Property 35: Custom Endpoint Support (force path style)**
+        /// Feature: s3rm-rs, Property 35: Custom Endpoint Support (force path style)
         /// **Validates: Requirements 8.6**
         ///
         /// For S3-compatible services, --target-force-path-style must be correctly
@@ -342,7 +342,7 @@ mod tests {
             );
         }
 
-        /// **Property 35: Custom Endpoint Support (client creation)**
+        /// Feature: s3rm-rs, Property 35: Custom Endpoint Support (client creation)
         /// **Validates: Requirements 8.6**
         ///
         /// For any custom endpoint URL, ClientConfig::create_client() should
@@ -410,7 +410,7 @@ mod tests {
             })?;
         }
 
-        /// **Property 35: Custom Endpoint Support (no endpoint default)**
+        /// Feature: s3rm-rs, Property 35: Custom Endpoint Support (no endpoint default)
         /// **Validates: Requirements 8.6**
         ///
         /// When no custom endpoint is specified, endpoint_url in ClientConfig

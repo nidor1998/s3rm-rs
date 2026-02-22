@@ -1,6 +1,6 @@
 // Property-based tests for rate limiting enforcement.
 //
-// **Property 36: Rate Limiting Enforcement**
+// Feature: s3rm-rs, Property 36: Rate Limiting Enforcement
 // For any rate limit configuration, the Rate Limiter should enforce that
 // the deletion rate does not exceed the specified maximum objects per second.
 // **Validates: Requirements 8.7**
@@ -126,13 +126,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 36: Rate Limiting Enforcement
+    // Feature: s3rm-rs, Property 36: Rate Limiting Enforcement
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
 
-        /// **Property 36: Rate Limiting Enforcement (CLI propagation)**
+        /// Feature: s3rm-rs, Property 36: Rate Limiting Enforcement (CLI propagation)
         /// **Validates: Requirements 8.7**
         ///
         /// For any valid rate limit value provided via CLI, the parsed Config
@@ -161,7 +161,7 @@ mod tests {
 
     }
 
-    /// **Property 36: Rate Limiting Enforcement (no rate limit default)**
+    /// Feature: s3rm-rs, Property 36: Rate Limiting Enforcement (no rate limit default)
     /// **Validates: Requirements 8.7**
     ///
     /// When no --rate-limit-objects is specified, rate_limit_objects in
@@ -182,7 +182,7 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
 
-        /// **Property 36: Rate Limiting Enforcement (minimum value rejection)**
+        /// Feature: s3rm-rs, Property 36: Rate Limiting Enforcement (minimum value rejection)
         /// **Validates: Requirements 8.7**
         ///
         /// For any rate limit value below the minimum (10), CLI parsing should
@@ -208,7 +208,7 @@ mod tests {
             );
         }
 
-        /// **Property 36: Rate Limiting Enforcement (rate limiter creation)**
+        /// Feature: s3rm-rs, Property 36: Rate Limiting Enforcement (rate limiter creation)
         /// **Validates: Requirements 8.7**
         ///
         /// For any valid rate limit value, create_storage should successfully
@@ -252,18 +252,20 @@ mod tests {
             })?;
         }
 
-        /// **Property 36: Rate Limiting Enforcement (storage creation without rate limit)**
+        /// Feature: s3rm-rs, Property 36: Rate Limiting Enforcement (storage creation without rate limit)
         /// **Validates: Requirements 8.7**
         ///
         /// When rate_limit_objects is None, create_storage should still succeed
-        /// and create a valid storage instance (no rate limiter applied).
+        /// and create a valid storage instance (no rate limiter applied),
+        /// regardless of worker_size.
         #[test]
         fn prop_rate_limit_none_storage_creation(
-            _dummy in 0u32..1u32,
+            worker_size in 1u16..64,
         ) {
             init_dummy_tracing_subscriber();
 
-            let config = make_test_config(None);
+            let mut config = make_test_config(None);
+            config.worker_size = worker_size;
 
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()

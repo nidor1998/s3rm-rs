@@ -1,6 +1,6 @@
 // Property-based tests for cross-platform path handling.
 //
-// **Property 37: Cross-Platform Path Handling**
+// Feature: s3rm-rs, Property 37: Cross-Platform Path Handling
 // For any file path provided on different operating systems, the tool should
 // correctly normalize and handle the path according to platform conventions.
 // **Validates: Requirements 9.6**
@@ -57,13 +57,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 37: Cross-Platform Path Handling — S3 URIs
+    // Feature: s3rm-rs, Property 37: Cross-Platform Path Handling — S3 URIs
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
 
-        /// **Property 37: Cross-Platform Path Handling (S3 URI uses forward slashes only)**
+        /// Feature: s3rm-rs, Property 37: Cross-Platform Path Handling (S3 URI uses forward slashes only)
         /// **Validates: Requirements 9.6**
         ///
         /// S3 URIs always use forward slashes regardless of platform. The parser
@@ -91,7 +91,7 @@ mod tests {
             }
         }
 
-        /// **Property 37: Cross-Platform Path Handling (S3 URI with backslash is literal)**
+        /// Feature: s3rm-rs, Property 37: Cross-Platform Path Handling (S3 URI with backslash is literal)
         /// **Validates: Requirements 9.6**
         ///
         /// If a user provides a backslash in the S3 URI, it should be treated as
@@ -115,7 +115,7 @@ mod tests {
             );
         }
 
-        /// **Property 37: Cross-Platform Path Handling (S3 URI parsing is platform-independent)**
+        /// Feature: s3rm-rs, Property 37: Cross-Platform Path Handling (S3 URI parsing is platform-independent)
         /// **Validates: Requirements 9.6**
         ///
         /// The same S3 URI should parse to the same bucket and prefix via
@@ -157,7 +157,7 @@ mod tests {
             );
         }
 
-        /// **Property 37: Cross-Platform Path Handling (backslashes in prefix preserved verbatim)**
+        /// Feature: s3rm-rs, Property 37: Cross-Platform Path Handling (backslashes in prefix preserved verbatim)
         /// **Validates: Requirements 9.6**
         ///
         /// When a prefix contains backslashes, they must be preserved as literal
@@ -190,13 +190,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 37: Cross-Platform Path Handling — AWS Config File Paths
+    // Feature: s3rm-rs, Property 37: Cross-Platform Path Handling — AWS Config File Paths
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
 
-        /// **Property 37: Cross-Platform Path Handling (AWS config path as PathBuf)**
+        /// Feature: s3rm-rs, Property 37: Cross-Platform Path Handling (AWS config path as PathBuf)
         /// **Validates: Requirements 9.6**
         ///
         /// AWS config file paths provided via CLI must be stored as PathBuf and
@@ -231,7 +231,7 @@ mod tests {
             );
         }
 
-        /// **Property 37: Cross-Platform Path Handling (AWS credentials path as PathBuf)**
+        /// Feature: s3rm-rs, Property 37: Cross-Platform Path Handling (AWS credentials path as PathBuf)
         /// **Validates: Requirements 9.6**
         ///
         /// AWS shared credentials file paths provided via CLI must be stored as
@@ -265,7 +265,7 @@ mod tests {
             );
         }
 
-        /// **Property 37: Cross-Platform Path Handling (both config paths round-trip)**
+        /// Feature: s3rm-rs, Property 37: Cross-Platform Path Handling (both config paths round-trip)
         /// **Validates: Requirements 9.6**
         ///
         /// When both --aws-config-file and --aws-shared-credentials-file are
@@ -297,7 +297,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 37: Cross-Platform Path Handling — Lua Script Path CLI Validation
+    // Feature: s3rm-rs, Property 37: Cross-Platform Path Handling — Lua Script Path CLI Validation
     // -----------------------------------------------------------------------
 
     #[test]

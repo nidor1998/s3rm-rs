@@ -1,21 +1,21 @@
 // Property-based tests for the logging and verbosity system.
 //
-// **Property 21: Verbosity Level Configuration**
+// Feature: s3rm-rs, Property 21: Verbosity Level Configuration
 // For any verbosity flag (-v, -vv, -vvv, -q), the tool should accept the flag
 // and configure the appropriate logging level.
 // **Validates: Requirements 4.1**
 //
-// **Property 22: JSON Logging Format**
+// Feature: s3rm-rs, Property 22: JSON Logging Format
 // For any log output with JSON logging enabled, all logs should be valid JSON objects.
 // **Validates: Requirements 4.7, 13.3**
 //
-// **Property 23: Color Output Control**
+// Feature: s3rm-rs, Property 23: Color Output Control
 // For any execution environment, color output should be enabled by default in TTY
 // environments, disabled in non-TTY environments unless explicitly enabled, and
 // disabled when the disable-color flag is set.
 // **Validates: Requirements 4.8, 4.9, 7.5, 13.7**
 //
-// **Property 24: Error Logging**
+// Feature: s3rm-rs, Property 24: Error Logging
 // For any deletion failure, the tool should log the error message and error code
 // at the current verbosity level.
 // **Validates: Requirements 4.10**
@@ -64,13 +64,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 21: Verbosity Level Configuration
+    // Feature: s3rm-rs, Property 21: Verbosity Level Configuration
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
 
-        /// **Property 21: Verbosity Level Configuration**
+        /// Feature: s3rm-rs, Property 21: Verbosity Level Configuration
         /// **Validates: Requirements 4.1**
         ///
         /// For any verbosity flag combination, the parsed Config should have the
@@ -104,7 +104,7 @@ mod tests {
             }
         }
 
-        /// **Property 21: Verbosity Level Configuration (dry-run floor)**
+        /// Feature: s3rm-rs, Property 21: Verbosity Level Configuration (dry-run floor)
         /// **Validates: Requirements 4.1, 3.1**
         ///
         /// When dry-run mode is enabled, the tracing level must be at least Info,
@@ -144,13 +144,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 22: JSON Logging Format
+    // Feature: s3rm-rs, Property 22: JSON Logging Format
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
 
-        /// **Property 22: JSON Logging Format**
+        /// Feature: s3rm-rs, Property 22: JSON Logging Format
         /// **Validates: Requirements 4.7, 13.3**
         ///
         /// When --json-tracing is enabled, the TracingConfig must have
@@ -184,7 +184,7 @@ mod tests {
             // effect since there's no tracing at all — this is acceptable.
         }
 
-        /// **Property 22: JSON Logging Format (default off)**
+        /// Feature: s3rm-rs, Property 22: JSON Logging Format (default off)
         /// **Validates: Requirements 4.7**
         ///
         /// Without --json-tracing, json_tracing must be false.
@@ -208,13 +208,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 23: Color Output Control
+    // Feature: s3rm-rs, Property 23: Color Output Control
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
 
-        /// **Property 23: Color Output Control**
+        /// Feature: s3rm-rs, Property 23: Color Output Control
         /// **Validates: Requirements 4.8, 4.9, 7.5, 13.7**
         ///
         /// When --disable-color-tracing is set, the TracingConfig must have
@@ -242,7 +242,7 @@ mod tests {
             }
         }
 
-        /// **Property 23: Color Output Control (disable-color flag with verbosity)**
+        /// Feature: s3rm-rs, Property 23: Color Output Control (disable-color flag with verbosity)
         /// **Validates: Requirements 4.8, 4.9**
         ///
         /// The --disable-color-tracing flag must propagate correctly through the
@@ -289,13 +289,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 24: Error Logging
+    // Feature: s3rm-rs, Property 24: Error Logging
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
 
-        /// **Property 24: Error Logging**
+        /// Feature: s3rm-rs, Property 24: Error Logging
         /// **Validates: Requirements 4.10**
         ///
         /// For any DeletionError variant, the Display impl produces a non-empty
@@ -309,7 +309,7 @@ mod tests {
             prop_assert!(!message.is_empty(), "Error message must not be empty");
         }
 
-        /// **Property 24: Error Logging (retryable classification)**
+        /// Feature: s3rm-rs, Property 24: Error Logging (retryable classification)
         /// **Validates: Requirements 4.10, 6.1**
         ///
         /// For any DeletionError, the is_retryable() method returns consistent
@@ -333,7 +333,7 @@ mod tests {
             }
         }
 
-        /// **Property 24: Error Logging (error code in display)**
+        /// Feature: s3rm-rs, Property 24: Error Logging (error code in display)
         /// **Validates: Requirements 4.10**
         ///
         /// For DeletionError variants that wrap a message (NetworkError,

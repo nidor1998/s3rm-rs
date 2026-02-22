@@ -1,11 +1,11 @@
 // Property-based tests for CI/CD integration features.
 //
-// **Property 48: Non-Interactive Environment Detection**
+// Feature: s3rm-rs, Property \1: \2
 // For any execution in a non-interactive environment (no TTY), the tool should
 // detect the absence of a TTY and disable interactive prompts.
 // **Validates: Requirements 13.1**
 //
-// **Property 49: Output Stream Separation**
+// Feature: s3rm-rs, Property \1: \2
 // For any log output, the tool should write all log messages (including errors)
 // to stdout via tracing-subscriber by default.
 // **Validates: Requirements 13.6**
@@ -114,7 +114,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 48: Non-Interactive Environment Detection
+    // Feature: s3rm-rs, Property 48: Non-Interactive Environment Detection
     // **Validates: Requirements 13.1**
     //
     // When the environment is non-interactive (no TTY), the SafetyChecker
@@ -225,7 +225,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 49: Output Stream Separation
+    // Feature: s3rm-rs, Property 49: Output Stream Separation
     // **Validates: Requirements 13.6**
     //
     // All log messages (including errors) are written to stdout via

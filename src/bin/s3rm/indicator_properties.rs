@@ -1,6 +1,6 @@
 // Property-based tests for the progress indicator.
 //
-// **Property 31: Progress Reporting**
+// Feature: s3rm-rs, Property 31: Progress Reporting
 // For any deletion operation in progress, the tool should display progress
 // information including objects deleted, unless quiet mode is enabled.
 // **Validates: Requirements 7.1, 7.3, 7.4**
@@ -47,7 +47,7 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
 
-        /// **Property 31: Progress Reporting**
+        /// Feature: s3rm-rs, Property 31: Progress Reporting
         /// **Validates: Requirements 7.1, 7.3, 7.4**
         ///
         /// The show_indicator task MUST complete (not hang) for any sequence
@@ -108,7 +108,7 @@ mod tests {
             });
         }
 
-        /// **Property 31: Progress Reporting (quiet mode)**
+        /// Feature: s3rm-rs, Property 31: Progress Reporting (quiet mode)
         /// **Validates: Requirements 7.4**
         ///
         /// When both show_progress and show_result are false (quiet mode),
@@ -159,7 +159,7 @@ mod tests {
             });
         }
 
-        /// **Property 31: Progress Reporting (dry-run)**
+        /// Feature: s3rm-rs, Property 31: Progress Reporting (dry-run)
         /// **Validates: Requirements 7.1**
         ///
         /// In dry-run mode, the indicator still completes correctly.

@@ -577,10 +577,19 @@ proptest! {
     })]
 
     #[test]
-    fn test_exit_code_mapping_cancelled(_dummy in 0..1i32) {
+    fn test_exit_code_mapping_cancelled(
+        deleted in 0u64..1000,
+        failed in 0u64..1000,
+    ) {
         use crate::types::error::S3rmError;
+        // Cancelled always returns exit code 0
         let err = anyhow::anyhow!(S3rmError::Cancelled);
         prop_assert_eq!(crate::types::error::exit_code_from_error(&err), 0);
+        prop_assert_eq!(S3rmError::Cancelled.exit_code(), 0);
+
+        // PartialFailure always returns exit code 3, regardless of counts
+        let partial_err = anyhow::anyhow!(S3rmError::PartialFailure { deleted, failed });
+        prop_assert_eq!(crate::types::error::exit_code_from_error(&partial_err), 3);
     }
 
     #[test]

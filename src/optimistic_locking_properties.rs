@@ -1,10 +1,10 @@
-// **Property 41: If-Match Conditional Deletion**
+// Feature: s3rm-rs, Property 41: If-Match Conditional Deletion
 // **Validates: Requirements 11.1, 11.2**
 //
-// **Property 42: If-Match Flag Propagation**
+// Feature: s3rm-rs, Property 42: If-Match Flag Propagation
 // **Validates: Requirements 11.3**
 //
-// **Property 43: Batch Conditional Deletion Handling**
+// Feature: s3rm-rs, Property 43: Batch Conditional Deletion Handling
 // **Validates: Requirements 11.4**
 
 #[cfg(test)]
@@ -57,13 +57,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 41: If-Match Conditional Deletion
+    // Feature: s3rm-rs, Property 41: If-Match Conditional Deletion
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
 
-        /// **Property 41: If-Match Conditional Deletion**
+        /// Feature: s3rm-rs, Property 41: If-Match Conditional Deletion
         /// **Validates: Requirements 11.1, 11.2**
         ///
         /// When if_match is enabled, SingleDeleter must pass the object's ETag
@@ -148,7 +148,7 @@ mod tests {
 
     }
 
-    /// **Property 41: If-Match Conditional Deletion (PreconditionFailed is non-retryable)**
+    /// Feature: s3rm-rs, Property 41: If-Match Conditional Deletion (PreconditionFailed is non-retryable)
     /// **Validates: Requirements 11.2**
     ///
     /// PreconditionFailed errors (ETag mismatch) are never retryable — the
@@ -166,13 +166,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 42: If-Match Flag Propagation
+    // Feature: s3rm-rs, Property 42: If-Match Flag Propagation
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
 
-        /// **Property 42: If-Match Flag Propagation**
+        /// Feature: s3rm-rs, Property 42: If-Match Flag Propagation
         /// **Validates: Requirements 11.3**
         ///
         /// The --if-match CLI flag is a boolean toggle. When present, Config.if_match
@@ -199,7 +199,7 @@ mod tests {
             );
         }
 
-        /// **Property 42: If-Match Flag Propagation (default)**
+        /// Feature: s3rm-rs, Property 42: If-Match Flag Propagation (default)
         /// **Validates: Requirements 11.3**
         ///
         /// When --if-match is omitted, Config.if_match defaults to false
@@ -221,13 +221,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 43: Batch Conditional Deletion Handling
+    // Feature: s3rm-rs, Property 43: Batch Conditional Deletion Handling
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
 
-        /// **Property 43: Batch Conditional Deletion Handling**
+        /// Feature: s3rm-rs, Property 43: Batch Conditional Deletion Handling
         /// **Validates: Requirements 11.4**
         ///
         /// When if_match is enabled, BatchDeleter must include per-object ETags
@@ -323,7 +323,7 @@ mod tests {
             })?;
         }
 
-        /// **Property 43: Batch Conditional Deletion Handling (batch size respected)**
+        /// Feature: s3rm-rs, Property 43: Batch Conditional Deletion Handling (batch size respected)
         /// **Validates: Requirements 11.4**
         ///
         /// When if_match is enabled and the batch contains more objects than

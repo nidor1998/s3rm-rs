@@ -234,7 +234,7 @@ fn config_from_minimal_args() {
     assert!(!config.dry_run);
     assert!(!config.force);
     assert_eq!(config.batch_size, 200);
-    assert_eq!(config.worker_size, 32);
+    assert_eq!(config.worker_size, 24);
 }
 
 #[test]

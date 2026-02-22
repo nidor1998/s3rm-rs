@@ -820,7 +820,7 @@ pub struct CLIArgs {
     pub force: bool,         // -f / --force
     pub show_no_progress: bool,
     pub delete_all_versions: bool,
-    pub batch_size: u16,     // 1-1000 (default 1000); value_parser range enforced
+    pub batch_size: u16,     // 1-1000 (default 200); value_parser range enforced
                              // If Express One Zone and !allow_parallel_listings_in_express_one_zone, overridden to 1
     pub max_delete: Option<u64>,  // value_parser range(1..)
 

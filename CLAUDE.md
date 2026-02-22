@@ -4,7 +4,7 @@ This document provides instructions for working with the s3rm-rs spec using Clau
 
 ## Overview
 
-s3rm-rs is a high-performance S3 object deletion tool built in Rust. The project follows a spec-driven development approach with:
+s3rm-rs is an S3 object deletion tool built in Rust. The project follows a spec-driven development approach with:
 - Requirements document defining user stories and acceptance criteria
 - Design document detailing architecture and components
 - Tasks document with implementation checklist

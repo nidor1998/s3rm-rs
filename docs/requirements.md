@@ -2,9 +2,9 @@
 
 ## Introduction
 
-s3rm-rs is an extremely fast Amazon S3 object deletion tool designed for bulk deletion operations. Built on the architectural patterns of s3sync, s3rm-rs leverages Rust's performance and the AWS SDK for Rust to provide high-throughput, reliable deletion of S3 objects with comprehensive safety features and versioning support.
+s3rm-rs is an Amazon S3 object deletion tool designed for bulk deletion operations. Built on the architectural patterns of s3sync, s3rm-rs leverages Rust's performance and the AWS SDK for Rust to provide reliable deletion of S3 objects with comprehensive safety features and versioning support.
 
-The tool targets scenarios requiring deletion of thousands to millions of objects, such as data lifecycle management, bucket cleanup, and automated data retention policies. By utilizing S3's batch deletion API and parallel processing, s3rm-rs aims to achieve deletion rates of approximately 25,000 objects per second.
+The tool targets scenarios requiring deletion of thousands to millions of objects, such as data lifecycle management, bucket cleanup, and automated data retention policies. By utilizing S3's batch deletion API and parallel processing, s3rm-rs aims to achieve deletion rates of approximately 3,500 objects per second, which is the practical limit imposed by Amazon S3. The default configuration (worker-size 24, batch-size 200) is tuned to match this S3 throughput limit.
 
 s3rm-rs is architected as a library-first design, where all core functionality is implemented in the s3rm library. The command-line interface is built on top of this library, ensuring that all features available in the CLI are also accessible programmatically.
 
@@ -51,7 +51,7 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 7. THE S3rm_Tool SHALL support Max_Parallel_Listing_Max_Depth option to control the maximum depth for parallel listing operations
 8. THE Deletion_Engine SHALL minimize memory usage by streaming object lists rather than loading all objects into memory
 9. WHEN batch operations fail, THE Batch_Deleter SHALL extract successfully deleted objects and retry only the failed ones
-10. THE Deletion_Engine SHALL target a performance goal of approximately 25,000 objects per second under optimal conditions
+10. THE Deletion_Engine SHALL target a performance goal of approximately 3,500 objects per second, which is the practical limit imposed by Amazon S3
 
 ### Requirement 2: Flexible Filtering and Selection
 

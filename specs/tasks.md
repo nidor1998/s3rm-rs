@@ -8,7 +8,7 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-20 complete. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration property tests, rate limiting property tests, and cross-platform support established.
+**Current Achievement**: Tasks 1-21 complete (plus Tasks 24-25). Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration property tests, rate limiting property tests, cross-platform support, and CI/CD integration established.
 
 ## Current Status
 
@@ -33,6 +33,7 @@ Phase 16: Logging and Verbosity (Task 17)
 Phase 17: AWS Configuration Support (Task 18)
 Phase 18: Rate Limiting (Task 19)
 Phase 19: Cross-Platform Support (Task 20)
+Phase 20: CI/CD Integration (Task 21)
 
 ## Tasks
 
@@ -648,7 +649,7 @@ Phase 19: Cross-Platform Support (Task 20)
     - Implemented in src/cross_platform_properties.rs (Task 20)
 
 
-- [-] 21. Implement CI/CD Integration Features
+- [x] 21. Implement CI/CD Integration Features
   - [x] 21.1 Implement non-interactive environment detection
     - SafetyChecker uses std::io::IsTerminal (not atty) for TTY detection (Task 9)
     - Prompts skipped in non-TTY environments and when JSON logging is enabled
@@ -659,13 +660,15 @@ Phase 19: Cross-Platform Support (Task 20)
     - This is the intended behavior per Requirement 13.6
     - _Requirements: 13.6_
 
-  - [ ] 21.3 Write property test for non-interactive environment detection
+  - [x] 21.3 Write property test for non-interactive environment detection
     - **Property 48: Non-Interactive Environment Detection**
     - **Validates: Requirements 13.1**
+    - Implemented in src/cicd_properties.rs (Task 21)
 
-  - [ ] 21.4 Write property test for output stream separation
+  - [x] 21.4 Write property test for output stream separation
     - **Property 49: Output Stream Separation**
     - **Validates: Requirements 13.6**
+    - Implemented in src/cicd_properties.rs (Task 21)
 
 
 - [ ] 22. Implement Additional Property Tests
@@ -751,7 +754,7 @@ Phase 19: Cross-Platform Support (Task 20)
   - _Requirements: All requirements (comprehensive coverage)_
 
 
-**Implemented Property Tests**: Properties 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47 (42 of 49).
+**Implemented Property Tests**: Properties 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49 (44 of 49). Missing: 4, 12, 13, 19, 20.
 
 - [ ] 27. Documentation and Examples
   - [ ] 27.1 Write README.md
@@ -928,9 +931,9 @@ Phase 19: Cross-Platform Support (Task 20)
 
 ## Implementation Status Summary
 
-Tasks 1-19 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init_build.
+Tasks 1-21 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init_build.
 
-**Already implemented across Tasks 1-18** (infrastructure available for remaining tasks):
+**Already implemented across Tasks 1-21** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)
 - All core data types: S3Object, DeletionStats, DeletionError, DeletionEvent, S3Target (Task 3)
 - Storage trait, S3 storage with versioning, conditional deletion, rate limiting (Task 4)
@@ -948,12 +951,16 @@ Tasks 1-19 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init
 - Versioning property tests: Properties 25-28 covering lister dispatch, deletion stage, version info (Task 14)
 - Retry/error handling property tests: Properties 29-30 covering retry config, error classification, failure tracking (Task 15)
 - Optimistic locking property tests: Properties 41-43 covering If-Match flag, SingleDeleter/BatchDeleter ETags (Task 16)
+- Logging/verbosity property tests: Properties 21-24 covering verbosity levels, JSON format, color control, error logging (Task 17)
 - AWS configuration property tests: Properties 34-35 covering credential loading, custom endpoint support (Task 18)
+- Rate limiting property tests: Property 36 covering rate limit CLI propagation and enforcement (Task 19)
+- Cross-platform property tests: Property 37 covering S3 URI handling, path normalization (Task 20)
+- CI/CD integration property tests: Properties 48-49 covering non-interactive detection, output stream separation (Task 21)
 - CI pipeline for all target platforms (Task 1)
-- 40 property tests implemented (Properties 1-3, 5-11, 14-18, 21-35, 38-47)
+- 44 property tests implemented (Properties 1-3, 5-11, 14-18, 21-37, 38-49)
 - Comprehensive unit tests for all components (Task 24, all sub-tasks done in Tasks 3-13)
 
-**Sub-tasks already completed in later task groups** (done during Tasks 1-16):
+**Sub-tasks already completed in later task groups** (done during Tasks 1-21):
 - 14.1: Version handling in ObjectDeleter (done in Tasks 3, 5, 8)
 - 14.2: Version display in dry-run mode — not needed; each version is a separate object in the pipeline
 - 15.1: Retry policy integration (done in Task 2)
@@ -968,11 +975,12 @@ Tasks 1-19 complete (+ Tasks 24, 25 with all sub-tasks done). All merged to init
 - 20.2-20.3: Terminal detection and cross-platform builds (done in Tasks 1, 9)
 - 21.1: Non-interactive environment detection (done in Task 9)
 - 21.2: Output stream separation — all logs to stdout by default via tracing-subscriber (done in Tasks 2, 13)
+- 21.3-21.4: CI/CD integration property tests (done in Task 21)
 - 24.1-24.6: All unit tests (done in Tasks 3-13)
 - 25.1-25.2: Property-based testing infrastructure (done in Tasks 3-9)
 
 **Remaining work**:
-- Tasks 20-22: Remaining property tests (8 of 49 properties still need tests: 4, 12, 13, 19, 20, 37, 48, 49)
+- Task 22: Remaining property tests (5 of 49 properties still need tests: 4, 12, 13, 19, 20)
 - Task 23: Checkpoint review
 - Task 26: Verify all property tests
 - Tasks 27-31: Documentation, quality, E2E testing, release

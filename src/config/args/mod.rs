@@ -146,11 +146,17 @@ pub struct CLIArgs {
     pub filter_exclude_regex: Option<String>,
 
     /// Delete only objects whose content type matches this regex
-    #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filtering")]
+    #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filtering",
+        long_help = r#"Delete only objects whose content type matches this regular expression.
+This filter is applied after key, size, and time filters.
+May require an extra API call per object to retrieve content type."#)]
     pub filter_include_content_type_regex: Option<String>,
 
     /// Skip objects whose content type matches this regex
-    #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filtering")]
+    #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filtering",
+        long_help = r#"Skip objects whose content type matches this regular expression.
+This filter is applied after key, size, and time filters.
+May require an extra API call per object to retrieve content type."#)]
     pub filter_exclude_content_type_regex: Option<String>,
 
     /// Delete only objects whose user-defined metadata matches this regex

@@ -315,6 +315,40 @@ fn parse_rejects_rate_limit_objects_below_minimum() {
 }
 
 #[test]
+fn config_rejects_rate_limit_below_batch_size() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--rate-limit-objects",
+        "50",
+        "--batch-size",
+        "200",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let result = Config::try_from(cli);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .contains("--rate-limit-objects (50) must be greater than or equal to --batch-size (200)")
+    );
+}
+
+#[test]
+fn config_accepts_rate_limit_equal_to_batch_size() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--rate-limit-objects",
+        "200",
+        "--batch-size",
+        "200",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    assert!(Config::try_from(cli).is_ok());
+}
+
+#[test]
 fn parse_rejects_max_parallel_listings_zero() {
     let args = vec!["s3rm", "s3://bucket/", "--max-parallel-listings", "0"];
     assert!(parse_from_args(args).is_err());

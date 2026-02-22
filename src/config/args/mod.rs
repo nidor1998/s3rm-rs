@@ -668,6 +668,16 @@ impl TryFrom<CLIArgs> for Config {
             batch_size = 1;
         }
 
+        // Validate rate limit vs batch size
+        if let Some(rate_limit) = args.rate_limit_objects {
+            if (rate_limit as u16) < batch_size {
+                return Err(format!(
+                    "--rate-limit-objects ({}) must be greater than or equal to --batch-size ({}).",
+                    rate_limit, batch_size,
+                ));
+            }
+        }
+
         // Handle Lua script loading
         let filter_callback_lua_script: Option<String>;
         let event_callback_lua_script: Option<String>;

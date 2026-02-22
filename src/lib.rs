@@ -201,6 +201,9 @@ mod rate_limiting_properties;
 mod cross_platform_properties;
 
 #[cfg(test)]
+mod cicd_properties;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

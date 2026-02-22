@@ -75,7 +75,15 @@
       "mcp__serena__check_onboarding_performed",
       "mcp__github__search_issues",
       "Bash(gh pr:*)",
-      "Bash(cargo add:*)"
+      "Bash(cargo add:*)",
+      "mcp__serena__find_referencing_symbols",
+      "mcp__serena__find_file",
+      "Bash(rustup component:*)",
+      "Bash(head:*)",
+      "mcp__serena__initial_instructions",
+      "mcp__serena__onboarding",
+      "mcp__serena__write_memory",
+      "Bash(git:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

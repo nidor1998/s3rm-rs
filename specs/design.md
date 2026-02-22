@@ -487,10 +487,9 @@ pub struct FailedKey {
 }
 
 #[async_trait]
-pub trait Deleter {
+pub trait Deleter: Send + Sync {
     async fn delete(&self, objects: &[S3Object], config: &Config) -> Result<DeleteResult>;
 }
-// Note: Send + Sync bounds are applied at the usage site: Box<dyn Deleter + Send + Sync>
 ```
 
 **Adaptation from s3sync**: The ObjectDeleter is adapted from s3sync's ObjectSyncer. Following s3sync's pattern, content-type, metadata, and tagging filters are implemented within the worker (not as separate stages) because they require API calls to fetch object attributes.
@@ -1893,7 +1892,7 @@ async fn test_basic_deletion_with_auto_cleanup() {
     pipeline.run().await;
     
     // Verify results
-    let stats = pipeline.get_deletion_stats().await;
+    let stats = pipeline.get_deletion_stats();
     println!("Deleted {} objects", stats.stats_deleted_objects);
     
     // Automatic cleanup on drop
@@ -2076,6 +2075,7 @@ tokio-test = "0.4"
 once_cell = "1.21.3"
 uuid = { version = "1.20.0", features = ["v4"] }
 nix = { version = "0.31.1", features = ["process", "signal"] }
+tempfile = "3.25.0"
 ```
 
 ### File Structure
@@ -2144,6 +2144,12 @@ s3rm-rs/
 │   │   └── lua_properties.rs  # Property tests for Lua integration
 │   ├── versioning_properties.rs  # Property tests for versioning support (Properties 25-28)
 │   ├── retry_properties.rs     # Property tests for retry and error handling (Properties 29-30)
+│   ├── optimistic_locking_properties.rs  # Property tests for If-Match support (Properties 41-43)
+│   ├── logging_properties.rs   # Property tests for logging/verbosity (Properties 21-24)
+│   ├── aws_config_properties.rs # Property tests for AWS config (Properties 34-35)
+│   ├── rate_limiting_properties.rs # Property tests for rate limiting (Property 36)
+│   ├── cross_platform_properties.rs # Property tests for cross-platform paths (Property 37)
+│   ├── cicd_properties.rs      # Property tests for CI/CD integration (Properties 48-49)
 │   └── bin/
 │       └── s3rm/
 │           ├── main.rs            # CLI binary entry point (fully implemented)
@@ -2158,7 +2164,7 @@ s3rm-rs/
 └── README.md
 ```
 
-**Notes**: Tests are co-located with source code (e.g., `deleter/tests.rs`, `filters/filter_properties.rs`, `lua/lua_properties.rs`, `safety/safety_properties.rs`, `callback/event_callback_properties.rs`, `bin/s3rm/indicator_properties.rs`, `versioning_properties.rs`, `retry_properties.rs`). Property tests and unit tests share the same test files. All core components are fully implemented including pipeline orchestrator, terminator, progress indicator, CLI binary, versioning support, and retry/error handling.
+**Notes**: Tests are co-located with source code (e.g., `deleter/tests.rs`, `filters/filter_properties.rs`, `lua/lua_properties.rs`, `safety/safety_properties.rs`, `callback/event_callback_properties.rs`, `bin/s3rm/indicator_properties.rs`, `versioning_properties.rs`, `retry_properties.rs`, `optimistic_locking_properties.rs`, `logging_properties.rs`, `aws_config_properties.rs`, `rate_limiting_properties.rs`, `cross_platform_properties.rs`, `cicd_properties.rs`). Property tests and unit tests share the same test files. All core components are fully implemented including pipeline orchestrator, terminator, progress indicator, CLI binary, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, and CI/CD integration.
 
 ### Development Phases
 

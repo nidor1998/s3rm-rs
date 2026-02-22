@@ -4,7 +4,7 @@
 ![MSRV](https://img.shields.io/badge/msrv-1.91.0-red)
 ![CI](https://github.com/nidor1998/s3rm-rs/actions/workflows/ci.yml/badge.svg?branch=main)
 
-## Extremely fast Amazon S3 object deletion tool
+## Fast Amazon S3 object deletion tool
 
 Delete thousands to millions of S3 objects at speeds approaching Amazon S3's own throughput limit of **~3,500 objects/second**. Built in Rust for maximum performance, safety, and reliability.
 
@@ -98,7 +98,7 @@ It serves as a purpose-built alternative to `aws s3 rm --recursive`, offering dr
 
 Whether you're cleaning up terabytes of old logs, enforcing data retention policies, or purging versioned buckets, s3rm handles it with a streaming pipeline that keeps memory usage low and throughput high.
 
-This tool is designed solely for S3 object deletion — and does it extremely well.
+This tool is designed solely for S3 object deletion — and does it well.
 
 ### Why s3rm?
 

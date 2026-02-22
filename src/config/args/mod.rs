@@ -85,7 +85,7 @@ fn parse_human_bytes(s: &str) -> Result<usize, String> {
 // CLIArgs (clap-derived argument struct)
 // ---------------------------------------------------------------------------
 
-/// s3rm - Extremely fast Amazon S3 object deletion tool.
+/// s3rm - Fast Amazon S3 object deletion tool.
 ///
 /// Delete objects from S3 buckets with powerful filtering,
 /// safety features, and versioning support.

@@ -18,7 +18,7 @@ pub mod ui_config;
 
 const EXIT_CODE_WARNING: i32 = 3;
 
-/// s3rm - Extremely fast Amazon S3 object deletion tool.
+/// s3rm - Fast Amazon S3 object deletion tool.
 ///
 /// This binary is a thin wrapper over the s3rm-rs library.
 /// All core functionality is implemented in the library crate.

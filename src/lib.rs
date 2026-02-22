@@ -1,7 +1,7 @@
 /*!
 # s3rm-rs
 
-s3rm-rs is an extremely fast Amazon S3 object deletion tool.
+s3rm-rs is a fast Amazon S3 object deletion tool.
 It can be used to delete objects from S3 buckets with powerful filtering,
 safety features, and versioning support.
 

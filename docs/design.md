@@ -796,6 +796,7 @@ impl TryFrom<CLIArgs> for Config {
         // Validate and build configuration
         // Apply defaults
         // Handle Express One Zone batch_size override (with warning)
+        // Validate rate_limit_objects >= batch_size
         // Load and register Lua callbacks
         // Reuse s3sync's validation logic
     }
@@ -848,7 +849,7 @@ pub struct CLIArgs {
 
     // Verbosity (clap-verbosity-flag)
     pub verbosity: Verbosity<WarnLevel>,  // -qq silent, -q error, default warn, -v info, -vv debug, -vvv trace
-    pub json_tracing: bool,
+    pub json_tracing: bool,               // requires --force (incompatible with interactive prompts)
     pub aws_sdk_tracing: bool,
     pub span_events_tracing: bool,
     pub disable_color_tracing: bool,
@@ -1044,6 +1045,7 @@ impl PromptHandler for StdioPromptHandler {
         } else {
             println!("\nWARNING: All objects matching prefix {}  will be deleted.", target_display);
         }
+        println!("Use --dry-run to preview which objects would be deleted without actually removing them.\n");
         print!("Type 'yes' to confirm deletion: ");
         std::io::stdout().flush()?;
         let mut input = String::new();

@@ -21,13 +21,23 @@
 │   └── bin/s3rm/           # CLI binary entry point
 ├── Cargo.toml              # Package manifest and dependencies
 ├── Cargo.lock              # Dependency lock file
+├── build.rs                # Build script (shadow-rs build info generation)
 ├── deny.toml               # cargo-deny config (license, advisory, ban checks)
+├── Dockerfile              # Multi-stage Docker build (debian:trixie)
 ├── LICENSE                  # Apache License 2.0
 ├── README.md               # Project overview, CLI reference, usage examples
+├── CONTRIBUTING.md         # Contribution guidelines (AI-only project notice)
+├── SECURITY.md             # Security policy
+├── CLAUDE.md               # Claude Code integration guide
+├── examples/               # Usage examples
+│   ├── filter.lua          # Example Lua filter callback script
+│   ├── event.lua           # Example Lua event callback script
+│   └── library_usage.rs    # Example Rust library usage
 ├── docs/                   # Permanent documentation (requirements, design, product, tech, structure)
 ├── steering/
 │   └── init_build/         # Active build phase (tasks, phase README)
 ├── .github/
+│   ├── pull_request_template.md  # PR template (AI-only project notice)
 │   └── workflows/
 │       └── ci.yml          # CI pipeline for multi-platform builds
 └── .git/                   # Git repository

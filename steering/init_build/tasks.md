@@ -8,7 +8,7 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-25 complete. Task 23 checkpoint in progress (CLI polish, spec audit, docs, infrastructure). Task 26 complete (all 49 properties verified). Task 27 partially complete (27.1, 27.2, 27.3, 27.5 done). Task 28 partially complete (28.1, 28.2, 28.4 done). All 49 correctness properties have property-based tests (83 proptest functions, 431 total lib tests). Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, CI/CD integration, additional property tests, comprehensive unit tests, and property testing infrastructure all established. Rustdoc documentation, examples, CONTRIBUTING.md, SECURITY.md, Dockerfile, build info (shadow-rs), and PR template added. Code quality checks (clippy, rustfmt, cargo-deny) all pass.
+**Current Achievement**: Tasks 1-26 complete. Task 23 checkpoint complete (CLI polish, spec audit, docs, infrastructure). Task 27 partially complete (27.1, 27.2, 27.3, 27.5 done). Task 28 partially complete (28.1, 28.2, 28.4 done). All 49 correctness properties have property-based tests (83 proptest functions, 431 total lib tests). Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, CI/CD integration, additional property tests, comprehensive unit tests, and property testing infrastructure all established. Rustdoc documentation, examples, CONTRIBUTING.md, SECURITY.md, Dockerfile, build info (shadow-rs), and PR template added. Code quality checks (clippy, rustfmt, cargo-deny) all pass.
 
 ## Current Status
 
@@ -36,6 +36,7 @@ Phase 19: Cross-Platform Support (Task 20)
 Phase 20: CI/CD Integration (Task 21)
 Phase 21: Additional Property Tests (Task 22)
 Phase 22: Verify All Property Tests (Task 26)
+Phase 23: Checkpoint Review (Task 23)
 
 ## Tasks
 
@@ -687,7 +688,7 @@ Phase 22: Verify All Property Tests (Task 26)
     - **Validates: Requirements 2.10**
 
 
-- [-] 23. Checkpoint - Review Current Implementation
+- [x] 23. Checkpoint - Review Current Implementation
   - [x] Review all completed implementation tasks
   - [x] Verify all core deletion functionality is working
   - [x] Verify all filter stages are connected correctly
@@ -697,7 +698,7 @@ Phase 22: Verify All Property Tests (Task 26)
   - [x] CLI polish: unified command examples in README, content-type filter help, --json-tracing requires -f help, --batch-size moved to Performance, dry-run hint in confirmation prompt, last_modified in deletion logs, rate-limit-objects vs batch-size validation
   - [x] Infrastructure: build info (shadow-rs), Dockerfile, SECURITY.md, PR template, CONTRIBUTING.md AI notice
   - [x] Spec audit: updated requirements.md, design.md, structure.md to match implementation
-  - Ask the user if questions arise
+  - [x] Document exit code 101 for abnormal termination
 
 
 - [x] 24. Write Comprehensive Unit Tests
@@ -933,7 +934,7 @@ Phase 22: Verify All Property Tests (Task 26)
 
 ## Implementation Status Summary
 
-Tasks 1-26 complete. Task 23 checkpoint in progress (CLI polish, spec audit, docs, infrastructure). Task 27 partially complete (27.1, 27.2, 27.3, 27.5 done). Task 28 partially complete (28.1 clippy, 28.2 rustfmt, 28.4 cargo-deny all pass). All merged to init_build.
+Tasks 1-26 complete (including Task 23 checkpoint). Task 27 partially complete (27.1, 27.2, 27.3, 27.5 done). Task 28 partially complete (28.1 clippy, 28.2 rustfmt, 28.4 cargo-deny all pass). All merged to init_build.
 
 **Already implemented across Tasks 1-25** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)
@@ -989,7 +990,7 @@ Tasks 1-26 complete. Task 23 checkpoint in progress (CLI polish, spec audit, doc
 - 27.5: CONTRIBUTING.md (done in Task 23, commit c9bedf8)
 
 **Remaining work**:
-- Task 23: Checkpoint review (in progress — CLI polish and spec audit done, awaiting user review)
+- Task 23: Checkpoint review — complete
 - Task 27: Documentation and Examples (27.1, 27.2, 27.3, 27.5 done; 27.4 CHANGELOG.md remains)
 - Task 28: Code quality (28.1 clippy done, 28.2 rustfmt done, 28.4 cargo-deny done; 28.3 coverage and 28.5 benchmarks remain)
 - Tasks 29-31: E2E testing, final checkpoint, release

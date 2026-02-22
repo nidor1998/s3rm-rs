@@ -1116,4 +1116,46 @@ mod tests {
         let received = stats_receiver.recv().await.unwrap();
         assert!(matches!(received, DeletionStatistics::DeleteBytes(512)));
     }
+
+    #[test]
+    fn extract_sdk_error_details_service_error() {
+        use aws_sdk_s3::operation::head_object::HeadObjectError;
+        use aws_smithy_types::body::SdkBody;
+
+        // Build a service error with code and message
+        let service_err = HeadObjectError::NotFound(
+            aws_sdk_s3::types::error::NotFound::builder()
+                .message("Not Found")
+                .build(),
+        );
+
+        let raw_response = aws_smithy_runtime_api::http::Response::new(
+            aws_smithy_runtime_api::http::StatusCode::try_from(404).unwrap(),
+            SdkBody::from(""),
+        );
+
+        let sdk_error = SdkError::service_error(service_err, raw_response);
+        let (code, message) = extract_sdk_error_details(&sdk_error);
+
+        // NotFound should have a code from the metadata
+        assert_ne!(code, "N/A", "service errors should extract a code");
+        assert!(!message.is_empty(), "service errors should have a message");
+    }
+
+    #[test]
+    fn extract_sdk_error_details_non_service_error() {
+        use aws_sdk_s3::operation::head_object::HeadObjectError;
+        use aws_smithy_types::body::SdkBody;
+
+        // Build a timeout error (not a service error)
+        let sdk_error: SdkError<HeadObjectError, aws_smithy_runtime_api::http::Response<SdkBody>> =
+            SdkError::timeout_error("connection timed out");
+        let (code, message) = extract_sdk_error_details(&sdk_error);
+
+        assert_eq!(code, "N/A", "non-service errors should return N/A code");
+        assert!(
+            !message.is_empty(),
+            "non-service errors should have a message from Display"
+        );
+    }
 }

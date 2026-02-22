@@ -174,16 +174,22 @@ impl StorageTrait for MockStorage {
 
         for ident in &objects {
             let key = ident.key();
+            let version_id = ident.version_id();
             if let Some(error_code) = batch_error_keys.get(key) {
-                builder = builder.errors(
-                    aws_sdk_s3::types::Error::builder()
-                        .key(key)
-                        .code(error_code.as_str())
-                        .message(format!("{} error", error_code))
-                        .build(),
-                );
+                let mut err_builder = aws_sdk_s3::types::Error::builder()
+                    .key(key)
+                    .code(error_code.as_str())
+                    .message(format!("{} error", error_code));
+                if let Some(vid) = version_id {
+                    err_builder = err_builder.version_id(vid);
+                }
+                builder = builder.errors(err_builder.build());
             } else {
-                builder = builder.deleted(DeletedObject::builder().key(key).build());
+                let mut del_builder = DeletedObject::builder().key(key);
+                if let Some(vid) = version_id {
+                    del_builder = del_builder.version_id(vid);
+                }
+                builder = builder.deleted(del_builder.build());
             }
         }
 
@@ -1865,4 +1871,158 @@ async fn batch_deleter_retryable_fallback_with_if_match() {
     assert_eq!(single_calls.len(), 1);
     assert_eq!(single_calls[0].key, "key/0");
     assert_eq!(single_calls[0].if_match, Some("\"abc123\"".to_string()));
+}
+
+#[tokio::test]
+async fn batch_deleter_retryable_fallback_passes_version_id() {
+    // Verify version_id is passed to single delete during fallback.
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Configure "key/0" to fail with retryable error
+    mock.batch_error_keys
+        .lock()
+        .unwrap()
+        .insert("key/0".to_string(), "RequestTimeout".to_string());
+
+    let deleter = BatchDeleter::new(boxed);
+    let config = make_test_config();
+
+    let objects = vec![make_versioned_s3_object("key/0", "ver-abc", 100)];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    assert_eq!(result.deleted.len(), 1);
+    assert_eq!(result.failed.len(), 0);
+
+    // Verify single delete was called with the correct version_id
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(single_calls.len(), 1);
+    assert_eq!(single_calls[0].key, "key/0");
+    assert_eq!(single_calls[0].version_id, Some("ver-abc".to_string()));
+}
+
+#[tokio::test]
+async fn batch_deleter_retryable_fallback_succeeds_on_second_attempt() {
+    // Single delete fails on first attempt, succeeds on second.
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let mock = MockStorage::new(stats_sender.clone());
+
+    // Configure "key/0" to fail in batch with retryable error
+    mock.batch_error_keys
+        .lock()
+        .unwrap()
+        .insert("key/0".to_string(), "InternalError".to_string());
+
+    // Configure single delete to fail for "key/0" — we'll remove it after first call
+    // by using a counter-based approach via the call tracking
+    let fail_counter = Arc::new(AtomicU64::new(0));
+    let fail_counter_clone = fail_counter.clone();
+
+    // Custom mock that fails once then succeeds
+    #[derive(Clone)]
+    struct FailOnceMock {
+        inner: MockStorage,
+        fail_counter: Arc<AtomicU64>,
+    }
+
+    #[async_trait]
+    impl StorageTrait for FailOnceMock {
+        fn is_express_onezone_storage(&self) -> bool {
+            self.inner.is_express_onezone_storage()
+        }
+        async fn list_objects(&self, sender: &Sender<S3Object>, max_keys: i32) -> Result<()> {
+            self.inner.list_objects(sender, max_keys).await
+        }
+        async fn list_object_versions(
+            &self,
+            sender: &Sender<S3Object>,
+            max_keys: i32,
+        ) -> Result<()> {
+            self.inner.list_object_versions(sender, max_keys).await
+        }
+        async fn head_object(
+            &self,
+            key: &str,
+            version_id: Option<String>,
+        ) -> Result<HeadObjectOutput> {
+            self.inner.head_object(key, version_id).await
+        }
+        async fn get_object_tagging(
+            &self,
+            key: &str,
+            version_id: Option<String>,
+        ) -> Result<GetObjectTaggingOutput> {
+            self.inner.get_object_tagging(key, version_id).await
+        }
+        async fn delete_object(
+            &self,
+            key: &str,
+            version_id: Option<String>,
+            if_match: Option<String>,
+        ) -> Result<DeleteObjectOutput> {
+            // Track the call
+            self.inner
+                .delete_object_calls
+                .lock()
+                .unwrap()
+                .push(DeleteObjectCall {
+                    key: key.to_string(),
+                    version_id: version_id.clone(),
+                    if_match: if_match.clone(),
+                });
+
+            let count = self.fail_counter.fetch_add(1, Ordering::SeqCst);
+            if count == 0 {
+                // Fail on first attempt
+                Err(anyhow::anyhow!("transient error"))
+            } else {
+                // Succeed on subsequent attempts
+                Ok(DeleteObjectOutput::builder().build())
+            }
+        }
+        async fn delete_objects(
+            &self,
+            objects: Vec<ObjectIdentifier>,
+        ) -> Result<DeleteObjectsOutput> {
+            self.inner.delete_objects(objects).await
+        }
+        async fn is_versioning_enabled(&self) -> Result<bool> {
+            self.inner.is_versioning_enabled().await
+        }
+        fn get_client(&self) -> Option<Arc<aws_sdk_s3::Client>> {
+            None
+        }
+        fn get_stats_sender(&self) -> Sender<DeletionStatistics> {
+            self.inner.get_stats_sender()
+        }
+        async fn send_stats(&self, stats: DeletionStatistics) {
+            self.inner.send_stats(stats).await;
+        }
+        fn set_warning(&self) {}
+    }
+
+    let fail_once_mock = FailOnceMock {
+        inner: mock.clone(),
+        fail_counter: fail_counter_clone,
+    };
+    let boxed: Box<dyn StorageTrait + Send + Sync> = Box::new(fail_once_mock);
+
+    let deleter = BatchDeleter::new(boxed);
+    let mut config = make_test_config();
+    config.force_retry_config.force_retry_count = 2; // Allow retries
+
+    let objects = vec![make_s3_object("key/0", 100)];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    // Object should succeed on second attempt
+    assert_eq!(result.deleted.len(), 1);
+    assert_eq!(result.failed.len(), 0);
+
+    // Verify exactly 2 single delete attempts were made (fail + succeed)
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(single_calls.len(), 2);
+    // Counter should be 2 (0-indexed: attempt 0 failed, attempt 1 succeeded)
+    assert_eq!(fail_counter.load(Ordering::SeqCst), 2);
 }

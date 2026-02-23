@@ -668,7 +668,7 @@ impl s3rm_rs::EventCallback for CollectingEventCallback {
 ///
 /// Each E2E test creates a bucket, uploads objects, runs the pipeline, and
 /// cleans up. 5 minutes is generous but prevents indefinite hangs.
-pub const E2E_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+pub const E2E_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Wraps an async E2E test body with a timeout.
 ///

@@ -214,12 +214,12 @@ This is the same optimistic locking mechanism available in [s3sync](https://gith
 
 ### Robust retry logic
 
-s3rm automatically retries with exponential backoff implemented in the AWS SDK for Rust.
-You can configure the retry behavior with `--aws-max-attempts` and `--initial-backoff-milliseconds` options.
+s3rm uses two layers of retry:
 
-Additionally, s3rm supports `force retry` logic inherited from s3sync — application-level retries for operations that are retryable but the AWS SDK does not automatically retry (e.g., `Connection reset by peer`).
+1. **AWS SDK retries** — the AWS SDK for Rust automatically retries transient API failures (5xx, throttling) with exponential backoff. Configured via `--aws-max-attempts` and `--initial-backoff-milliseconds`.
+2. **Batch partial-failure fallback** — when a `DeleteObjects` batch request partially fails, s3rm classifies each failed key by error code. Keys that failed with a retryable error (`InternalError`, `SlowDown`, `ServiceUnavailable`, `RequestTimeout`) are retried individually using the `DeleteObject` API. This fallback is controlled by `--force-retry-count` (default: 0, disabled).
 
-When a batch deletion partially fails, s3rm extracts the successfully deleted objects and retries only the failed ones.
+Non-retryable errors (e.g., `AccessDenied`) are logged and skipped immediately.
 
 For more information, see [Retry logic detail](#retry-logic-detail).
 
@@ -597,19 +597,27 @@ By default, s3rm groups objects into batches of `--batch-size` (default: 200) an
 
 If `--batch-size` is set to 1, s3rm uses the `DeleteObject` API for single-object deletion. This may be needed for S3-compatible services that don't support batch deletion.
 
-When a batch deletion partially fails (some objects deleted, some errors), s3rm extracts the successfully deleted objects and can retry only the failed ones.
+When a batch deletion partially fails (some objects deleted, some errors), s3rm records the successfully deleted objects and classifies each failure by error code. Retryable failures are retried individually using `DeleteObject` API calls (see [Retry logic detail](#retry-logic-detail)).
 
 ### Retry logic detail
 
-s3rm automatically retries with exponential backoff implemented in the AWS SDK for Rust.
-You can configure the retry behavior with `--aws-max-attempts` (default: 10) and `--initial-backoff-milliseconds` (default: 100ms).
+s3rm has two retry layers:
 
-s3rm also supports an application-level `force retry` mechanism (inherited from s3sync).
-When `--force-retry-count` is greater than 0, s3rm forcibly retries operations that are retryable for deletion purposes but that the AWS SDK does not automatically retry (e.g., `Connection reset by peer`).
+**Layer 1: AWS SDK retries (all API calls)**
 
-For example, if `--force-retry-count` is 5 and `--aws-max-attempts` is 10, s3rm retries the operation up to 50 times total in the case of a retryable error.
+Every S3 API call (including `DeleteObjects`, `DeleteObject`, `ListObjectsV2`, etc.) is automatically retried by the AWS SDK for Rust using its standard retry strategy with exponential backoff. Configure this with:
+- `--aws-max-attempts` (default: 10) — maximum attempts per API call
+- `--initial-backoff-milliseconds` (default: 100ms) — initial backoff duration, doubled on each retry
 
-If a single object fails after all retries, s3rm logs the failure and continues processing remaining objects. The final exit code reflects whether any failures occurred.
+**Layer 2: Batch partial-failure fallback (batch mode only)**
+
+When a `DeleteObjects` batch request succeeds at the API level but reports per-key errors in its response, s3rm handles each failed key individually:
+- **Retryable errors** (`InternalError`, `SlowDown`, `ServiceUnavailable`, `RequestTimeout`) — s3rm falls back to individual `DeleteObject` API calls for these keys, retrying up to `--force-retry-count` times (default: 0, meaning no fallback retries). The interval between fallback attempts is a fixed delay of `--force-retry-interval-milliseconds` (default: 1000ms). Each individual `DeleteObject` call also benefits from the AWS SDK's own retry logic (Layer 1).
+- **Non-retryable errors** (e.g., `AccessDenied`, `NoSuchKey`) — logged and added to failures immediately without retry.
+
+This fallback only applies in batch mode (`--batch-size` > 1). In single-object mode (`--batch-size 1`), the `SingleDeleter` does not perform application-level retries — it relies solely on the AWS SDK's built-in retry logic.
+
+If an object fails after all retries are exhausted, s3rm logs the failure and continues processing remaining objects. The final exit code reflects whether any failures occurred.
 
 ### Filtering order
 
@@ -905,10 +913,10 @@ For more information, see `s3rm -h`.
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--aws-max-attempts` | `10` | Maximum retry attempts for AWS SDK operations |
-| `--initial-backoff-milliseconds` | `100` | Initial backoff for retries (ms) |
-| `--force-retry-count` | `0` | Application-level retries after SDK retries exhausted |
-| `--force-retry-interval-milliseconds` | `1000` | Interval between application-level retries (ms) |
+| `--aws-max-attempts` | `10` | Maximum retry attempts per AWS SDK API call |
+| `--initial-backoff-milliseconds` | `100` | Initial exponential backoff for SDK retries (ms) |
+| `--force-retry-count` | `0` | Fallback retries per key on batch partial failures (batch mode only) |
+| `--force-retry-interval-milliseconds` | `1000` | Fixed interval between batch fallback retries (ms) |
 
 ### Timeout Options
 

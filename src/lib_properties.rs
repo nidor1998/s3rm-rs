@@ -119,7 +119,7 @@ mod tests {
                 prefix: "test-prefix/".to_string(),
             },
             show_no_progress: true,
-            report_deletion_status: false,
+            log_deletion_summary: false,
             target_client_config: None,
             force_retry_config: ForceRetryConfig {
                 force_retry_count: 3,

@@ -840,7 +840,7 @@ For more information, see `s3rm -h`.
 | `--dry-run` | `-d` | `false` | Preview deletions without executing them |
 | `--force` | `-f` | `false` | Skip confirmation prompt |
 | `--show-no-progress` | | `false` | Hide the progress bar |
-| `--report-deletion-status` | | `true` | Report deletion status (suppresses the deletion summary log) |
+| `--log-deletion-summary` | | `true` | Log deletion summary at completion |
 | `--delete-all-versions` | | `false` | Delete all versions including delete markers |
 | `--batch-size` | | `200` | Objects per batch deletion request (1–1000) |
 | `--max-delete` | | | Stop after deleting this many objects |

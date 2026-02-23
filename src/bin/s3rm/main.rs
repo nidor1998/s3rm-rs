@@ -116,7 +116,7 @@ async fn run(mut config: Config) -> Result<()> {
             return Err(e);
         }
 
-        let log_deletion_summary = config.report_deletion_status;
+        let log_deletion_summary = config.log_deletion_summary;
 
         let indicator_join_handle = indicator::show_indicator(
             pipeline.get_stats_receiver(),

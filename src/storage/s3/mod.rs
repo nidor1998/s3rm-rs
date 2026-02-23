@@ -934,7 +934,7 @@ mod tests {
                 prefix: prefix.to_string(),
             },
             show_no_progress: false,
-            report_deletion_status: false,
+            log_deletion_summary: false,
             target_client_config: None,
             force_retry_config: crate::config::ForceRetryConfig {
                 force_retry_count: 0,

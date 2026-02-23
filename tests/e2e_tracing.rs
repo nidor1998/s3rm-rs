@@ -65,6 +65,8 @@ async fn e2e_verbosity_levels() {
             result.stats.stats_deleted_objects, 5,
             "-v: Should delete 5 objects"
         );
+        let remaining = helper.count_objects(&bucket_v, "trace/").await;
+        assert_eq!(remaining, 0, "-v: All trace/ objects should be removed from S3");
 
         // Test with -vv (detailed logging)
         let bucket_vv = setup_small_bucket(&helper).await;
@@ -81,6 +83,8 @@ async fn e2e_verbosity_levels() {
             result.stats.stats_deleted_objects, 5,
             "-vv: Should delete 5 objects"
         );
+        let remaining = helper.count_objects(&bucket_vv, "trace/").await;
+        assert_eq!(remaining, 0, "-vv: All trace/ objects should be removed from S3");
 
         // Test with -vvv (debug logging)
         let bucket_vvv = setup_small_bucket(&helper).await;
@@ -100,6 +104,9 @@ async fn e2e_verbosity_levels() {
             result.stats.stats_deleted_objects, 5,
             "-vvv: Should delete 5 objects"
         );
+        let remaining = helper.count_objects(&bucket_vvv, "trace/").await;
+        assert_eq!(remaining, 0, "-vvv: All trace/ objects should be removed from S3");
+
         guard_v.cleanup().await;
         guard_vv.cleanup().await;
         guard_vvv.cleanup().await;
@@ -135,6 +142,9 @@ async fn e2e_json_tracing() {
 
         assert!(!result.has_error, "Pipeline should complete without errors");
         assert_eq!(result.stats.stats_deleted_objects, 5);
+
+        let remaining = helper.count_objects(&bucket, "trace/").await;
+        assert_eq!(remaining, 0, "All trace/ objects should be removed from S3");
         guard.cleanup().await;
     });
 }
@@ -164,6 +174,9 @@ async fn e2e_quiet_mode() {
 
         assert!(!result.has_error, "Pipeline should complete without errors");
         assert_eq!(result.stats.stats_deleted_objects, 5);
+
+        let remaining = helper.count_objects(&bucket, "trace/").await;
+        assert_eq!(remaining, 0, "All trace/ objects should be removed from S3");
         guard.cleanup().await;
     });
 }
@@ -196,6 +209,9 @@ async fn e2e_show_no_progress() {
 
         assert!(!result.has_error, "Pipeline should complete without errors");
         assert_eq!(result.stats.stats_deleted_objects, 5);
+
+        let remaining = helper.count_objects(&bucket, "trace/").await;
+        assert_eq!(remaining, 0, "All trace/ objects should be removed from S3");
         guard.cleanup().await;
     });
 }
@@ -228,6 +244,9 @@ async fn e2e_disable_color_tracing() {
 
         assert!(!result.has_error, "Pipeline should complete without errors");
         assert_eq!(result.stats.stats_deleted_objects, 5);
+
+        let remaining = helper.count_objects(&bucket, "trace/").await;
+        assert_eq!(remaining, 0, "All trace/ objects should be removed from S3");
         guard.cleanup().await;
     });
 }
@@ -270,6 +289,9 @@ async fn e2e_log_deletion_summary() {
             result.stats.stats_deleted_objects, 10,
             "Should delete all 10 objects"
         );
+
+        let remaining = helper.count_objects(&bucket, "summary/").await;
+        assert_eq!(remaining, 0, "All summary/ objects should be removed from S3");
         guard.cleanup().await;
     });
 }
@@ -305,6 +327,9 @@ async fn e2e_aws_sdk_tracing_and_span_events() {
 
         assert!(!result.has_error, "Pipeline should complete without errors");
         assert_eq!(result.stats.stats_deleted_objects, 5);
+
+        let remaining = helper.count_objects(&bucket, "trace/").await;
+        assert_eq!(remaining, 0, "All trace/ objects should be removed from S3");
         guard.cleanup().await;
     });
 }

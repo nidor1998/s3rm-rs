@@ -764,7 +764,7 @@ Phase 25: Property-Based Testing Infrastructure (Task 25)
 
 **Implemented Property Tests**: Properties 1-49 (49 of 49). All correctness properties have property-based tests. Test totals: 442 lib tests (all pass), 26 binary tests (all pass).
 
-- [-] 27. Documentation and Examples
+- [x] 27. Documentation and Examples
   - [x] 27.1 Write README.md (completed in commit 4082dbe on build/init/task23)
     - Include project overview and features
     - Include installation instructions

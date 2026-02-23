@@ -55,6 +55,9 @@ async fn e2e_worker_size_configuration() {
             result.stats.stats_deleted_objects, 100,
             "Should delete all 100 objects"
         );
+
+        let remaining = helper.count_objects(&bucket, "workers/").await;
+        assert_eq!(remaining, 0, "All workers/ objects should be removed from S3");
         guard.cleanup().await;
     });
 }
@@ -104,6 +107,9 @@ async fn e2e_rate_limit_objects() {
             result.stats.stats_deleted_objects, 50,
             "Should delete all 50 objects"
         );
+
+        let remaining = helper.count_objects(&bucket, "ratelimit/").await;
+        assert_eq!(remaining, 0, "All ratelimit/ objects should be removed from S3");
         guard.cleanup().await;
     });
 }
@@ -156,6 +162,9 @@ async fn e2e_max_parallel_listings() {
             result.stats.stats_deleted_objects, 100,
             "Should delete all 100 objects"
         );
+
+        let remaining = helper.count_objects(&bucket, "").await;
+        assert_eq!(remaining, 0, "All objects should be removed from S3");
         guard.cleanup().await;
     });
 }
@@ -200,6 +209,9 @@ async fn e2e_object_listing_queue_size() {
             result.stats.stats_deleted_objects, 50,
             "Should delete all 50 objects"
         );
+
+        let remaining = helper.count_objects(&bucket, "queue/").await;
+        assert_eq!(remaining, 0, "All queue/ objects should be removed from S3");
         guard.cleanup().await;
     });
 }
@@ -244,6 +256,9 @@ async fn e2e_max_keys_listing() {
             result.stats.stats_deleted_objects, 100,
             "Should delete all 100 objects"
         );
+
+        let remaining = helper.count_objects(&bucket, "maxkeys/").await;
+        assert_eq!(remaining, 0, "All maxkeys/ objects should be removed from S3");
         guard.cleanup().await;
     });
 }

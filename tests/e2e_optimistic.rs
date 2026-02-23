@@ -56,6 +56,12 @@ async fn e2e_if_match_single_deletion() {
             "Should delete all 10 objects with if-match"
         );
         assert_eq!(result.stats.stats_failed_objects, 0, "No failures expected");
+
+        let remaining = helper.count_objects(&bucket, "ifmatch/").await;
+        assert_eq!(
+            remaining, 0,
+            "All ifmatch/ objects should be removed from S3"
+        );
         guard.cleanup().await;
     });
 }
@@ -104,6 +110,12 @@ async fn e2e_if_match_batch_deletion() {
         assert_eq!(
             result.stats.stats_deleted_objects, 20,
             "Should delete all 20 objects with if-match in batch mode"
+        );
+
+        let remaining = helper.count_objects(&bucket, "ifmatch-batch/").await;
+        assert_eq!(
+            remaining, 0,
+            "All ifmatch-batch/ objects should be removed from S3"
         );
         guard.cleanup().await;
     });

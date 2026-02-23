@@ -69,3 +69,20 @@
 - `MockStorage.batch_error_keys`: HashMap<String, String> to simulate per-key batch failures
 - `MockStorage.delete_object_error_keys`: HashMap<String, String> for single-delete failures
 - `FailOnceMock`: Custom StorageTrait impl that fails first call, succeeds second (retry testing)
+
+## E2E Test Plan (Task 29)
+- 62 named test cases + 1 infrastructure task (29.0) across 14 test files
+- Uses `#![cfg(e2e_test)]` attribute (same as s3sync)
+- AWS profile: `s3rm-e2e-test`
+- Tests invoke library API via `build_config_from_args` + `DeletionPipeline` (not CLI binary)
+- Unique bucket per test: `s3rm-e2e-{uuid}`
+- Post-processing always cleans up: delete all objects + delete bucket
+- Shared helper in `tests/common/mod.rs`: TestHelper, bucket ops, pipeline runner
+- s3sync reference: `tests/common/mod.rs` (62KB), profile `s3sync-e2e-test`
+- Key s3sync E2E patterns: SEMAPHORE for concurrency control, cascade delete with 10s delay
+- CLI options not tested in E2E (infrastructure-dependent): target_endpoint_url, target_accelerate,
+  allow_parallel_listings_in_express_one_zone, auto_complete_shell, aws_config_file,
+  aws_shared_credentials_file, target_session_token
+
+Notes:
+- Agent threads always have their cwd reset between bash calls, as a result please only use absolute file paths.

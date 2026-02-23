@@ -28,7 +28,7 @@ async fn e2e_basic_prefix_deletion() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..30 {
             helper
@@ -59,6 +59,7 @@ async fn e2e_basic_prefix_deletion() {
 
         let data_remaining = helper.count_objects(&bucket, "data/").await;
         assert_eq!(data_remaining, 0, "No data/ objects should remain");
+        guard.cleanup().await;
     });
 }
 
@@ -81,7 +82,7 @@ async fn e2e_batch_deletion_mode() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         let objects: Vec<(String, Vec<u8>)> = (0..500)
             .map(|i| (format!("batch/file{i:04}.dat"), vec![b'b'; 100]))
@@ -108,6 +109,7 @@ async fn e2e_batch_deletion_mode() {
 
         let remaining = helper.count_objects(&bucket, "batch/").await;
         assert_eq!(remaining, 0, "No objects should remain");
+        guard.cleanup().await;
     });
 }
 
@@ -129,7 +131,7 @@ async fn e2e_single_deletion_mode() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..20 {
             helper
@@ -154,6 +156,7 @@ async fn e2e_single_deletion_mode() {
             result.stats.stats_failed_objects, 0,
             "No objects should fail"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -175,7 +178,7 @@ async fn e2e_delete_entire_bucket_contents() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         // Upload objects across varied prefixes
         for i in 0..15 {
@@ -210,6 +213,7 @@ async fn e2e_delete_entire_bucket_contents() {
 
         let remaining = helper.count_objects(&bucket, "").await;
         assert_eq!(remaining, 0, "Bucket should be empty");
+        guard.cleanup().await;
     });
 }
 
@@ -232,7 +236,7 @@ async fn e2e_empty_bucket_no_error() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         let config = TestHelper::build_config(vec![&format!("s3://{bucket}"), "--force"]);
         let result = TestHelper::run_pipeline(config).await;
@@ -249,5 +253,6 @@ async fn e2e_empty_bucket_no_error() {
             result.stats.stats_failed_objects, 0,
             "No objects should fail"
         );
+        guard.cleanup().await;
     });
 }

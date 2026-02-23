@@ -33,7 +33,7 @@ async fn e2e_if_match_single_deletion() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -56,6 +56,7 @@ async fn e2e_if_match_single_deletion() {
             "Should delete all 10 objects with if-match"
         );
         assert_eq!(result.stats.stats_failed_objects, 0, "No failures expected");
+        guard.cleanup().await;
     });
 }
 
@@ -78,7 +79,7 @@ async fn e2e_if_match_batch_deletion() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..20 {
             helper
@@ -104,6 +105,7 @@ async fn e2e_if_match_batch_deletion() {
             result.stats.stats_deleted_objects, 20,
             "Should delete all 20 objects with if-match in batch mode"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -169,7 +171,7 @@ async fn e2e_if_match_etag_mismatch_skips_modified_objects() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -238,5 +240,6 @@ async fn e2e_if_match_etag_mismatch_skips_modified_objects() {
         assert!(remaining.contains(&"ifmatch-mismatch/file02.dat".to_string()));
         assert!(remaining.contains(&"ifmatch-mismatch/file05.dat".to_string()));
         assert!(remaining.contains(&"ifmatch-mismatch/file08.dat".to_string()));
+        guard.cleanup().await;
     });
 }

@@ -52,7 +52,7 @@ async fn e2e_verbosity_levels() {
 
         // Test with -v (standard logging)
         let bucket_v = setup_small_bucket(&helper).await;
-        let _guard_v = helper.bucket_guard(&bucket_v);
+        let guard_v = helper.bucket_guard(&bucket_v);
 
         let config =
             TestHelper::build_config(vec![&format!("s3://{bucket_v}/trace/"), "-v", "--force"]);
@@ -68,7 +68,7 @@ async fn e2e_verbosity_levels() {
 
         // Test with -vv (detailed logging)
         let bucket_vv = setup_small_bucket(&helper).await;
-        let _guard_vv = helper.bucket_guard(&bucket_vv);
+        let guard_vv = helper.bucket_guard(&bucket_vv);
 
         let config =
             TestHelper::build_config(vec![&format!("s3://{bucket_vv}/trace/"), "-vv", "--force"]);
@@ -84,7 +84,7 @@ async fn e2e_verbosity_levels() {
 
         // Test with -vvv (debug logging)
         let bucket_vvv = setup_small_bucket(&helper).await;
-        let _guard_vvv = helper.bucket_guard(&bucket_vvv);
+        let guard_vvv = helper.bucket_guard(&bucket_vvv);
 
         let config = TestHelper::build_config(vec![
             &format!("s3://{bucket_vvv}/trace/"),
@@ -100,6 +100,9 @@ async fn e2e_verbosity_levels() {
             result.stats.stats_deleted_objects, 5,
             "-vvv: Should delete 5 objects"
         );
+        guard_v.cleanup().await;
+        guard_vv.cleanup().await;
+        guard_vvv.cleanup().await;
     });
 }
 
@@ -121,7 +124,7 @@ async fn e2e_json_tracing() {
         let helper = TestHelper::new().await;
         let bucket = setup_small_bucket(&helper).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         let config = TestHelper::build_config(vec![
             &format!("s3://{bucket}/trace/"),
@@ -132,6 +135,7 @@ async fn e2e_json_tracing() {
 
         assert!(!result.has_error, "Pipeline should complete without errors");
         assert_eq!(result.stats.stats_deleted_objects, 5);
+        guard.cleanup().await;
     });
 }
 
@@ -152,7 +156,7 @@ async fn e2e_quiet_mode() {
         let helper = TestHelper::new().await;
         let bucket = setup_small_bucket(&helper).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         let config =
             TestHelper::build_config(vec![&format!("s3://{bucket}/trace/"), "-q", "--force"]);
@@ -160,6 +164,7 @@ async fn e2e_quiet_mode() {
 
         assert!(!result.has_error, "Pipeline should complete without errors");
         assert_eq!(result.stats.stats_deleted_objects, 5);
+        guard.cleanup().await;
     });
 }
 
@@ -180,7 +185,7 @@ async fn e2e_show_no_progress() {
         let helper = TestHelper::new().await;
         let bucket = setup_small_bucket(&helper).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         let config = TestHelper::build_config(vec![
             &format!("s3://{bucket}/trace/"),
@@ -191,6 +196,7 @@ async fn e2e_show_no_progress() {
 
         assert!(!result.has_error, "Pipeline should complete without errors");
         assert_eq!(result.stats.stats_deleted_objects, 5);
+        guard.cleanup().await;
     });
 }
 
@@ -211,7 +217,7 @@ async fn e2e_disable_color_tracing() {
         let helper = TestHelper::new().await;
         let bucket = setup_small_bucket(&helper).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         let config = TestHelper::build_config(vec![
             &format!("s3://{bucket}/trace/"),
@@ -222,6 +228,7 @@ async fn e2e_disable_color_tracing() {
 
         assert!(!result.has_error, "Pipeline should complete without errors");
         assert_eq!(result.stats.stats_deleted_objects, 5);
+        guard.cleanup().await;
     });
 }
 
@@ -243,7 +250,7 @@ async fn e2e_log_deletion_summary() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -263,6 +270,7 @@ async fn e2e_log_deletion_summary() {
             result.stats.stats_deleted_objects, 10,
             "Should delete all 10 objects"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -284,7 +292,7 @@ async fn e2e_aws_sdk_tracing_and_span_events() {
         let helper = TestHelper::new().await;
         let bucket = setup_small_bucket(&helper).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         let config = TestHelper::build_config(vec![
             &format!("s3://{bucket}/trace/"),
@@ -297,5 +305,6 @@ async fn e2e_aws_sdk_tracing_and_span_events() {
 
         assert!(!result.has_error, "Pipeline should complete without errors");
         assert_eq!(result.stats.stats_deleted_objects, 5);
+        guard.cleanup().await;
     });
 }

@@ -34,7 +34,7 @@ async fn e2e_access_denied_invalid_credentials() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..5 {
             helper
@@ -66,6 +66,7 @@ async fn e2e_access_denied_invalid_credentials() {
             remaining, 5,
             "All objects should remain after access denial"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -130,11 +131,7 @@ async fn e2e_batch_partial_failure_access_denied() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        // Create BucketGuard immediately so cleanup runs even if we panic below.
-        // NOTE: The guard's cleanup (delete_bucket_cascade) will fail to delete
-        // protected/ objects if the deny policy is still active, so we must
-        // always remove the deny policy before the guard drops.
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         // Upload 10 deletable objects
         for i in 0..10 {
@@ -152,20 +149,10 @@ async fn e2e_batch_partial_failure_access_denied() {
         // Apply deny policy on the "protected/" prefix
         helper.deny_delete_on_prefix(&bucket, "protected/").await;
 
-        // Run pipeline to delete everything.
-        // Use catch_unwind so we can always revert the deny policy even on panic.
-        let pipeline_result = {
-            let bucket_ref = &bucket;
-            std::panic::AssertUnwindSafe(async {
-                let config =
-                    TestHelper::build_config(vec![&format!("s3://{bucket_ref}/"), "--force"]);
-                TestHelper::run_pipeline(config).await
-            })
-        };
-        let result = pipeline_result.await;
+        let config = TestHelper::build_config(vec![&format!("s3://{bucket}/"), "--force"]);
+        let result = TestHelper::run_pipeline(config).await;
 
-        // Revert the deny policy BEFORE assertions so BucketGuard cleanup
-        // can delete the protected/ objects when _guard drops.
+        // Revert the deny policy so cleanup can delete the protected/ objects.
         helper.delete_bucket_policy(&bucket).await;
 
         // The deletable/ objects should have been deleted
@@ -197,6 +184,7 @@ async fn e2e_batch_partial_failure_access_denied() {
             result.has_warning || result.has_error,
             "Pipeline should report warning or error for partial batch failure"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -231,7 +219,7 @@ async fn e2e_warn_as_error() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -262,6 +250,7 @@ async fn e2e_warn_as_error() {
                 "No warnings means --warn-as-error should not promote to error"
             );
         }
+        guard.cleanup().await;
     });
 }
 
@@ -307,7 +296,7 @@ async fn e2e_exit_codes() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         helper
             .put_object(&bucket, "exit-test/file0.dat", vec![b'e'; 100])
@@ -337,6 +326,7 @@ async fn e2e_exit_codes() {
             remaining, 1,
             "Object should still exist after dry-run via CLI"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -361,7 +351,7 @@ async fn e2e_rate_limit_less_than_batch_size_rejected() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         // Attempt to build config with rate-limit (10) < batch-size (200)
         let args: Vec<String> = vec![
@@ -392,5 +382,6 @@ async fn e2e_rate_limit_less_than_batch_size_rejected() {
             error_msg.contains("--batch-size"),
             "Error message should mention --batch-size; got: {error_msg}"
         );
+        guard.cleanup().await;
     });
 }

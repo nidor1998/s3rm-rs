@@ -29,7 +29,7 @@ async fn e2e_target_region_override() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -51,6 +51,7 @@ async fn e2e_target_region_override() {
             result.stats.stats_deleted_objects, 10,
             "Should delete all 10 objects"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -73,7 +74,7 @@ async fn e2e_target_force_path_style() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -93,6 +94,7 @@ async fn e2e_target_force_path_style() {
             result.stats.stats_deleted_objects, 10,
             "Should delete all 10 objects"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -115,7 +117,7 @@ async fn e2e_target_request_payer() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -135,6 +137,7 @@ async fn e2e_target_request_payer() {
             result.stats.stats_deleted_objects, 10,
             "Should delete all 10 objects"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -159,7 +162,7 @@ async fn e2e_allow_lua_unsafe_vm() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..5 {
             helper
@@ -198,5 +201,6 @@ async fn e2e_allow_lua_unsafe_vm() {
             result.stats.stats_deleted_objects, 5,
             "Should delete all 5 objects"
         );
+        guard.cleanup().await;
     });
 }

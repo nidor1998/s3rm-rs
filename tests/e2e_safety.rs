@@ -34,7 +34,7 @@ async fn e2e_dry_run_no_deletion() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..20 {
             helper
@@ -66,6 +66,7 @@ async fn e2e_dry_run_no_deletion() {
             remaining, 20,
             "All 20 objects must still exist after dry-run"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -94,7 +95,7 @@ async fn e2e_max_delete_threshold() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         let max_delete_value: u64 = 10;
 
@@ -131,6 +132,7 @@ async fn e2e_max_delete_threshold() {
             "At most {max_delete_value} objects should be deleted with batch-size=1; got {}",
             result.stats.stats_deleted_objects
         );
+        guard.cleanup().await;
     });
 }
 
@@ -153,7 +155,7 @@ async fn e2e_force_flag_skips_confirmation() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -172,5 +174,6 @@ async fn e2e_force_flag_skips_confirmation() {
             result.stats.stats_deleted_objects, 10,
             "All 10 objects should be deleted"
         );
+        guard.cleanup().await;
     });
 }

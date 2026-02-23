@@ -65,7 +65,7 @@ async fn e2e_rust_filter_callback() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -100,6 +100,7 @@ async fn e2e_rust_filter_callback() {
 
         let deleted = helper.list_objects(&bucket, "delete-").await;
         assert_eq!(deleted.len(), 0, "All delete- objects should be removed");
+        guard.cleanup().await;
     });
 }
 
@@ -123,7 +124,7 @@ async fn e2e_rust_event_callback() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -147,32 +148,35 @@ async fn e2e_rust_event_callback() {
         assert!(!result.has_error, "Pipeline should complete without errors");
         assert_eq!(result.stats.stats_deleted_objects, 10);
 
-        let events = collected_events.lock().unwrap();
+        {
+            let events = collected_events.lock().unwrap();
 
-        // Check PIPELINE_START
-        let starts: Vec<_> = events
-            .iter()
-            .filter(|e| e.event_type == EventType::PIPELINE_START)
-            .collect();
-        assert_eq!(starts.len(), 1, "Should receive exactly 1 PIPELINE_START");
+            // Check PIPELINE_START
+            let starts: Vec<_> = events
+                .iter()
+                .filter(|e| e.event_type == EventType::PIPELINE_START)
+                .collect();
+            assert_eq!(starts.len(), 1, "Should receive exactly 1 PIPELINE_START");
 
-        // Check DELETE_COMPLETE events
-        let completes: Vec<_> = events
-            .iter()
-            .filter(|e| e.event_type == EventType::DELETE_COMPLETE)
-            .collect();
-        assert_eq!(
-            completes.len(),
-            10,
-            "Should receive 10 DELETE_COMPLETE events"
-        );
+            // Check DELETE_COMPLETE events
+            let completes: Vec<_> = events
+                .iter()
+                .filter(|e| e.event_type == EventType::DELETE_COMPLETE)
+                .collect();
+            assert_eq!(
+                completes.len(),
+                10,
+                "Should receive 10 DELETE_COMPLETE events"
+            );
 
-        // Check PIPELINE_END
-        let ends: Vec<_> = events
-            .iter()
-            .filter(|e| e.event_type == EventType::PIPELINE_END)
-            .collect();
-        assert_eq!(ends.len(), 1, "Should receive exactly 1 PIPELINE_END");
+            // Check PIPELINE_END
+            let ends: Vec<_> = events
+                .iter()
+                .filter(|e| e.event_type == EventType::PIPELINE_END)
+                .collect();
+            assert_eq!(ends.len(), 1, "Should receive exactly 1 PIPELINE_END");
+        }
+        guard.cleanup().await;
     });
 }
 
@@ -196,7 +200,7 @@ async fn e2e_lua_filter_callback() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -243,6 +247,7 @@ async fn e2e_lua_filter_callback() {
         let remaining_dat = helper.list_objects(&bucket, "lua/").await;
         let dat_count = remaining_dat.iter().filter(|k| k.ends_with(".dat")).count();
         assert_eq!(dat_count, 10, "All .dat objects should remain");
+        guard.cleanup().await;
     });
 }
 
@@ -267,7 +272,7 @@ async fn e2e_lua_event_callback() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -334,6 +339,7 @@ async fn e2e_lua_event_callback() {
             count > 0,
             "Lua event script should have received at least 1 event, got {count}"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -356,7 +362,7 @@ async fn e2e_lua_sandbox_blocks_os_access() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..5 {
             helper
@@ -391,6 +397,7 @@ async fn e2e_lua_sandbox_blocks_os_access() {
             result.has_error,
             "Pipeline should report error for Lua sandbox violation"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -413,7 +420,7 @@ async fn e2e_lua_vm_memory_limit() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..5 {
             helper
@@ -452,6 +459,7 @@ async fn e2e_lua_vm_memory_limit() {
             result.has_error,
             "Pipeline should report error for Lua memory limit exceeded"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -475,7 +483,7 @@ async fn e2e_rust_filter_and_event_callbacks_combined() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -518,28 +526,31 @@ async fn e2e_rust_filter_and_event_callbacks_combined() {
         assert_eq!(remaining.len(), 10, "All small objects should remain");
 
         // Verify event callback received DELETE_COMPLETE events
-        let events = collected_events.lock().unwrap();
-        let delete_completes: Vec<_> = events
-            .iter()
-            .filter(|e| e.event_type == EventType::DELETE_COMPLETE)
-            .collect();
-        assert_eq!(
-            delete_completes.len(),
-            10,
-            "Should receive 10 DELETE_COMPLETE events for the large objects"
-        );
+        {
+            let events = collected_events.lock().unwrap();
+            let delete_completes: Vec<_> = events
+                .iter()
+                .filter(|e| e.event_type == EventType::DELETE_COMPLETE)
+                .collect();
+            assert_eq!(
+                delete_completes.len(),
+                10,
+                "Should receive 10 DELETE_COMPLETE events for the large objects"
+            );
 
-        // Verify event callback received DELETE_FILTERED events for skipped objects.
-        // The SizeFilterCallback is a user-defined filter, so filtered-out objects
-        // trigger DELETE_FILTERED events.
-        let delete_filtered: Vec<_> = events
-            .iter()
-            .filter(|e| e.event_type == EventType::DELETE_FILTERED)
-            .collect();
-        assert_eq!(
-            delete_filtered.len(),
-            10,
-            "Should receive 10 DELETE_FILTERED events for the small objects"
-        );
+            // Verify event callback received DELETE_FILTERED events for skipped objects.
+            // The SizeFilterCallback is a user-defined filter, so filtered-out objects
+            // trigger DELETE_FILTERED events.
+            let delete_filtered: Vec<_> = events
+                .iter()
+                .filter(|e| e.event_type == EventType::DELETE_FILTERED)
+                .collect();
+            assert_eq!(
+                delete_filtered.len(),
+                10,
+                "Should receive 10 DELETE_FILTERED events for the small objects"
+            );
+        }
+        guard.cleanup().await;
     });
 }

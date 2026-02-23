@@ -30,7 +30,7 @@ async fn e2e_versioned_bucket_creates_delete_markers() {
         let bucket = helper.generate_bucket_name();
         helper.create_versioned_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -74,6 +74,7 @@ async fn e2e_versioned_bucket_creates_delete_markers() {
             10,
             "Original versions should still exist"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -111,7 +112,7 @@ async fn e2e_delete_all_versions() {
         let bucket = helper.generate_bucket_name();
         helper.create_versioned_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         // Upload initial versions (10 keys x 1 version each = 10 versions)
         for i in 0..NUM_OBJECTS {
@@ -184,6 +185,7 @@ async fn e2e_delete_all_versions() {
             "No versions or delete markers should remain; found {}",
             versions.len()
         );
+        guard.cleanup().await;
     });
 }
 
@@ -207,7 +209,7 @@ async fn e2e_delete_all_versions_unversioned_bucket_error() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await; // non-versioned
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..5 {
             helper
@@ -230,5 +232,6 @@ async fn e2e_delete_all_versions_unversioned_bucket_error() {
         // Objects should still exist
         let remaining = helper.count_objects(&bucket, "data/").await;
         assert_eq!(remaining, 5, "All objects should remain after the error");
+        guard.cleanup().await;
     });
 }

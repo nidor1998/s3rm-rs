@@ -35,7 +35,7 @@ async fn e2e_worker_size_configuration() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         let objects: Vec<(String, Vec<u8>)> = (0..100)
             .map(|i| (format!("workers/file{i:03}.dat"), vec![b'w'; 100]))
@@ -55,6 +55,7 @@ async fn e2e_worker_size_configuration() {
             result.stats.stats_deleted_objects, 100,
             "Should delete all 100 objects"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -78,7 +79,7 @@ async fn e2e_rate_limit_objects() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..50 {
             helper
@@ -103,6 +104,7 @@ async fn e2e_rate_limit_objects() {
             result.stats.stats_deleted_objects, 50,
             "Should delete all 50 objects"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -125,7 +127,7 @@ async fn e2e_max_parallel_listings() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         let objects: Vec<(String, Vec<u8>)> = (0..5)
             .flat_map(|prefix_idx| {
@@ -154,6 +156,7 @@ async fn e2e_max_parallel_listings() {
             result.stats.stats_deleted_objects, 100,
             "Should delete all 100 objects"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -176,7 +179,7 @@ async fn e2e_object_listing_queue_size() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..50 {
             helper
@@ -197,6 +200,7 @@ async fn e2e_object_listing_queue_size() {
             result.stats.stats_deleted_objects, 50,
             "Should delete all 50 objects"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -220,7 +224,7 @@ async fn e2e_max_keys_listing() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         let objects: Vec<(String, Vec<u8>)> = (0..100)
             .map(|i| (format!("maxkeys/file{i:03}.dat"), vec![b'k'; 100]))
@@ -240,5 +244,6 @@ async fn e2e_max_keys_listing() {
             result.stats.stats_deleted_objects, 100,
             "Should delete all 100 objects"
         );
+        guard.cleanup().await;
     });
 }

@@ -41,26 +41,22 @@ pub struct PipelineResult {
     pub errors: Vec<String>,
 }
 
-/// RAII guard that deletes all objects and the bucket when dropped.
+/// Guard that cleans up a test bucket when explicitly consumed.
 ///
-/// This ensures cleanup ALWAYS runs, even if the test panics. Call
-/// `TestHelper::bucket_guard()` to create one after creating a bucket.
+/// Call [`BucketGuard::cleanup`] at the end of each test to delete all objects
+/// and the bucket itself. If the test panics before `cleanup` is reached, the
+/// bucket is intentionally left behind — this avoids the `block_on`-in-`Drop`
+/// footgun that can cause double-panic aborts when the Tokio runtime is
+/// shutting down.
 pub struct BucketGuard {
     helper: Arc<TestHelper>,
     bucket: String,
 }
 
-impl Drop for BucketGuard {
-    fn drop(&mut self) {
-        let helper = self.helper.clone();
-        let bucket = self.bucket.clone();
-        // Catch panics from block_on() to avoid double-panic abort when the
-        // runtime is shutting down (e.g., if the test already panicked).
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            tokio::runtime::Handle::current().block_on(async move {
-                helper.delete_bucket_cascade(&bucket).await;
-            });
-        }));
+impl BucketGuard {
+    /// Delete all objects and the bucket. Call this at the end of each test.
+    pub async fn cleanup(self) {
+        self.helper.delete_bucket_cascade(&self.bucket).await;
     }
 }
 

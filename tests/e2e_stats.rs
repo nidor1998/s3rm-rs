@@ -36,7 +36,7 @@ async fn e2e_deletion_stats_accuracy() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         // 5 x 1KB objects
         for i in 0..5 {
@@ -79,6 +79,7 @@ async fn e2e_deletion_stats_accuracy() {
             !result.stats.duration.is_zero(),
             "Duration should be positive"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -103,7 +104,7 @@ async fn e2e_event_callback_receives_all_event_types() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..5 {
             helper
@@ -127,42 +128,45 @@ async fn e2e_event_callback_receives_all_event_types() {
         assert!(!result.has_error, "Pipeline should complete without errors");
         assert_eq!(result.stats.stats_deleted_objects, 5);
 
-        let events = collected_events.lock().unwrap();
+        {
+            let events = collected_events.lock().unwrap();
 
-        // PIPELINE_START
-        let starts: Vec<_> = events
-            .iter()
-            .filter(|e| e.event_type == EventType::PIPELINE_START)
-            .collect();
-        assert_eq!(starts.len(), 1, "Should have exactly 1 PIPELINE_START");
+            // PIPELINE_START
+            let starts: Vec<_> = events
+                .iter()
+                .filter(|e| e.event_type == EventType::PIPELINE_START)
+                .collect();
+            assert_eq!(starts.len(), 1, "Should have exactly 1 PIPELINE_START");
 
-        // DELETE_COMPLETE
-        let completes: Vec<_> = events
-            .iter()
-            .filter(|e| e.event_type == EventType::DELETE_COMPLETE)
-            .collect();
-        assert_eq!(completes.len(), 5, "Should have 5 DELETE_COMPLETE events");
+            // DELETE_COMPLETE
+            let completes: Vec<_> = events
+                .iter()
+                .filter(|e| e.event_type == EventType::DELETE_COMPLETE)
+                .collect();
+            assert_eq!(completes.len(), 5, "Should have 5 DELETE_COMPLETE events");
 
-        // Verify DELETE_COMPLETE events have key and size
-        for event in &completes {
+            // Verify DELETE_COMPLETE events have key and size
+            for event in &completes {
+                assert!(
+                    event.key.is_some(),
+                    "DELETE_COMPLETE event should have a key"
+                );
+                assert!(
+                    event.size.is_some(),
+                    "DELETE_COMPLETE event should have a size"
+                );
+            }
+
+            // PIPELINE_END
+            let ends: Vec<_> = events
+                .iter()
+                .filter(|e| e.event_type == EventType::PIPELINE_END)
+                .collect();
             assert!(
-                event.key.is_some(),
-                "DELETE_COMPLETE event should have a key"
-            );
-            assert!(
-                event.size.is_some(),
-                "DELETE_COMPLETE event should have a size"
+                !ends.is_empty(),
+                "Should have at least 1 PIPELINE_END event"
             );
         }
-
-        // PIPELINE_END
-        let ends: Vec<_> = events
-            .iter()
-            .filter(|e| e.event_type == EventType::PIPELINE_END)
-            .collect();
-        assert!(
-            !ends.is_empty(),
-            "Should have at least 1 PIPELINE_END event"
-        );
+        guard.cleanup().await;
     });
 }

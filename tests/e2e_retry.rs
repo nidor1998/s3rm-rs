@@ -30,7 +30,7 @@ async fn e2e_retry_options() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -57,6 +57,7 @@ async fn e2e_retry_options() {
             result.stats.stats_deleted_objects, 10,
             "Should delete all 10 objects"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -81,7 +82,7 @@ async fn e2e_timeout_options() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -108,6 +109,7 @@ async fn e2e_timeout_options() {
             result.stats.stats_deleted_objects, 10,
             "Should delete all 10 objects"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -129,7 +131,7 @@ async fn e2e_disable_stalled_stream_protection() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -149,5 +151,6 @@ async fn e2e_disable_stalled_stream_protection() {
             result.stats.stats_deleted_objects, 10,
             "Should delete all 10 objects"
         );
+        guard.cleanup().await;
     });
 }

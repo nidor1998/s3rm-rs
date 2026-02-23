@@ -29,7 +29,7 @@ async fn e2e_filter_include_regex() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         // Upload 10 logs/*.txt objects
         for i in 0..10 {
@@ -63,6 +63,7 @@ async fn e2e_filter_include_regex() {
 
         let data_objects = helper.list_objects(&bucket, "data/").await;
         assert_eq!(data_objects.len(), 10, "All data/ objects should remain");
+        guard.cleanup().await;
     });
 }
 
@@ -84,7 +85,7 @@ async fn e2e_filter_exclude_regex() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -113,6 +114,7 @@ async fn e2e_filter_exclude_regex() {
 
         let remaining = helper.list_objects(&bucket, "keep/").await;
         assert_eq!(remaining.len(), 10, "All keep/ objects should remain");
+        guard.cleanup().await;
     });
 }
 
@@ -134,7 +136,7 @@ async fn e2e_filter_include_content_type_regex() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -177,6 +179,7 @@ async fn e2e_filter_include_content_type_regex() {
             10,
             "All application/json objects should remain"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -198,7 +201,7 @@ async fn e2e_filter_exclude_content_type_regex() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -237,6 +240,7 @@ async fn e2e_filter_exclude_content_type_regex() {
 
         let remaining = helper.list_objects(&bucket, "images/").await;
         assert_eq!(remaining.len(), 10, "All image/png objects should remain");
+        guard.cleanup().await;
     });
 }
 
@@ -258,7 +262,7 @@ async fn e2e_filter_include_metadata_regex() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             let mut metadata = HashMap::new();
@@ -301,6 +305,7 @@ async fn e2e_filter_include_metadata_regex() {
 
         let remaining = helper.list_objects(&bucket, "stage/").await;
         assert_eq!(remaining.len(), 10, "All env=staging objects should remain");
+        guard.cleanup().await;
     });
 }
 
@@ -322,7 +327,7 @@ async fn e2e_filter_exclude_metadata_regex() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             let mut metadata = HashMap::new();
@@ -369,6 +374,7 @@ async fn e2e_filter_exclude_metadata_regex() {
             10,
             "All tier=archive objects should remain"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -395,7 +401,7 @@ async fn e2e_filter_include_metadata_regex_multiple_entries() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         // Upload 10 objects with matching multi-metadata
         for i in 0..10 {
@@ -456,6 +462,7 @@ async fn e2e_filter_include_metadata_regex_multiple_entries() {
             10,
             "All non-matching objects should remain"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -484,7 +491,7 @@ async fn e2e_filter_exclude_metadata_regex_multiple_entries_alternation() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         // Upload 10 objects with metadata env=production,team=backend,version=v2
         for i in 0..10 {
@@ -569,6 +576,7 @@ async fn e2e_filter_exclude_metadata_regex_multiple_entries_alternation() {
             0,
             "All dev/ objects should be deleted (not excluded)"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -590,7 +598,7 @@ async fn e2e_filter_include_tag_regex() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             let mut tags = HashMap::new();
@@ -637,6 +645,7 @@ async fn e2e_filter_include_tag_regex() {
             10,
             "All status=active objects should remain"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -658,7 +667,7 @@ async fn e2e_filter_exclude_tag_regex() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             let mut tags = HashMap::new();
@@ -701,6 +710,7 @@ async fn e2e_filter_exclude_tag_regex() {
 
         let remaining = helper.list_objects(&bucket, "retained/").await;
         assert_eq!(remaining.len(), 10, "All retain=true objects should remain");
+        guard.cleanup().await;
     });
 }
 
@@ -727,7 +737,7 @@ async fn e2e_filter_include_tag_regex_multiple_tags() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         // Upload 10 objects with matching multi-tags
         for i in 0..10 {
@@ -788,6 +798,7 @@ async fn e2e_filter_include_tag_regex_multiple_tags() {
             10,
             "All non-matching objects should remain"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -816,7 +827,7 @@ async fn e2e_filter_exclude_tag_regex_multiple_tags_alternation() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         // Upload 10 objects tagged env=production,retain=true,team=backend
         for i in 0..10 {
@@ -891,6 +902,7 @@ async fn e2e_filter_exclude_tag_regex_multiple_tags_alternation() {
             0,
             "All dev/ objects should be deleted (not excluded)"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -913,7 +925,7 @@ async fn e2e_filter_mtime_before() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         // Upload first batch (older objects)
         for i in 0..10 {
@@ -963,6 +975,7 @@ async fn e2e_filter_mtime_before() {
             0,
             "All older objects should be deleted"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -985,7 +998,7 @@ async fn e2e_filter_mtime_after() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         // Upload first batch (older objects)
         for i in 0..10 {
@@ -1035,6 +1048,7 @@ async fn e2e_filter_mtime_after() {
             0,
             "All newer objects should be deleted"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -1056,7 +1070,7 @@ async fn e2e_filter_smaller_size() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         // Upload small objects (100 bytes)
         for i in 0..10 {
@@ -1098,6 +1112,7 @@ async fn e2e_filter_smaller_size() {
             0,
             "All small objects should be deleted"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -1119,7 +1134,7 @@ async fn e2e_filter_larger_size() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         // Upload small objects (100 bytes)
         for i in 0..10 {
@@ -1161,5 +1176,6 @@ async fn e2e_filter_larger_size() {
             0,
             "All large objects should be deleted"
         );
+        guard.cleanup().await;
     });
 }

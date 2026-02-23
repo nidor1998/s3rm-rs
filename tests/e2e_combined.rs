@@ -34,7 +34,7 @@ async fn e2e_multiple_filters_combined() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         // Small text files under logs/
         for i in 0..10 {
@@ -89,6 +89,7 @@ async fn e2e_multiple_filters_combined() {
 
         let remaining_data = helper.list_objects(&bucket, "data/").await;
         assert_eq!(remaining_data.len(), 10, "Data files should remain");
+        guard.cleanup().await;
     });
 }
 
@@ -113,7 +114,7 @@ async fn e2e_dry_run_with_delete_all_versions() {
         let bucket = helper.generate_bucket_name();
         helper.create_versioned_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         // Upload initial versions
         for i in 0..10 {
@@ -156,6 +157,7 @@ async fn e2e_dry_run_with_delete_all_versions() {
             20,
             "All 20 versions must still exist after dry-run"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -179,7 +181,7 @@ async fn e2e_dry_run_with_filters() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -216,6 +218,7 @@ async fn e2e_dry_run_with_filters() {
             total_remaining, 20,
             "All 20 objects must still exist after dry-run"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -243,7 +246,7 @@ async fn e2e_max_delete_with_filters() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         let max_delete_value: u64 = 5;
 
@@ -293,6 +296,7 @@ async fn e2e_max_delete_with_filters() {
             "At most {max_delete_value} objects should be deleted with batch-size=1; got {}",
             result.stats.stats_deleted_objects
         );
+        guard.cleanup().await;
     });
 }
 
@@ -316,7 +320,7 @@ async fn e2e_lua_filter_with_event_callback() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         for i in 0..10 {
             helper
@@ -378,6 +382,7 @@ async fn e2e_lua_filter_with_event_callback() {
 
         let remaining_small = helper.list_objects(&bucket, "lua-combo/small").await;
         assert_eq!(remaining_small.len(), 10, "All small objects should remain");
+        guard.cleanup().await;
     });
 }
 
@@ -400,7 +405,7 @@ async fn e2e_large_object_count() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         let objects: Vec<(String, Vec<u8>)> = (0..1000)
             .map(|i| (format!("large-count/file{i:04}.dat"), vec![b'x'; 1024]))
@@ -420,6 +425,7 @@ async fn e2e_large_object_count() {
             result.stats.stats_failed_objects, 0,
             "No objects should fail"
         );
+        guard.cleanup().await;
     });
 }
 
@@ -475,7 +481,7 @@ async fn e2e_all_filters_combined() {
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
 
-        let _guard = helper.bucket_guard(&bucket);
+        let guard = helper.bucket_guard(&bucket);
 
         let meta_prod = || {
             let mut m = HashMap::new();
@@ -697,5 +703,6 @@ async fn e2e_all_filters_combined() {
         // Total remaining: 17
         let total_after = helper.count_objects(&bucket, "").await;
         assert_eq!(total_after, 17, "17 objects should remain after deletion");
+        guard.cleanup().await;
     });
 }

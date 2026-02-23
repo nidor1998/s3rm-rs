@@ -68,6 +68,7 @@ async fn e2e_retry_options() {
 async fn e2e_timeout_options() {
     e2e_timeout!(async {
         // Purpose: Verify timeout-related options (--operation-timeout-milliseconds,
+        //          --operation-attempt-timeout-milliseconds,
         //          --connect-timeout-milliseconds, --read-timeout-milliseconds)
         //          can be configured. The timeouts should be generous enough for
         //          normal operations to complete.
@@ -92,6 +93,8 @@ async fn e2e_timeout_options() {
             &format!("s3://{bucket}/timeout/"),
             "--operation-timeout-milliseconds",
             "30000",
+            "--operation-attempt-timeout-milliseconds",
+            "10000",
             "--connect-timeout-milliseconds",
             "5000",
             "--read-timeout-milliseconds",

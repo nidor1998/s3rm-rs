@@ -6,24 +6,9 @@
 
 mod common;
 
-use common::TestHelper;
-use s3rm_rs::{EventCallback, EventData, EventType};
+use common::{CollectingEventCallback, TestHelper};
+use s3rm_rs::{EventData, EventType};
 use std::sync::{Arc, Mutex};
-
-// ---------------------------------------------------------------------------
-// Helper: Collecting event callback
-// ---------------------------------------------------------------------------
-
-struct CollectingEventCallback {
-    events: Arc<Mutex<Vec<EventData>>>,
-}
-
-#[async_trait::async_trait]
-impl EventCallback for CollectingEventCallback {
-    async fn on_event(&mut self, event_data: EventData) {
-        self.events.lock().unwrap().push(event_data);
-    }
-}
 
 // ---------------------------------------------------------------------------
 // 29.60 Deletion Stats Accuracy

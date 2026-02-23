@@ -6,7 +6,7 @@
 #![allow(dead_code)]
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client;
@@ -535,6 +535,12 @@ impl TestHelper {
     ///
     /// This causes batch deletions of objects under the prefix to fail with AccessDenied,
     /// while objects outside the prefix can still be deleted normally.
+    ///
+    /// Note on scope: Although the policy Action is `s3:DeleteObject` (singular), S3
+    /// evaluates this action for **each object** within a `DeleteObjects` (batch) request.
+    /// A batch request containing both allowed and denied keys will produce a partial
+    /// failure: allowed keys are deleted, denied keys are returned as errors. This is
+    /// the standard S3 behavior documented by AWS.
     pub async fn deny_delete_on_prefix(&self, bucket: &str, prefix: &str) {
         // We need the caller's account ID for the Principal. Using "*" for the
         // principal with a condition on the prefix is simpler and works for our purpose.
@@ -636,6 +642,25 @@ impl TestHelper {
             has_warning,
             errors,
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared callback helpers
+// ---------------------------------------------------------------------------
+
+/// Rust event callback that collects all events into a shared vector.
+///
+/// Used by multiple E2E test files (e2e_callback, e2e_stats, etc.) to capture
+/// and assert on pipeline events.
+pub struct CollectingEventCallback {
+    pub events: Arc<Mutex<Vec<s3rm_rs::EventData>>>,
+}
+
+#[async_trait::async_trait]
+impl s3rm_rs::EventCallback for CollectingEventCallback {
+    async fn on_event(&mut self, event_data: s3rm_rs::EventData) {
+        self.events.lock().unwrap().push(event_data);
     }
 }
 

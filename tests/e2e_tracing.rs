@@ -36,9 +36,15 @@ async fn e2e_verbosity_levels() {
         // Purpose: Verify -v, -vv, -vvv verbosity flags work without affecting
         //          deletion functionality. Each level increases logging detail
         //          but should not change behavior.
-        // Setup:   Upload 5 objects.
+        // Setup:   Upload 5 objects per bucket, 3 separate buckets.
         // Expected: All 5 objects deleted in each run; no errors; pipeline
         //           completes regardless of verbosity level.
+        //
+        // Note: Three separate buckets are used (one per verbosity level) because
+        //       each pipeline run deletes the objects. Reusing a single bucket
+        //       would require re-uploading objects between runs, which adds
+        //       latency without improving isolation. Separate buckets ensure
+        //       each run starts with a known, independent state.
         //
         // Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5
 

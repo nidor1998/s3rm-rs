@@ -8,6 +8,14 @@ mod common;
 
 use common::TestHelper;
 
+// TODO: Test R-3: Pipeline cancellation via cancellation token (Ctrl+C simulation).
+// Would require spawning the binary, sending SIGINT mid-operation, and verifying
+// graceful shutdown. Deferred due to complexity and flakiness risk.
+//
+// TODO: Test R-4: Concurrent worker correctness under contention.
+// Would require high worker counts with slow/failing deletions to stress
+// race conditions in stats accounting. Deferred due to AWS cost and timing sensitivity.
+
 // ---------------------------------------------------------------------------
 // 29.33 Worker Size Configuration
 // ---------------------------------------------------------------------------
@@ -29,11 +37,10 @@ async fn e2e_worker_size_configuration() {
 
         let _guard = helper.bucket_guard(&bucket);
 
-        for i in 0..100 {
-            helper
-                .put_object(&bucket, &format!("workers/file{i:03}.dat"), vec![b'w'; 100])
-                .await;
-        }
+        let objects: Vec<(String, Vec<u8>)> = (0..100)
+            .map(|i| (format!("workers/file{i:03}.dat"), vec![b'w'; 100]))
+            .collect();
+        helper.put_objects_parallel(&bucket, objects).await;
 
         let config = TestHelper::build_config(vec![
             &format!("s3://{bucket}/workers/"),
@@ -120,17 +127,17 @@ async fn e2e_max_parallel_listings() {
 
         let _guard = helper.bucket_guard(&bucket);
 
-        for prefix_idx in 0..5 {
-            for i in 0..20 {
-                helper
-                    .put_object(
-                        &bucket,
-                        &format!("prefix{prefix_idx}/file{i:02}.dat"),
+        let objects: Vec<(String, Vec<u8>)> = (0..5)
+            .flat_map(|prefix_idx| {
+                (0..20).map(move |i| {
+                    (
+                        format!("prefix{prefix_idx}/file{i:02}.dat"),
                         vec![b'p'; 100],
                     )
-                    .await;
-            }
-        }
+                })
+            })
+            .collect();
+        helper.put_objects_parallel(&bucket, objects).await;
 
         let config = TestHelper::build_config(vec![
             &format!("s3://{bucket}/"),
@@ -215,11 +222,10 @@ async fn e2e_max_keys_listing() {
 
         let _guard = helper.bucket_guard(&bucket);
 
-        for i in 0..100 {
-            helper
-                .put_object(&bucket, &format!("maxkeys/file{i:03}.dat"), vec![b'k'; 100])
-                .await;
-        }
+        let objects: Vec<(String, Vec<u8>)> = (0..100)
+            .map(|i| (format!("maxkeys/file{i:03}.dat"), vec![b'k'; 100]))
+            .collect();
+        helper.put_objects_parallel(&bucket, objects).await;
 
         let config = TestHelper::build_config(vec![
             &format!("s3://{bucket}/maxkeys/"),

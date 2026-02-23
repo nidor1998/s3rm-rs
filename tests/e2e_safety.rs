@@ -8,6 +8,12 @@ mod common;
 
 use common::TestHelper;
 
+// TODO: Test R-1 (Req 13.1): Non-TTY detection without --force.
+// E2E tests always run in non-TTY environments. Verifying that the tool
+// auto-detects non-TTY and skips prompts (without --force) would require
+// a dedicated integration test that spawns the binary without --force
+// in a non-TTY context and verifies it proceeds without hanging.
+
 // ---------------------------------------------------------------------------
 // 29.18 Dry Run No Deletion
 // ---------------------------------------------------------------------------
@@ -53,6 +59,8 @@ async fn e2e_dry_run_no_deletion() {
         );
 
         // Verify NO objects were actually deleted
+        // Note: Verification of the [dry-run] log prefix (Req 3.1) requires tracing
+        // output capture, which is covered by unit tests for the dry-run implementation.
         let remaining = helper.count_objects(&bucket, "data/").await;
         assert_eq!(
             remaining, 20,
@@ -72,8 +80,13 @@ async fn e2e_max_delete_threshold() {
         //          specified number of objects have been deleted. The pipeline
         //          should cancel and leave remaining objects intact.
         // Setup:   Upload 50 objects.
-        // Expected: At most 10 objects deleted (may be slightly more due to
-        //           in-flight batch operations); at least 40 remain.
+        // Expected: Exactly 10 objects deleted (with batch-size=1 ensuring the
+        //           max-delete counter is checked after every single object);
+        //           at least 40 remain.
+        //
+        // Note:    --batch-size 1 is essential for deterministic behavior. Without
+        //          it, a single large batch could delete all objects before the
+        //          max-delete check fires, making assertions unreliable.
         //
         // Validates: Requirement 3.6
 
@@ -82,6 +95,8 @@ async fn e2e_max_delete_threshold() {
         helper.create_bucket(&bucket).await;
 
         let _guard = helper.bucket_guard(&bucket);
+
+        let max_delete_value: u64 = 10;
 
         for i in 0..50 {
             helper
@@ -93,6 +108,8 @@ async fn e2e_max_delete_threshold() {
             &format!("s3://{bucket}/data/"),
             "--max-delete",
             "10",
+            "--batch-size",
+            "1",
             "--force",
         ]);
         let result = TestHelper::run_pipeline(config).await;
@@ -105,8 +122,13 @@ async fn e2e_max_delete_threshold() {
             "At least 40 objects should remain (max-delete 10); got {remaining} remaining"
         );
         assert!(
-            result.stats.stats_deleted_objects <= 10,
-            "At most 10 objects should be deleted; got {}",
+            result.stats.stats_deleted_objects >= max_delete_value,
+            "At least {max_delete_value} objects should be deleted (the check fires after the limit is hit); got {}",
+            result.stats.stats_deleted_objects
+        );
+        assert!(
+            result.stats.stats_deleted_objects <= max_delete_value,
+            "At most {max_delete_value} objects should be deleted with batch-size=1; got {}",
             result.stats.stats_deleted_objects
         );
     });

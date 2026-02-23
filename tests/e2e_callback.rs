@@ -7,26 +7,10 @@
 
 mod common;
 
-use common::TestHelper;
-use s3rm_rs::{EventCallback, EventData, EventType, FilterCallback, S3Object};
+use common::{CollectingEventCallback, TestHelper};
+use s3rm_rs::{EventData, EventType, FilterCallback, S3Object};
 use std::io::Write as IoWrite;
 use std::sync::{Arc, Mutex};
-
-// ---------------------------------------------------------------------------
-// Helper: Collecting event callback
-// ---------------------------------------------------------------------------
-
-/// Rust event callback that collects all events into a shared vector.
-struct CollectingEventCallback {
-    events: Arc<Mutex<Vec<EventData>>>,
-}
-
-#[async_trait::async_trait]
-impl EventCallback for CollectingEventCallback {
-    async fn on_event(&mut self, event_data: EventData) {
-        self.events.lock().unwrap().push(event_data);
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Helper: Key-prefix filter callback
@@ -329,9 +313,27 @@ async fn e2e_lua_event_callback() {
         assert!(!result.has_error, "Pipeline should complete without errors");
         assert_eq!(result.stats.stats_deleted_objects, 10);
 
-        // Check that the Lua output file has content (event script ran)
-        // Note: The Lua event script format may vary; we just verify the pipeline
-        // completed and events were fired. The output file check is best-effort.
+        // Verify the Lua event script wrote output to the file.
+        // The script increments a counter on each event and writes "events=N".
+        let content = std::fs::read_to_string(&output_path)
+            .expect("Lua event output file should exist and be readable");
+        assert!(
+            !content.is_empty(),
+            "Lua event output file should be non-empty (event script should have written to it)"
+        );
+        assert!(
+            content.starts_with("events="),
+            "Lua event output should contain 'events=<count>', got: {content}"
+        );
+        // Parse the count and verify we received at least one event
+        let count_str = content.trim_start_matches("events=");
+        let count: u64 = count_str
+            .parse()
+            .unwrap_or_else(|_| panic!("Failed to parse event count from: {content}"));
+        assert!(
+            count > 0,
+            "Lua event script should have received at least 1 event, got {count}"
+        );
     });
 }
 

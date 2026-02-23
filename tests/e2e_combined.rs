@@ -233,6 +233,10 @@ async fn e2e_max_delete_with_filters() {
         // Expected: Exactly 5 of the to-delete/ objects deleted; 25 to-delete/
         //           and 20 other objects remain.
         //
+        // Note:    --batch-size 1 is essential for deterministic behavior. Without
+        //          it, a single large batch could delete all filtered objects before
+        //          the max-delete check fires, making assertions unreliable.
+        //
         // Validates: Requirements 3.6, 2.2
 
         let helper = TestHelper::new().await;
@@ -240,6 +244,8 @@ async fn e2e_max_delete_with_filters() {
         helper.create_bucket(&bucket).await;
 
         let _guard = helper.bucket_guard(&bucket);
+
+        let max_delete_value: u64 = 5;
 
         for i in 0..30 {
             helper
@@ -262,6 +268,8 @@ async fn e2e_max_delete_with_filters() {
             "^to-delete/",
             "--max-delete",
             "5",
+            "--batch-size",
+            "1",
             "--force",
         ]);
         let result = TestHelper::run_pipeline(config).await;
@@ -276,8 +284,13 @@ async fn e2e_max_delete_with_filters() {
             "At least 25 to-delete/ objects should remain (max-delete 5); got {to_delete_remaining}"
         );
         assert!(
-            result.stats.stats_deleted_objects <= 5,
-            "At most 5 objects should be deleted; got {}",
+            result.stats.stats_deleted_objects >= max_delete_value,
+            "At least {max_delete_value} objects should be deleted (the check fires after the limit is hit); got {}",
+            result.stats.stats_deleted_objects
+        );
+        assert!(
+            result.stats.stats_deleted_objects <= max_delete_value,
+            "At most {max_delete_value} objects should be deleted with batch-size=1; got {}",
             result.stats.stats_deleted_objects
         );
     });
@@ -337,7 +350,7 @@ async fn e2e_lua_filter_with_event_callback() {
         writeln!(
             event_script.as_file(),
             r#"
-    function event(data)
+    function on_event(event_data)
         -- no-op event handler
     end
     "#
@@ -389,15 +402,10 @@ async fn e2e_large_object_count() {
 
         let _guard = helper.bucket_guard(&bucket);
 
-        for i in 0..1000 {
-            helper
-                .put_object(
-                    &bucket,
-                    &format!("large-count/file{i:04}.dat"),
-                    vec![b'x'; 1024],
-                )
-                .await;
-        }
+        let objects: Vec<(String, Vec<u8>)> = (0..1000)
+            .map(|i| (format!("large-count/file{i:04}.dat"), vec![b'x'; 1024]))
+            .collect();
+        helper.put_objects_parallel(&bucket, objects).await;
 
         let config =
             TestHelper::build_config(vec![&format!("s3://{bucket}/large-count/"), "--force"]);

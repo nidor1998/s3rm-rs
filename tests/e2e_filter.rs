@@ -922,14 +922,16 @@ async fn e2e_filter_mtime_before() {
                 .await;
         }
 
-        // Wait to ensure timestamp separation
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        // Sleep to create a clear timestamp boundary between "old" and "new" objects.
+        // S3 last-modified timestamps have second-level granularity, so we need enough
+        // margin to ensure no overlap. 3 seconds provides a safe buffer even on slow CI.
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
         // Record the boundary timestamp
         let boundary = chrono::Utc::now().to_rfc3339();
 
         // Wait again to ensure new objects are strictly after the boundary
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
         // Upload second batch (newer objects)
         for i in 0..10 {
@@ -992,14 +994,16 @@ async fn e2e_filter_mtime_after() {
                 .await;
         }
 
-        // Wait to ensure timestamp separation
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        // Sleep to create a clear timestamp boundary between "old" and "new" objects.
+        // S3 last-modified timestamps have second-level granularity, so we need enough
+        // margin to ensure no overlap. 3 seconds provides a safe buffer even on slow CI.
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
         // Record the boundary timestamp
         let boundary = chrono::Utc::now().to_rfc3339();
 
         // Wait again to ensure new objects are strictly after the boundary
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
         // Upload second batch (newer objects)
         for i in 0..10 {

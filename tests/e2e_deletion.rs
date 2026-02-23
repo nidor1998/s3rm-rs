@@ -83,11 +83,10 @@ async fn e2e_batch_deletion_mode() {
 
         let _guard = helper.bucket_guard(&bucket);
 
-        for i in 0..500 {
-            helper
-                .put_object(&bucket, &format!("batch/file{i:04}.dat"), vec![b'b'; 100])
-                .await;
-        }
+        let objects: Vec<(String, Vec<u8>)> = (0..500)
+            .map(|i| (format!("batch/file{i:04}.dat"), vec![b'b'; 100]))
+            .collect();
+        helper.put_objects_parallel(&bucket, objects).await;
 
         let config = TestHelper::build_config(vec![
             &format!("s3://{bucket}/batch/"),

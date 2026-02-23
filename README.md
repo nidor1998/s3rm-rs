@@ -6,9 +6,8 @@
 
 ## Fast Amazon S3 object deletion tool
 
-Delete thousands to millions of S3 objects at speeds approaching Amazon S3's own throughput limit of **~3,500 objects/second**. Built in Rust for maximum performance, safety, and reliability.
+Delete thousands to millions of S3 objects using batch deletion and parallel workers. Built in Rust with safety features and configurable filtering.
 
-**The AWS CLI deletes objects one at a time. s3rm deletes them in batches of up to 1,000 with parallel workers — finishing in minutes what would otherwise take hours.**
 
 ## Table of contents
 
@@ -21,17 +20,17 @@ Delete thousands to millions of S3 objects at speeds approaching Amazon S3's own
 - [Features](#features)
     * [High performance](#high-performance)
     * [Powerful filtering](#powerful-filtering)
+    * [S3 versioning](#s3-versioning)
+    * [S3 Express One Zone support](#s3-express-one-zone-support)
     * [User-defined metadata filtering](#user-defined-metadata-filtering)
     * [Tagging filtering](#tagging-filtering)
     * [Safety first](#safety-first)
-    * [S3 versioning](#s3-versioning)
     * [Optimistic locking](#optimistic-locking)
     * [Robust retry logic](#robust-retry-logic)
     * [Low memory usage](#low-memory-usage)
     * [Rate limiting](#rate-limiting)
     * [Easy to use](#easy-to-use)
     * [Flexibility](#flexibility)
-    * [S3 Express One Zone support](#s3-express-one-zone-support)
     * [Observability](#observability)
     * [Lua scripting support](#lua-scripting-support)
     * [User-defined filter callback](#user-defined-filter-callback)
@@ -88,49 +87,28 @@ Delete thousands to millions of S3 objects at speeds approaching Amazon S3's own
 - [CI/CD Integration](#cicd-integration)
 - [Library API](#library-api)
 - [About testing](#about-testing)
-- [AI-generated software](#ai-generated-software)
-- [Acknowledgments](#acknowledgments)
+- [AI Spec-Driven Development](#ai-spec-driven-development)
 - [License](#license)
 
 </details>
 
 ## Overview
 
-s3rm is a reliable, fast, and safe deletion tool for Amazon S3.
-It serves as a purpose-built alternative to `aws s3 rm --recursive`, offering dramatically better performance and comprehensive safety features that the AWS CLI lacks entirely.
+s3rm is a fast deletion tool for Amazon S3 with built-in safety features.
+It serves as a purpose-built alternative to `aws s3 rm --recursive`, offering batch deletion, parallel workers, and safety features that the AWS CLI lacks.
 
-Whether you're cleaning up terabytes of old logs, enforcing data retention policies, or purging versioned buckets, s3rm handles it with a streaming pipeline that keeps memory usage low and throughput high.
+Whether you're cleaning up terabytes of old logs, enforcing data retention policies, or purging versioned buckets, s3rm uses a streaming pipeline that keeps memory usage constant regardless of object count.
 
-This tool is designed solely for S3 object deletion — and does it well.
+All features are available as a Rust library (`s3rm_rs` crate), so you can integrate S3 deletion into your own applications programmatically.
 
 ### Why s3rm?
 
 Deleting millions of S3 objects is a surprisingly painful problem:
 
-- **`aws s3 rm --recursive`** deletes objects one at a time in a single thread. Deleting 6 million objects can take **weeks**.
-- **S3 Lifecycle Policies** are free but can take **up to 24 hours** to execute, and offer no filtering beyond prefix and tags.
-- **`s5cmd`** is fast for general S3 operations and supports batch deletion, but lacks deletion-specific safety features (no confirmation prompts, no max-delete threshold, no regex filtering, no versioning support).
-- **`rclone`** is a versatile multi-cloud sync tool with filtering support, but as of its current implementation does not appear to use the S3 batch `DeleteObjects` API — it deletes objects one at a time, limiting throughput.
-- **`s3wipe`** (Python) brought multi-threaded batch deletes but is unmaintained and lacks filtering, versioning support, and safety features.
+- **`aws s3 rm --recursive`** deletes objects one at a time in a single thread.
+- **S3 Lifecycle Policies** are free but execution timing is not guaranteed, and they offer no filtering beyond prefix and tags.
 
-s3rm solves all of these problems:
-
-| | aws s3 rm | S3 Lifecycle | s5cmd | rclone | s3rm |
-|---|:---:|:---:|:---:|:---:|:---:|
-| Batch deletion (DeleteObjects API) | - | - | Up to 1,000/req | - | **Up to 1,000/request** |
-| Parallel workers | 1 | N/A | Yes | Yes | **1–65,535** |
-| Target throughput | ~50 obj/s | N/A | ~3,000 obj/s | Varies (no batch API) | **~3,500 obj/s** |
-| Regex filtering | - | - | Glob only | Glob + Go regex | **Key, ContentType, metadata, tags** |
-| Size/time filtering | - | Days only | - | Yes | **Bytes and RFC 3339** |
-| Lua scripting | - | - | - | - | **Filter + event callbacks** |
-| Dry-run preview | - | - | Yes | Yes | **Full pipeline simulation** |
-| Confirmation prompt | - | N/A | - | `-i` flag | **Requires "yes"** |
-| Max-delete safety limit | - | - | - | - | **--max-delete N** |
-| Version-aware deletion | - | Yes | - | Partial | **All versions + delete markers** |
-| Optimistic locking (If-Match) | - | - | - | - | **ETag-based** |
-| Library API | - | - | - | - | **Full Rust crate** |
-| JSON structured logging | - | - | Yes | Yes | **--json-tracing** |
-| S3 Express One Zone | - | - | - | - | **Auto-detected** |
+s3rm solves these problems with batch deletion, parallel workers, comprehensive filtering, and safety features.
 
 ### How it works
 
@@ -149,7 +127,7 @@ Objects stream through the pipeline one stage at a time. The lister fetches keys
 ### High performance
 
 s3rm is implemented in Rust and uses the AWS SDK for Rust, which supports multithreaded asynchronous I/O.
-The default configuration (`--worker-size 24`, `--batch-size 200`) is tuned to approach Amazon S3's practical throughput limit of approximately 3,500 objects per second per prefix partition.
+The default configuration (`--worker-size 24`, `--batch-size 200`) achieves approximately 3,500 objects per second, which approaches the practical throughput guideline of Amazon S3.
 
 - **Batch deletion** using S3's `DeleteObjects` API — up to 1,000 objects per request
 - **Parallel workers** — up to 65,535 concurrent deletion workers
@@ -168,6 +146,23 @@ s3rm offers sophisticated object selection inherited from [s3sync](https://githu
 The regular expression syntax is the same as [fancy_regex](https://docs.rs/fancy-regex/latest/fancy_regex/#syntax), which supports lookaround features.
 
 All filters are combined with logical AND — an object must pass every active filter to be deleted.
+
+### S3 versioning
+
+S3 versioned buckets store multiple versions of each object. s3rm handles both scenarios:
+
+- **Default behavior** — creates delete markers (objects appear deleted but previous versions are preserved)
+- **`--delete-all-versions`** — permanently removes every version of matching objects, including delete markers
+
+### S3 Express One Zone support
+
+s3rm supports [Amazon S3 Express One Zone](https://aws.amazon.com/s3/storage-classes/express-one-zone/), the high-performance, single-Availability Zone storage class designed for latency-sensitive workloads.
+
+s3rm automatically detects Express One Zone directory buckets (by the `--x-s3` bucket name suffix) and adjusts its behavior:
+
+- Parallel listing is disabled by default for Express One Zone, because parallel listing may return in-progress multipart upload objects in this storage class.
+- You can re-enable parallel listing with `--allow-parallel-listings-in-express-one-zone` if your use case allows it.
+- The `s3express:CreateSession` permission is included in the [required permissions](#s3-permissions).
 
 ### User-defined metadata filtering
 
@@ -197,13 +192,6 @@ Unlike most S3 deletion tools, s3rm is designed with **safety as a first-class f
 - **Non-TTY detection** — automatically disables interactive prompts when running in non-interactive environments (CI/CD pipelines, cron jobs).
 
 If you use s3rm for the first time, use the `--dry-run` option to preview the operation.
-
-### S3 versioning
-
-S3 versioned buckets store multiple versions of each object. s3rm handles both scenarios:
-
-- **Default behavior** — creates delete markers (objects appear deleted but previous versions are preserved)
-- **`--delete-all-versions`** — permanently removes every version of matching objects, including delete markers
 
 ### Optimistic locking
 
@@ -237,7 +225,7 @@ This is useful to avoid S3 throttling (`SlowDown` responses) or to control API c
 ### Easy to use
 
 s3rm is designed to be easy to use.
-The default settings are tuned for reliable, high-performance deletion in most scenarios.
+The default settings work for most scenarios without additional tuning.
 
 For example, in an IAM role environment, the following command will preview all objects that would be deleted:
 
@@ -261,16 +249,6 @@ s3rm is designed to adapt to a wide range of deletion scenarios:
 - **CLI and library** — use s3rm as a standalone CLI tool or embed it as a Rust library in your own applications with custom filter and event callbacks.
 - **Configurable everything** — worker count (1 to 65,535), batch size (1 to 1,000), retry attempts, rate limiting, timeouts, parallel listing depth, and more. All options can be set via CLI flags or environment variables.
 - **Cross-platform** — pre-built binaries for Linux (glibc and musl), Windows, and macOS on both x86_64 and ARM64.
-
-### S3 Express One Zone support
-
-s3rm supports [Amazon S3 Express One Zone](https://aws.amazon.com/s3/storage-classes/express-one-zone/), the high-performance, single-Availability Zone storage class designed for latency-sensitive workloads.
-
-s3rm automatically detects Express One Zone directory buckets (by the `--x-s3` bucket name suffix) and adjusts its behavior:
-
-- Parallel listing is disabled by default for Express One Zone, because parallel listing may return in-progress multipart upload objects in this storage class.
-- You can re-enable parallel listing with `--allow-parallel-listings-in-express-one-zone` if your use case allows it.
-- The `s3express:CreateSession` permission is included in the [required permissions](#s3-permissions).
 
 ### Observability
 
@@ -361,10 +339,15 @@ This means you can:
 
 ## Requirements
 
-- x86_64 Linux (kernel 3.2 or later, glibc or musl)
+- x86_64 Linux (kernel 3.2 or later)
 - ARM64 Linux (kernel 4.1 or later)
 - Windows 11 (x86_64, aarch64)
-- macOS 11.0 or later (x86_64, aarch64)
+- macOS 11.0 or later (aarch64, x86_64)
+
+All features are tested on the above platforms.
+
+s3rm is distributed as a single binary with no dependencies (except glibc), so it can be easily run on the above platforms.
+Linux musl statically linked binary is also available.
 
 AWS credentials are required. s3rm supports all standard AWS credential mechanisms:
 - Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
@@ -380,20 +363,6 @@ For more information, see [SDK authentication with AWS](https://docs.aws.amazon.
 ### Pre-built binaries
 
 Download the latest binary from [GitHub Releases](https://github.com/nidor1998/s3rm-rs/releases).
-
-Available platforms:
-- `s3rm-linux-x86_64-glibc` — Linux x86_64 (glibc, recommended)
-- `s3rm-linux-x86_64-musl` — Linux x86_64 (statically linked, portable)
-- `s3rm-linux-aarch64` — Linux ARM64
-- `s3rm-windows-x86_64.exe` — Windows x86_64
-- `s3rm-windows-aarch64.exe` — Windows ARM64
-- `s3rm-macos-x86_64` — macOS Intel
-- `s3rm-macos-aarch64` — macOS Apple Silicon
-
-The musl binary is statically linked and can run on any Linux distribution.
-The glibc version is recommended for best performance.
-
-Note: The statically linked version cannot load Lua C modules.
 
 ### Build from source
 
@@ -728,7 +697,7 @@ s3rm requires the following S3 permissions:
 ```
 
 Additional permissions may be needed depending on features used:
-- `s3:GetObject` / `s3:GetObjectTagging` — when using metadata or tag filters
+- `s3:HeadObject` / `s3:GetObjectTagging` — when using metadata or tag filters
 
 ### Lua VM
 
@@ -765,10 +734,8 @@ An event callback Lua script does not stop the operation — just shows a warnin
 
 ### --worker-size
 
-The number of concurrent deletion workers. More workers can improve performance, but may increase S3 throttling.
+The number of concurrent deletion workers. More workers can increase throughput, but may increase S3 throttling.
 Default: 24
-
-The default value is tuned to approach S3's ~3,500 objects/second throughput limit.
 
 ### --batch-size
 
@@ -1080,24 +1047,11 @@ s3rm has been tested with Amazon S3. s3rm has comprehensive unit tests and prope
 S3-compatible storage is not tested when a new version is released.
 Since there is no official certification for S3-compatible storage, comprehensive testing is not possible.
 
-## AI-generated software
+## AI Spec-Driven Development
 
-The entire s3rm codebase was generated by AI using [Claude](https://claude.ai) (Anthropic). This includes all source code, tests, documentation, CI/CD configuration, and this README.
+**No human wrote a single line of source code in this project.** Every line of source code, every test, all documentation, CI/CD configuration, and this README were generated by AI using [Claude](https://claude.ai) (Anthropic).
 
-The project demonstrates that AI-assisted development can produce software with:
-
-- **Comprehensive test coverage** — 47 property-based correctness properties (proptest) plus unit tests across every module
-- **Safety-critical design** — confirmation prompts, dry-run mode, deletion limits, and non-TTY detection were all specified in requirements and implemented with full test coverage
-- **Production architecture** — streaming pipeline with constant memory usage, parallel workers, batch API optimization, and robust retry logic
-- **Spec-driven development** — requirements, design documents, and task breakdowns were authored first; code was generated to match the specifications
-
-A human engineer authored the requirements, design specifications, and s3sync reference architecture. All code generation, testing, and integration was performed by Claude under human review.
-
-## Acknowledgments
-
-s3rm is built on the architecture and proven patterns of [s3sync](https://github.com/nidor1998/s3sync). Approximately 90% of the codebase — including the AWS client layer, retry logic, filtering engine, Lua integration, progress reporting, and pipeline architecture — is reused from s3sync.
-
-Built with the [AWS SDK for Rust](https://github.com/awslabs/aws-sdk-rust).
+Human engineers authored the requirements, design specifications, and s3sync reference architecture. They thoroughly reviewed and verified the design, all source code, and all tests. The development followed a spec-driven process: requirements and design documents were written first, and the AI generated code to match those specifications under continuous human oversight.
 
 ## License
 

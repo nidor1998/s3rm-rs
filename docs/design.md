@@ -119,7 +119,7 @@ impl DeletionPipeline {
     // Check for errors
     pub fn has_error(&self) -> bool;
     pub fn has_panic(&self) -> bool;
-    pub fn get_errors_and_consume(&self) -> Option<Vec<Error>>;
+    pub fn get_errors_and_consume(&self) -> Option<Vec<anyhow::Error>>;
 
     // Check for warnings
     pub fn has_warning(&self) -> bool;
@@ -654,7 +654,7 @@ pub fn show_indicator(
     stats_receiver: Receiver<DeletionStatistics>,
     show_progress: bool,
     show_result: bool,
-    log_deletion_summary: bool,
+    log_sync_summary: bool,
     dry_run: bool,
 ) -> JoinHandle<()> {
     // Spawn task that reads from stats_receiver channel
@@ -828,6 +828,7 @@ pub struct CLIArgs {
     pub dry_run: bool,       // -d / --dry-run
     pub force: bool,         // -f / --force
     pub show_no_progress: bool,
+    pub report_deletion_status: bool,  // default true
     pub delete_all_versions: bool,
     pub batch_size: u16,     // 1-1000 (default 200); value_parser range enforced
                              // If Express One Zone and !allow_parallel_listings_in_express_one_zone, overridden to 1
@@ -967,12 +968,15 @@ async fn run(mut config: Config) -> Result<()> {
         return Err(e);
     }
 
+    // When reporting deletion status, a deletion summary log is not needed.
+    let log_sync_summary = !config.report_deletion_status;
+
     // Start progress indicator after prerequisites pass
     let indicator_join_handle = indicator::show_indicator(
         pipeline.get_stats_receiver(),
         ui_config::is_progress_indicator_needed(&config),
         ui_config::is_show_result_needed(&config),
-        true, config.dry_run,
+        log_sync_summary, config.dry_run,
     );
 
     pipeline.run().await;
@@ -1124,9 +1128,6 @@ impl S3Object {
     pub fn is_delete_marker(&self) -> bool;
 }
 
-// Object key map for tracking (reused from s3sync)
-pub type ObjectKeyMap = Arc<Mutex<HashMap<String, S3Object>>>;
-
 // Statistics sent through the stats channel during pipeline execution.
 // Each variant represents a single event sent from workers to the
 // progress reporter via an async channel. Adapted from s3sync's SyncStatistics.
@@ -1218,6 +1219,7 @@ pub fn create_pipeline_cancellation_token() -> PipelineCancellationToken {
 pub struct Config {
     pub target: StoragePath,
     pub show_no_progress: bool,
+    pub report_deletion_status: bool,
     pub target_client_config: Option<ClientConfig>,
     pub force_retry_config: ForceRetryConfig,
     pub tracing_config: Option<TracingConfig>,
@@ -2079,11 +2081,17 @@ mlua = { version = "0.11.6", features = ["lua54", "async", "send", "vendored"], 
 # Byte unit parsing (same as s3sync)
 byte-unit = "5.2.0"
 
+# Build info (same as s3sync)
+shadow-rs = { version = "1.7.0", optional = true }
+
 # Misc (same as s3sync)
 cfg-if = "1.0.4"
 bitflags = "2.10.0"
 log = "0.4.29"
 rusty-fork = "0.3.1"
+
+[build-dependencies]
+shadow-rs = { version = "1.7.0", optional = true }
 
 [dev-dependencies]
 proptest = "1.6"

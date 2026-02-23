@@ -8,7 +8,7 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-26 complete. Task 23 checkpoint complete (CLI polish, spec audit, docs, infrastructure). Task 27 partially complete (27.1, 27.2, 27.3, 27.5 done). Task 28 partially complete (28.1, 28.2, 28.4 done). All 49 correctness properties have property-based tests (83 proptest functions, 431 total lib tests). Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, CI/CD integration, additional property tests, comprehensive unit tests, and property testing infrastructure all established. Rustdoc documentation, examples, CONTRIBUTING.md, SECURITY.md, Dockerfile, build info (shadow-rs), and PR template added. Code quality checks (clippy, rustfmt, cargo-deny) all pass.
+**Current Achievement**: Tasks 1-26 complete (including Tasks 24-25: comprehensive unit tests and property testing infrastructure). Task 23 checkpoint complete (CLI polish, spec audit, docs, infrastructure). Task 27 partially complete (27.1, 27.2, 27.3, 27.5 done; 27.4 CHANGELOG.md remains). Task 28 partially complete (28.1, 28.2, 28.4 done; 28.3 coverage and 28.5 benchmarks remain). All 49 correctness properties have property-based tests (83 proptest functions, 431 total lib tests). Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, CI/CD integration, additional property tests, comprehensive unit tests, and property testing infrastructure all established. Rustdoc documentation, examples, CONTRIBUTING.md, SECURITY.md, Dockerfile, build info (shadow-rs), and PR template added. Code quality checks (clippy, rustfmt, cargo-deny) all pass.
 
 ## Current Status
 
@@ -37,6 +37,8 @@ Phase 20: CI/CD Integration (Task 21)
 Phase 21: Additional Property Tests (Task 22)
 Phase 22: Verify All Property Tests (Task 26)
 Phase 23: Checkpoint Review (Task 23)
+Phase 24: Comprehensive Unit Tests (Task 24)
+Phase 25: Property-Based Testing Infrastructure (Task 25)
 
 ## Tasks
 
@@ -934,7 +936,7 @@ Phase 23: Checkpoint Review (Task 23)
 
 ## Implementation Status Summary
 
-Tasks 1-26 complete (including Task 23 checkpoint). Task 27 partially complete (27.1, 27.2, 27.3, 27.5 done). Task 28 partially complete (28.1 clippy, 28.2 rustfmt, 28.4 cargo-deny all pass). All merged to init_build.
+Tasks 1-26 complete (including Task 23 checkpoint, Task 24 unit tests, Task 25 property testing infrastructure). Task 27 partially complete (27.1, 27.2, 27.3, 27.5 done; 27.4 CHANGELOG.md remains). Task 28 partially complete (28.1 clippy, 28.2 rustfmt, 28.4 cargo-deny all pass; 28.3 coverage and 28.5 benchmarks remain). All merged to init_build.
 
 **Already implemented across Tasks 1-25** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)
@@ -990,7 +992,9 @@ Tasks 1-26 complete (including Task 23 checkpoint). Task 27 partially complete (
 - 27.5: CONTRIBUTING.md (done in Task 23, commit c9bedf8)
 
 **Remaining work**:
-- Task 23: Checkpoint review — complete
-- Task 27: Documentation and Examples (27.1, 27.2, 27.3, 27.5 done; 27.4 CHANGELOG.md remains)
-- Task 28: Code quality (28.1 clippy done, 28.2 rustfmt done, 28.4 cargo-deny done; 28.3 coverage and 28.5 benchmarks remain)
-- Tasks 29-31: E2E testing, final checkpoint, release
+- Task 27.4: CHANGELOG.md (not yet created)
+- Task 28.3: Test coverage measurement (not yet run)
+- Task 28.5: Benchmarks (optional, not yet created)
+- Task 29: Integration Testing / Manual E2E (not yet started, requires AWS credentials)
+- Task 30: Final Checkpoint / Pre-Release Validation (not yet started)
+- Task 31: Release Preparation (not yet started)

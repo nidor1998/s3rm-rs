@@ -7,7 +7,7 @@
 mod common;
 
 use common::{CollectingEventCallback, TestHelper};
-use s3rm_rs::{EventData, EventType};
+use s3rm_rs::EventType;
 use std::sync::{Arc, Mutex};
 
 // ---------------------------------------------------------------------------
@@ -75,10 +75,11 @@ async fn e2e_deletion_stats_accuracy() {
             result.stats.stats_failed_objects, 0,
             "No objects should fail"
         );
-        assert!(
-            !result.stats.duration.is_zero(),
-            "Duration should be positive"
-        );
+        // Note: duration is set by the CLI layer (not the library pipeline),
+        // so it is expected to be zero in library-API tests.
+
+        let remaining = helper.count_objects(&bucket, "stats/").await;
+        assert_eq!(remaining, 0, "All stats/ objects should be removed from S3");
         guard.cleanup().await;
     });
 }
@@ -167,6 +168,9 @@ async fn e2e_event_callback_receives_all_event_types() {
                 "Should have at least 1 PIPELINE_END event"
             );
         }
+
+        let remaining = helper.count_objects(&bucket, "events/").await;
+        assert_eq!(remaining, 0, "All events/ objects should be removed from S3");
         guard.cleanup().await;
     });
 }

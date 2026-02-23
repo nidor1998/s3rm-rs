@@ -21,9 +21,25 @@
 │   └── bin/s3rm/           # CLI binary entry point
 ├── Cargo.toml              # Package manifest and dependencies
 ├── Cargo.lock              # Dependency lock file
+├── build.rs                # Build script (shadow-rs build info generation)
+├── deny.toml               # cargo-deny config (license, advisory, ban checks)
+├── Dockerfile              # Multi-stage Docker build (debian:trixie)
+├── LICENSE                  # Apache License 2.0
+├── README.md               # Project overview, CLI reference, usage examples
+├── CONTRIBUTING.md         # Contribution guidelines (AI-only project notice)
+├── SECURITY.md             # Security policy
+├── CLAUDE.md               # Claude Code integration guide
+├── examples/               # Usage examples
+│   ├── filter.lua          # Example Lua filter callback script
+│   ├── event.lua           # Example Lua event callback script
+│   └── library_usage.rs    # Example Rust library usage
 ├── docs/                   # Permanent documentation (requirements, design, product, tech, structure)
 ├── steering/
 │   └── init_build/         # Active build phase (tasks, phase README)
+├── .github/
+│   ├── pull_request_template.md  # PR template (AI-only project notice)
+│   └── workflows/
+│       └── ci.yml          # CI pipeline for multi-platform builds
 └── .git/                   # Git repository
 ```
 
@@ -32,19 +48,26 @@
 ```
 src/
 ├── lib.rs                  # Public API exports and re-exports
+├── lib_properties.rs       # Property tests for library API (Properties 44-47)
 ├── pipeline.rs             # DeletionPipeline orchestrator
 ├── stage.rs                # Stage struct for pipeline stages
 ├── config/
 │   ├── mod.rs              # Config struct, sub-structs, TryFrom<CLIArgs>
 │   └── args/
 │       ├── mod.rs          # CLIArgs (clap-derived), parse_from_args()
-│       └── value_parser/   # Custom value parsers (human_bytes)
+│       ├── tests.rs        # Unit tests for CLI args (Properties 33, 38-40)
+│       └── value_parser/   # Custom value parsers
+│           ├── mod.rs
+│           ├── human_bytes.rs
+│           ├── file_exist.rs
+│           ├── regex.rs
+│           └── url.rs
 ├── storage/
 │   ├── mod.rs              # StorageTrait, Storage type alias, create_storage()
 │   └── s3/
 │       ├── mod.rs          # S3Storage implementation
 │       └── client_builder.rs # AWS client builder with credentials, retry, rate limiting
-├── lister.rs               # ObjectLister (reused from s3sync)
+├── lister.rs               # ObjectLister (reused from s3sync) + Property 5 tests
 ├── filters/
 │   ├── mod.rs              # ObjectFilter trait, ObjectFilterBase
 │   ├── mtime_before.rs     # MtimeBeforeFilter
@@ -53,35 +76,49 @@ src/
 │   ├── larger_size.rs      # LargerSizeFilter
 │   ├── include_regex.rs    # IncludeRegexFilter
 │   ├── exclude_regex.rs    # ExcludeRegexFilter
-│   └── user_defined.rs     # UserDefinedFilter (Lua/Rust callbacks via FilterManager)
+│   ├── user_defined.rs     # UserDefinedFilter (Lua/Rust callbacks via FilterManager)
+│   └── filter_properties.rs # Property tests for filters (Properties 7-10)
 ├── deleter/
 │   ├── mod.rs              # ObjectDeleter, Deleter trait, DeleteResult types
 │   ├── batch.rs            # BatchDeleter (S3 DeleteObjects API)
 │   ├── single.rs           # SingleDeleter (S3 DeleteObject API)
-│   └── tests.rs            # Deletion unit and property tests
+│   └── tests.rs            # Unit + property tests for deletion (Properties 1-3, 6)
 ├── callback/
 │   ├── mod.rs              # Re-exports
 │   ├── event_manager.rs    # EventManager (event callback registration and dispatch)
 │   ├── filter_manager.rs   # FilterManager (filter callback registration and dispatch)
 │   ├── user_defined_event_callback.rs  # UserDefinedEventCallback
-│   └── user_defined_filter_callback.rs # UserDefinedFilterCallback
+│   ├── user_defined_filter_callback.rs # UserDefinedFilterCallback
+│   └── event_callback_properties.rs    # Property tests for event callbacks (Property 32)
 ├── safety/
-│   └── mod.rs              # SafetyChecker, PromptHandler trait, confirmation flow
+│   ├── mod.rs              # SafetyChecker, PromptHandler trait, confirmation flow
+│   └── safety_properties.rs # Property tests for safety features (Properties 16-18)
 ├── terminator.rs           # Terminator stage
 ├── lua/                    # Lua integration (reused from s3sync)
 │   ├── mod.rs
 │   ├── engine.rs           # LuaScriptCallbackEngine
 │   ├── filter.rs           # LuaFilterCallback
-│   └── event.rs            # LuaEventCallback
+│   ├── event.rs            # LuaEventCallback
+│   └── lua_properties.rs   # Property tests for Lua (Properties 11, 14-15)
 ├── types/
 │   ├── mod.rs              # S3Object, DeletionStats, DeletionStatistics, S3Target, etc.
 │   ├── error.rs            # S3rmError enum with exit_code() and is_retryable()
 │   ├── event_callback.rs   # EventCallback trait, EventType bitflags, EventData
 │   ├── filter_callback.rs  # FilterCallback trait
 │   └── token.rs            # PipelineCancellationToken type alias
+├── versioning_properties.rs  # Property tests for versioning (Properties 25-28)
+├── retry_properties.rs       # Property tests for retry/error handling (Properties 29-30)
+├── optimistic_locking_properties.rs # Property tests for If-Match (Properties 41-43)
+├── logging_properties.rs     # Property tests for logging/verbosity (Properties 21-24)
+├── aws_config_properties.rs  # Property tests for AWS config (Properties 34-35)
+├── rate_limiting_properties.rs # Property tests for rate limiting (Property 36)
+├── cross_platform_properties.rs # Property tests for cross-platform (Property 37)
+├── cicd_properties.rs        # Property tests for CI/CD integration (Properties 48-49)
+├── additional_properties.rs  # Property tests for Properties 4, 12, 13
 └── bin/s3rm/
     ├── main.rs             # CLI binary entry point
-    ├── indicator.rs         # Progress reporter (indicatif)
+    ├── indicator.rs        # Progress reporter (indicatif)
+    ├── indicator_properties.rs # Property tests for progress (Property 31)
     ├── tracing_init.rs     # Tracing subscriber initialization
     ├── ui_config.rs        # UI configuration helpers
     └── ctrl_c_handler/
@@ -116,4 +153,4 @@ src/
 Tests are co-located with source code:
 - Unit tests in `#[cfg(test)]` modules within each source file
 - Property-based tests in `*_properties.rs` files alongside source modules
-- Integration tests in `tests/` directory at project root
+- E2E integration tests planned for `tests/` directory (not yet implemented)

@@ -4,11 +4,13 @@ use anyhow::{Context, Result};
 use async_channel::Sender;
 use async_trait::async_trait;
 use aws_sdk_s3::Client;
+use aws_sdk_s3::error::SdkError;
 use aws_sdk_s3::operation::delete_object::DeleteObjectOutput;
 use aws_sdk_s3::operation::delete_objects::DeleteObjectsOutput;
 use aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput;
 use aws_sdk_s3::operation::head_object::HeadObjectOutput;
 use aws_sdk_s3::types::{Delete, ObjectIdentifier, RequestPayer};
+use aws_smithy_types::error::metadata::ProvideErrorMetadata;
 use leaky_bucket::RateLimiter;
 use std::future::Future;
 use std::pin::Pin;
@@ -22,6 +24,26 @@ use crate::types::token::PipelineCancellationToken;
 use crate::types::{DeletionStatistics, S3Object, StoragePath};
 
 const EXPRESS_ONEZONE_STORAGE_SUFFIX: &str = "--x-s3";
+
+/// Extracts the S3 error code and message from an AWS SDK error.
+///
+/// For service errors (S3 API responses), returns the S3 error code
+/// (e.g. "AccessDenied", "InternalError") and the human-readable error
+/// message from the response. For other error types (network, timeout,
+/// construction failure), returns "N/A" as the code and the full error
+/// description as the message.
+fn extract_sdk_error_details<E: std::fmt::Display + ProvideErrorMetadata>(
+    e: &SdkError<E>,
+) -> (String, String) {
+    if let Some(service_err) = e.as_service_error() {
+        (
+            service_err.code().unwrap_or("unknown").to_string(),
+            service_err.message().unwrap_or("no message").to_string(),
+        )
+    } else {
+        ("N/A".to_string(), e.to_string())
+    }
+}
 
 /// Factory for creating S3 storage instances.
 ///
@@ -156,7 +178,21 @@ impl StorageTrait for S3Storage {
                 .max_keys(max_keys)
                 .send()
                 .await
-                .context("aws_sdk_s3::client::list_objects_v2() failed.")?;
+                .map_err(|e| {
+                    let (s3_error_code, s3_error_message) = extract_sdk_error_details(&e);
+                    tracing::error!(
+                        bucket = self.bucket,
+                        prefix = self.prefix,
+                        s3_error_code = s3_error_code,
+                        s3_error_message = s3_error_message,
+                        "S3 ListObjectsV2 API call failed for s3://{}/{}: {} ({}).",
+                        self.bucket,
+                        self.prefix,
+                        s3_error_code,
+                        s3_error_message,
+                    );
+                    anyhow::anyhow!(e).context("aws_sdk_s3::client::list_objects_v2() failed.")
+                })?;
 
             for object in output.contents() {
                 if self.cancellation_token.is_cancelled() {
@@ -245,7 +281,21 @@ impl StorageTrait for S3Storage {
                 .max_keys(max_keys)
                 .send()
                 .await
-                .context("aws_sdk_s3::client::list_object_versions() failed.")?;
+                .map_err(|e| {
+                    let (s3_error_code, s3_error_message) = extract_sdk_error_details(&e);
+                    tracing::error!(
+                        bucket = self.bucket,
+                        prefix = self.prefix,
+                        s3_error_code = s3_error_code,
+                        s3_error_message = s3_error_message,
+                        "S3 ListObjectVersions API call failed for s3://{}/{}: {} ({}).",
+                        self.bucket,
+                        self.prefix,
+                        s3_error_code,
+                        s3_error_message,
+                    );
+                    anyhow::anyhow!(e).context("aws_sdk_s3::client::list_object_versions() failed.")
+                })?;
 
             // Send object versions
             for version in output.versions() {
@@ -299,17 +349,30 @@ impl StorageTrait for S3Storage {
     ) -> Result<HeadObjectOutput> {
         self.exec_rate_limit_objects_per_sec().await;
 
-        Ok(self
-            .client
+        let full_key = prepend_prefix(&self.prefix, relative_key);
+        self.client
             .as_ref()
             .unwrap()
             .head_object()
             .set_request_payer(self.request_payer.clone())
             .bucket(&self.bucket)
-            .key(prepend_prefix(&self.prefix, relative_key))
-            .set_version_id(version_id)
+            .key(&full_key)
+            .set_version_id(version_id.clone())
             .send()
-            .await?)
+            .await
+            .map_err(|e| {
+                let (s3_error_code, s3_error_message) = extract_sdk_error_details(&e);
+                tracing::error!(
+                    bucket = self.bucket,
+                    key = %full_key,
+                    version_id = version_id,
+                    s3_error_code = s3_error_code,
+                    s3_error_message = s3_error_message,
+                    "S3 HeadObject API call failed for s3://{}/{}: {} ({}).",
+                    self.bucket, full_key, s3_error_code, s3_error_message,
+                );
+                anyhow::anyhow!(e).context("aws_sdk_s3::client::head_object() failed.")
+            })
     }
 
     async fn get_object_tagging(
@@ -319,17 +382,30 @@ impl StorageTrait for S3Storage {
     ) -> Result<GetObjectTaggingOutput> {
         self.exec_rate_limit_objects_per_sec().await;
 
-        Ok(self
-            .client
+        let full_key = prepend_prefix(&self.prefix, relative_key);
+        self.client
             .as_ref()
             .unwrap()
             .get_object_tagging()
             .set_request_payer(self.request_payer.clone())
             .bucket(&self.bucket)
-            .key(prepend_prefix(&self.prefix, relative_key))
-            .set_version_id(version_id)
+            .key(&full_key)
+            .set_version_id(version_id.clone())
             .send()
-            .await?)
+            .await
+            .map_err(|e| {
+                let (s3_error_code, s3_error_message) = extract_sdk_error_details(&e);
+                tracing::error!(
+                    bucket = self.bucket,
+                    key = %full_key,
+                    version_id = version_id,
+                    s3_error_code = s3_error_code,
+                    s3_error_message = s3_error_message,
+                    "S3 GetObjectTagging API call failed for s3://{}/{}: {} ({}).",
+                    self.bucket, full_key, s3_error_code, s3_error_message,
+                );
+                anyhow::anyhow!(e).context("aws_sdk_s3::client::get_object_tagging() failed.")
+            })
     }
 
     async fn delete_object(
@@ -340,106 +416,69 @@ impl StorageTrait for S3Storage {
     ) -> Result<DeleteObjectOutput> {
         self.exec_rate_limit_objects_per_sec().await;
 
-        Ok(self
-            .client
+        let full_key = prepend_prefix(&self.prefix, relative_key);
+        self.client
             .as_ref()
             .unwrap()
             .delete_object()
             .set_request_payer(self.request_payer.clone())
             .bucket(&self.bucket)
-            .key(prepend_prefix(&self.prefix, relative_key))
-            .set_version_id(version_id)
+            .key(&full_key)
+            .set_version_id(version_id.clone())
             .set_if_match(if_match)
             .send()
-            .await?)
+            .await
+            .map_err(|e| {
+                let (s3_error_code, s3_error_message) = extract_sdk_error_details(&e);
+                tracing::warn!(
+                    bucket = self.bucket,
+                    key = %full_key,
+                    version_id = version_id,
+                    s3_error_code = s3_error_code,
+                    s3_error_message = s3_error_message,
+                    "S3 DeleteObject API call failed for s3://{}/{}: {} ({}).",
+                    self.bucket, full_key, s3_error_code, s3_error_message,
+                );
+                anyhow::anyhow!(e).context("aws_sdk_s3::client::delete_object() failed.")
+            })
     }
 
     async fn delete_objects(&self, objects: Vec<ObjectIdentifier>) -> Result<DeleteObjectsOutput> {
-        let force_retry_count = self.config.force_retry_config.force_retry_count;
-        let force_retry_interval = self
-            .config
-            .force_retry_config
-            .force_retry_interval_milliseconds;
+        self.exec_rate_limit_objects_per_sec_n(objects.len()).await;
 
-        let mut remaining_objects = objects;
-        let mut all_deleted: Vec<aws_sdk_s3::types::DeletedObject> = Vec::new();
-        let mut last_errors: Vec<aws_sdk_s3::types::Error> = Vec::new();
+        let object_count = objects.len();
 
-        // 0..=force_retry_count: first iteration is the initial attempt,
-        // subsequent iterations are retries. When force_retry_count=0,
-        // only the initial attempt runs (no retry).
-        for attempt in 0..=force_retry_count {
-            if remaining_objects.is_empty() || self.cancellation_token.is_cancelled() {
-                break;
-            }
+        let delete = Delete::builder()
+            .set_objects(Some(objects))
+            .build()
+            .context("Failed to build Delete request")?;
 
-            if attempt > 0 {
-                tokio::time::sleep(std::time::Duration::from_millis(force_retry_interval)).await;
-            }
-
-            self.exec_rate_limit_objects_per_sec_n(remaining_objects.len())
-                .await;
-
-            let delete = Delete::builder()
-                .set_objects(Some(remaining_objects))
-                .build()
-                .context("Failed to build Delete request")?;
-
-            let output = self
-                .client
-                .as_ref()
-                .unwrap()
-                .delete_objects()
-                .set_request_payer(self.request_payer.clone())
-                .bucket(&self.bucket)
-                .delete(delete)
-                .send()
-                .await
-                .context("aws_sdk_s3::client::delete_objects() failed.")?;
-
-            // Accumulate successfully deleted objects
-            all_deleted.extend_from_slice(output.deleted());
-
-            // Check for partial failures
-            let errors = output.errors();
-            if errors.is_empty() {
-                last_errors.clear();
-                break;
-            }
-
-            // Extract failed objects as ObjectIdentifiers for retry
-            remaining_objects = errors
-                .iter()
-                .filter_map(|e| {
-                    e.key().map(|key| {
-                        ObjectIdentifier::builder()
-                            .key(key)
-                            .set_version_id(e.version_id().map(String::from))
-                            .build()
-                            .expect("ObjectIdentifier key is present")
-                    })
-                })
-                .collect();
-
-            last_errors = errors.to_vec();
-
-            tracing::warn!(
-                attempt = attempt + 1,
-                force_retry_count = force_retry_count,
-                failed_count = remaining_objects.len(),
-                "Batch deletion partial failure, retrying failed objects."
-            );
-        }
-
-        // Build final output with accumulated results
-        Ok(DeleteObjectsOutput::builder()
-            .set_deleted(Some(all_deleted))
-            .set_errors(if last_errors.is_empty() {
-                None
-            } else {
-                Some(last_errors)
+        self.client
+            .as_ref()
+            .unwrap()
+            .delete_objects()
+            .set_request_payer(self.request_payer.clone())
+            .bucket(&self.bucket)
+            .delete(delete)
+            .send()
+            .await
+            .map_err(|e| {
+                let (s3_error_code, s3_error_message) = extract_sdk_error_details(&e);
+                tracing::error!(
+                    bucket = self.bucket,
+                    prefix = self.prefix,
+                    object_count = object_count,
+                    s3_error_code = s3_error_code,
+                    s3_error_message = s3_error_message,
+                    "S3 DeleteObjects API call failed for {} objects in s3://{}/{}: {} ({}).",
+                    object_count,
+                    self.bucket,
+                    self.prefix,
+                    s3_error_code,
+                    s3_error_message,
+                );
+                anyhow::anyhow!(e).context("aws_sdk_s3::client::delete_objects() failed.")
             })
-            .build())
     }
 
     async fn is_versioning_enabled(&self) -> Result<bool> {
@@ -450,7 +489,20 @@ impl StorageTrait for S3Storage {
             .get_bucket_versioning()
             .bucket(&self.bucket)
             .send()
-            .await?;
+            .await
+            .map_err(|e| {
+                let (s3_error_code, s3_error_message) = extract_sdk_error_details(&e);
+                tracing::error!(
+                    bucket = self.bucket,
+                    s3_error_code = s3_error_code,
+                    s3_error_message = s3_error_message,
+                    "S3 GetBucketVersioning API call failed for bucket '{}': {} ({}).",
+                    self.bucket,
+                    s3_error_code,
+                    s3_error_message,
+                );
+                anyhow::anyhow!(e).context("aws_sdk_s3::client::get_bucket_versioning() failed.")
+            })?;
 
         Ok(response.status() == Some(&aws_sdk_s3::types::BucketVersioningStatus::Enabled))
     }
@@ -558,7 +610,21 @@ impl S3Storage {
                     .max_keys(max_keys)
                     .send()
                     .await
-                    .context("Failed to list objects in parallel listing")?;
+                    .map_err(|e| {
+                        let (s3_error_code, s3_error_message) = extract_sdk_error_details(&e);
+                        tracing::error!(
+                            bucket = self.bucket,
+                            prefix = prefix,
+                            s3_error_code = s3_error_code,
+                            s3_error_message = s3_error_message,
+                            "S3 ListObjectsV2 API call failed for s3://{}/{}: {} ({}).",
+                            self.bucket,
+                            prefix,
+                            s3_error_code,
+                            s3_error_message,
+                        );
+                        anyhow::anyhow!(e).context("Failed to list objects in parallel listing")
+                    })?;
 
                 // Send objects found at this level
                 for object in output.contents() {
@@ -700,7 +766,22 @@ impl S3Storage {
                     .max_keys(max_keys)
                     .send()
                     .await
-                    .context("Failed to list object versions in parallel listing")?;
+                    .map_err(|e| {
+                        let (s3_error_code, s3_error_message) = extract_sdk_error_details(&e);
+                        tracing::error!(
+                            bucket = self.bucket,
+                            prefix = prefix,
+                            s3_error_code = s3_error_code,
+                            s3_error_message = s3_error_message,
+                            "S3 ListObjectVersions API call failed for s3://{}/{}: {} ({}).",
+                            self.bucket,
+                            prefix,
+                            s3_error_code,
+                            s3_error_message,
+                        );
+                        anyhow::anyhow!(e)
+                            .context("Failed to list object versions in parallel listing")
+                    })?;
 
                 // Send object versions found at this level
                 for version in output.versions() {
@@ -853,6 +934,7 @@ mod tests {
                 prefix: prefix.to_string(),
             },
             show_no_progress: false,
+            log_deletion_summary: false,
             target_client_config: None,
             force_retry_config: crate::config::ForceRetryConfig {
                 force_retry_count: 0,
@@ -1034,5 +1116,47 @@ mod tests {
 
         let received = stats_receiver.recv().await.unwrap();
         assert!(matches!(received, DeletionStatistics::DeleteBytes(512)));
+    }
+
+    #[test]
+    fn extract_sdk_error_details_service_error() {
+        use aws_sdk_s3::operation::head_object::HeadObjectError;
+        use aws_smithy_types::body::SdkBody;
+
+        // Build a service error with code and message
+        let service_err = HeadObjectError::NotFound(
+            aws_sdk_s3::types::error::NotFound::builder()
+                .message("Not Found")
+                .build(),
+        );
+
+        let raw_response = aws_smithy_runtime_api::http::Response::new(
+            aws_smithy_runtime_api::http::StatusCode::try_from(404).unwrap(),
+            SdkBody::from(""),
+        );
+
+        let sdk_error = SdkError::service_error(service_err, raw_response);
+        let (code, message) = extract_sdk_error_details(&sdk_error);
+
+        // NotFound should have a code from the metadata
+        assert_ne!(code, "N/A", "service errors should extract a code");
+        assert!(!message.is_empty(), "service errors should have a message");
+    }
+
+    #[test]
+    fn extract_sdk_error_details_non_service_error() {
+        use aws_sdk_s3::operation::head_object::HeadObjectError;
+        use aws_smithy_types::body::SdkBody;
+
+        // Build a timeout error (not a service error)
+        let sdk_error: SdkError<HeadObjectError, aws_smithy_runtime_api::http::Response<SdkBody>> =
+            SdkError::timeout_error("connection timed out");
+        let (code, message) = extract_sdk_error_details(&sdk_error);
+
+        assert_eq!(code, "N/A", "non-service errors should return N/A code");
+        assert!(
+            !message.is_empty(),
+            "non-service errors should have a message from Display"
+        );
     }
 }

@@ -130,13 +130,13 @@ impl DeletionStatsReport {
 
     /// Record a successful deletion of an object with the given byte size.
     pub fn increment_deleted(&self, bytes: u64) {
-        self.stats_deleted_objects.fetch_add(1, Ordering::SeqCst);
-        self.stats_deleted_bytes.fetch_add(bytes, Ordering::SeqCst);
+        self.stats_deleted_objects.fetch_add(1, Ordering::Relaxed);
+        self.stats_deleted_bytes.fetch_add(bytes, Ordering::Relaxed);
     }
 
     /// Record a failed deletion attempt.
     pub fn increment_failed(&self) {
-        self.stats_failed_objects.fetch_add(1, Ordering::SeqCst);
+        self.stats_failed_objects.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Take a point-in-time snapshot of the current statistics.
@@ -145,9 +145,9 @@ impl DeletionStatsReport {
     /// `Duration::default()` and should be overridden by the caller.
     pub fn snapshot(&self) -> DeletionStats {
         DeletionStats {
-            stats_deleted_objects: self.stats_deleted_objects.load(Ordering::SeqCst),
-            stats_deleted_bytes: self.stats_deleted_bytes.load(Ordering::SeqCst),
-            stats_failed_objects: self.stats_failed_objects.load(Ordering::SeqCst),
+            stats_deleted_objects: self.stats_deleted_objects.load(Ordering::Relaxed),
+            stats_deleted_bytes: self.stats_deleted_bytes.load(Ordering::Relaxed),
+            stats_failed_objects: self.stats_failed_objects.load(Ordering::Relaxed),
             duration: Duration::default(),
         }
     }

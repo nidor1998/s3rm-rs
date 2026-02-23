@@ -6,7 +6,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use aws_sdk_s3::types::ObjectIdentifier;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 use crate::config::Config;
 use crate::types::S3Object;
@@ -15,6 +15,23 @@ use super::{DeleteResult, DeletedKey, Deleter, FailedKey};
 
 /// Maximum objects per batch DeleteObjects API call (S3 limit).
 pub const MAX_BATCH_SIZE: usize = 1000;
+
+/// Determines whether an S3 batch deletion error code is retryable.
+///
+/// Retryable errors are transient server-side issues that may succeed
+/// on a subsequent attempt:
+/// - `InternalError` / `ServiceUnavailable` — transient server errors
+/// - `SlowDown` — throttling
+/// - `RequestTimeout` — transient network/timeout
+///
+/// Non-retryable errors (e.g. `AccessDenied`, `NoSuchKey`) are permanent
+/// and should not be retried.
+pub(crate) fn is_retryable_error_code(code: &str) -> bool {
+    matches!(
+        code,
+        "InternalError" | "SlowDown" | "ServiceUnavailable" | "RequestTimeout" | "unknown"
+    )
+}
 
 /// Deletes objects in batches using the S3 DeleteObjects API.
 ///
@@ -41,8 +58,25 @@ impl Deleter for BatchDeleter {
         }
 
         let batch_size = (config.batch_size as usize).min(MAX_BATCH_SIZE);
+        let force_retry_count = config.force_retry_config.force_retry_count;
+        let force_retry_interval = config.force_retry_config.force_retry_interval_milliseconds;
 
         for chunk in objects.chunks(batch_size) {
+            // Build a lookup map from (key, version_id) -> &S3Object for ETag retrieval
+            // during single-delete fallback with if_match.
+            let obj_lookup: std::collections::HashMap<(String, Option<String>), &S3Object> = chunk
+                .iter()
+                .map(|obj| {
+                    (
+                        (
+                            obj.key().to_string(),
+                            obj.version_id().map(|v| v.to_string()),
+                        ),
+                        obj,
+                    )
+                })
+                .collect();
+
             let identifiers: Vec<ObjectIdentifier> = chunk
                 .iter()
                 .map(|obj| {
@@ -77,32 +111,104 @@ impl Deleter for BatchDeleter {
                 });
             }
 
-            let errors = response.errors();
-            for err in errors {
+            // Handle partial failures: classify by error code and fall back
+            // to individual DeleteObject calls for retryable errors.
+            for err in response.errors() {
                 let key = err.key().unwrap_or("unknown").to_string();
                 let version_id = err.version_id().map(|v| v.to_string());
                 let code = err.code().unwrap_or("unknown").to_string();
                 let message = err.message().unwrap_or("no message").to_string();
 
-                warn!(
-                    key = key,
-                    version_id = version_id,
-                    code = code,
-                    message = message,
-                    "object failed in batch delete."
-                );
+                if is_retryable_error_code(&code) {
+                    // Retryable error: fall back to individual DeleteObject with retries
+                    let if_match_etag = if config.if_match {
+                        obj_lookup
+                            .get(&(key.clone(), version_id.clone()))
+                            .and_then(|obj| obj.e_tag().map(|s| s.to_string()))
+                    } else {
+                        None
+                    };
 
-                result.failed.push(FailedKey {
-                    key,
-                    version_id,
-                    error_code: code,
-                    error_message: message,
-                });
+                    let mut single_succeeded = false;
+                    for attempt in 0..=force_retry_count {
+                        if attempt > 0 {
+                            tokio::time::sleep(std::time::Duration::from_millis(
+                                force_retry_interval,
+                            ))
+                            .await;
+                        }
+
+                        match self
+                            .target
+                            .delete_object(&key, version_id.clone(), if_match_etag.clone())
+                            .await
+                        {
+                            Ok(_) => {
+                                result.deleted.push(DeletedKey {
+                                    key: key.clone(),
+                                    version_id: version_id.clone(),
+                                });
+                                single_succeeded = true;
+                                break;
+                            }
+                            Err(e) => {
+                                warn!(
+                                    key = key,
+                                    version_id = version_id,
+                                    attempt = attempt + 1,
+                                    max_attempts = force_retry_count + 1,
+                                    error = %e,
+                                    "S3 DeleteObject fallback attempt {}/{} failed for key '{}'.",
+                                    attempt + 1, force_retry_count + 1, key,
+                                );
+                            }
+                        }
+                    }
+
+                    if !single_succeeded {
+                        warn!(
+                            key = key,
+                            version_id = version_id,
+                            code = code,
+                            message = message,
+                            "S3 DeleteObject fallback exhausted all {} retries for key '{}': {} ({}).",
+                            force_retry_count + 1,
+                            key,
+                            code,
+                            message,
+                        );
+                        result.failed.push(FailedKey {
+                            key,
+                            version_id,
+                            error_code: code,
+                            error_message: message,
+                        });
+                    }
+                } else {
+                    // Non-retryable error: add directly to failures
+                    error!(
+                        key = key,
+                        version_id = version_id,
+                        code = code,
+                        message = message,
+                        "S3 DeleteObjects partial failure for key '{}': {} ({}).",
+                        key,
+                        code,
+                        message,
+                    );
+
+                    result.failed.push(FailedKey {
+                        key,
+                        version_id,
+                        error_code: code,
+                        error_message: message,
+                    });
+                }
             }
 
             debug!(
                 deleted = result.deleted.len(),
-                errors = errors.len(),
+                failed = result.failed.len(),
                 "DeleteObjects batch completed."
             );
         }

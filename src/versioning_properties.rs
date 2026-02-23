@@ -1,22 +1,22 @@
 // Property-based tests for S3 versioning support.
 //
-// **Property 25: Versioned Bucket Delete Marker Creation**
+// Feature: s3rm-rs, Property 25: Versioned Bucket Delete Marker Creation
 // For any deletion from a versioned bucket without version specification,
 // the tool should use list_objects (creating delete markers server-side).
 // **Validates: Requirements 5.1**
 //
-// **Property 26: All-Versions Deletion**
+// Feature: s3rm-rs, Property 26: All-Versions Deletion
 // For any deletion with delete-all-versions, the BatchDeleter should
 // include version_id in delete API calls for both ObjectVersion and
 // DeleteMarker entries.
 // **Validates: Requirements 5.2**
 //
-// **Property 27: Version Information Retrieval**
+// Feature: s3rm-rs, Property 27: Version Information Retrieval
 // For any listing operation on a versioned bucket with delete_all_versions,
 // the Object Lister should retrieve and include version information.
 // **Validates: Requirements 5.3**
 //
-// **Property 28: Versioned Dry-Run Display**
+// Feature: s3rm-rs, Property 28: Versioned Dry-Run Display
 // For any dry-run operation with versioned objects, each version is counted
 // as one object in the progress display.
 // **Validates: Requirements 5.4**
@@ -51,6 +51,7 @@ mod tests {
                 prefix: "prefix/".to_string(),
             },
             show_no_progress: false,
+            log_deletion_summary: false,
             target_client_config: None,
             force_retry_config: ForceRetryConfig {
                 force_retry_count: 0,
@@ -118,7 +119,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 25: Versioned Bucket Delete Marker Creation
+    // Feature: s3rm-rs, Property 25: Versioned Bucket Delete Marker Creation
     // Validates: Requirements 5.1
     //
     // When delete_all_versions is false, the lister uses list_objects
@@ -129,7 +130,7 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
 
-        /// **Property 25: Versioned Bucket Delete Marker Creation**
+        /// Feature: s3rm-rs, Property 25: Versioned Bucket Delete Marker Creation
         /// **Validates: Requirements 5.1**
         ///
         /// Without delete_all_versions, the lister dispatches to list_objects
@@ -182,7 +183,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 26: All-Versions Deletion
+    // Feature: s3rm-rs, Property 26: All-Versions Deletion
     // Validates: Requirements 5.2
     //
     // When delete_all_versions is true, the BatchDeleter must include
@@ -291,7 +292,7 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
 
-        /// **Property 26: All-Versions Deletion**
+        /// Feature: s3rm-rs, Property 26: All-Versions Deletion
         /// **Validates: Requirements 5.2**
         ///
         /// When delete_all_versions is true, the BatchDeleter must include
@@ -394,7 +395,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 27: Version Information Retrieval
+    // Feature: s3rm-rs, Property 27: Version Information Retrieval
     // Validates: Requirements 5.3
     //
     // When listing versioned objects, each S3Object preserves its version_id,
@@ -404,7 +405,7 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
 
-        /// **Property 27: Version Information Retrieval**
+        /// Feature: s3rm-rs, Property 27: Version Information Retrieval
         /// **Validates: Requirements 5.3**
         ///
         /// Version information (version_id, key) is preserved through the
@@ -481,7 +482,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 28: Versioned Dry-Run Display
+    // Feature: s3rm-rs, Property 28: Versioned Dry-Run Display
     // Validates: Requirements 5.4
     //
     // Each version of an object is counted as one object in the pipeline.
@@ -492,7 +493,7 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
 
-        /// **Property 28: Versioned Dry-Run Display**
+        /// Feature: s3rm-rs, Property 28: Versioned Dry-Run Display
         /// **Validates: Requirements 5.4**
         ///
         /// Each version is treated as a separate object in the pipeline.

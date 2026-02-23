@@ -1,17 +1,17 @@
 //! Additional property-based tests.
 //!
-//! **Property 4: Worker Count Configuration Validation**
+//! Feature: s3rm-rs, Property 4: Worker Count Configuration Validation
 //! For any worker count configuration, the tool should accept values from 1
 //! to 65535 and reject values outside this range.
 //! **Validates: Requirements 1.4**
 //!
-//! **Property 12: Rust Filter Callback Execution**
+//! Feature: s3rm-rs, Property 12: Rust Filter Callback Execution
 //! For any Rust filter callback registered via the library API, the tool
 //! should execute the callback for each object and delete only objects where
 //! the callback returns true.
 //! **Validates: Requirements 2.9**
 //!
-//! **Property 13: Delete-All Behavior**
+//! Feature: s3rm-rs, Property 13: Delete-All Behavior
 //! When a bucket-only target is provided (no prefix), the tool targets all
 //! objects in the bucket for deletion. With no filters configured, every
 //! listed object passes through the pipeline unfiltered.
@@ -86,7 +86,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 4: Worker Count Configuration Validation
+    // Feature: s3rm-rs, Property 4: Worker Count Configuration Validation
     // **Validates: Requirements 1.4**
     //
     // The tool shall accept worker_size values from 1 to 65535 (u16 range
@@ -96,7 +96,7 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
 
-        /// **Property 4: Worker Count Configuration Validation (valid range)**
+        /// Feature: s3rm-rs, Property 4: Worker Count Configuration Validation (valid range)
         /// Any worker count in 1..=65535 should be accepted by the CLI parser.
         #[test]
         fn property_4_valid_worker_count_accepted(
@@ -117,7 +117,7 @@ mod tests {
             prop_assert_eq!(cli_args.worker_size, worker_count);
         }
 
-        /// **Property 4: Worker Count Configuration Validation (Config propagation)**
+        /// Feature: s3rm-rs, Property 4: Worker Count Configuration Validation (Config propagation)
         /// Worker count from CLI args should propagate to Config unchanged.
         #[test]
         fn property_4_worker_count_propagated_to_config(
@@ -176,7 +176,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 12: Rust Filter Callback Execution
+    // Feature: s3rm-rs, Property 12: Rust Filter Callback Execution
     // **Validates: Requirements 2.9**
     //
     // For any Rust filter callback registered via the library API, the tool
@@ -187,7 +187,7 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
 
-        /// **Property 12: Rust Filter Callback Execution (KeyContains)**
+        /// Feature: s3rm-rs, Property 12: Rust Filter Callback Execution (KeyContains)
         /// A Rust filter that checks if the key contains a substring
         /// should accept matching objects and reject non-matching ones.
         #[test]
@@ -232,7 +232,7 @@ mod tests {
             })?;
         }
 
-        /// **Property 12: Rust Filter Callback Execution (SizeRange)**
+        /// Feature: s3rm-rs, Property 12: Rust Filter Callback Execution (SizeRange)
         /// A Rust filter that checks object size range should correctly
         /// accept objects within the range and reject those outside.
         #[test]
@@ -261,7 +261,7 @@ mod tests {
             })?;
         }
 
-        /// **Property 12: Rust Filter Callback Execution (FixedResult)**
+        /// Feature: s3rm-rs, Property 12: Rust Filter Callback Execution (FixedResult)
         /// A Rust filter that always returns a fixed value should always
         /// produce that value regardless of the input object.
         #[test]
@@ -287,7 +287,7 @@ mod tests {
             })?;
         }
 
-        /// **Property 12: Rust Filter Callback Execution (Multiple Objects)**
+        /// Feature: s3rm-rs, Property 12: Rust Filter Callback Execution (Multiple Objects)
         /// A registered Rust callback should be invoked for each object in
         /// a sequence, producing correct results each time.
         #[test]
@@ -328,7 +328,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 13: Delete-All Behavior
+    // Feature: s3rm-rs, Property 13: Delete-All Behavior
     // **Validates: Requirements 2.10**
     //
     // "Delete all" is expressed by providing a bucket-only target with no
@@ -341,7 +341,7 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
 
-        /// **Property 13: Delete-All Behavior (Empty Prefix)**
+        /// Feature: s3rm-rs, Property 13: Delete-All Behavior (Empty Prefix)
         /// When a bucket-only target is provided (no prefix), the resulting
         /// Config should have an empty prefix, meaning all objects in the
         /// bucket are targeted for deletion.
@@ -368,7 +368,7 @@ mod tests {
                 "Bucket-only target should produce empty prefix, got '{}'", prefix);
         }
 
-        /// **Property 13: Delete-All Behavior (No Default Filters)**
+        /// Feature: s3rm-rs, Property 13: Delete-All Behavior (No Default Filters)
         /// When no filter options are provided, FilterConfig should have all
         /// filter fields set to None/default, meaning no additional filtering
         /// is applied and all objects pass through.
@@ -405,7 +405,7 @@ mod tests {
             prop_assert!(!config.filter_manager.is_callback_registered());
         }
 
-        /// **Property 13: Delete-All Behavior (Prefix vs Bucket-Only)**
+        /// Feature: s3rm-rs, Property 13: Delete-All Behavior (Prefix vs Bucket-Only)
         /// When a prefix IS provided, only objects under that prefix are
         /// targeted; when no prefix is given, ALL objects are targeted.
         /// This verifies that a bucket-only target (delete all) differs
@@ -443,30 +443,33 @@ mod tests {
             prop_assert!(p_no.is_empty(), "Bucket-only target should have empty prefix");
         }
 
-        /// **Property 13: Delete-All Behavior (Default FilterConfig passes all)**
-        /// A default FilterConfig should not reject any object — all filter
-        /// fields being None means every object passes through unfiltered.
-        #[test]
-        fn property_13_default_filter_config_passes_all(
-            _dummy in 0u8..1,
-        ) {
-            // Feature: s3rm-rs, Property 13: Delete-All Behavior
-            // **Validates: Requirements 2.10**
-            let fc = FilterConfig::default();
+    }
 
-            // Every field should be None
-            prop_assert!(fc.include_regex.is_none());
-            prop_assert!(fc.exclude_regex.is_none());
-            prop_assert!(fc.include_content_type_regex.is_none());
-            prop_assert!(fc.exclude_content_type_regex.is_none());
-            prop_assert!(fc.include_metadata_regex.is_none());
-            prop_assert!(fc.exclude_metadata_regex.is_none());
-            prop_assert!(fc.include_tag_regex.is_none());
-            prop_assert!(fc.exclude_tag_regex.is_none());
-            prop_assert!(fc.larger_size.is_none());
-            prop_assert!(fc.smaller_size.is_none());
-            prop_assert!(fc.before_time.is_none());
-            prop_assert!(fc.after_time.is_none());
-        }
+    /// Feature: s3rm-rs, Property 13: Delete-All Behavior (Default FilterConfig passes all)
+    /// A default FilterConfig should not reject any object — all filter
+    /// fields being None means every object passes through unfiltered.
+    #[test]
+    fn property_13_default_filter_config_passes_all() {
+        // Feature: s3rm-rs, Property 13: Delete-All Behavior
+        // **Validates: Requirements 2.10**
+        let fc = FilterConfig::default();
+
+        // Every field should be None
+        assert!(fc.include_regex.is_none());
+        assert!(fc.exclude_regex.is_none());
+        assert!(fc.include_content_type_regex.is_none());
+        assert!(fc.exclude_content_type_regex.is_none());
+        assert!(fc.include_metadata_regex.is_none());
+        assert!(fc.exclude_metadata_regex.is_none());
+        assert!(fc.include_tag_regex.is_none());
+        assert!(fc.exclude_tag_regex.is_none());
+        assert!(fc.larger_size.is_none());
+        assert!(fc.smaller_size.is_none());
+        assert!(fc.before_time.is_none());
+        assert!(fc.after_time.is_none());
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
     }
 }

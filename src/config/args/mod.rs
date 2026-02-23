@@ -15,6 +15,12 @@ use fancy_regex::Regex;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+#[cfg(feature = "version")]
+use shadow_rs::shadow;
+
+#[cfg(feature = "version")]
+shadow!(build);
+
 mod value_parser;
 
 #[cfg(test)]
@@ -26,8 +32,8 @@ mod tests;
 
 const EXPRESS_ONEZONE_STORAGE_SUFFIX: &str = "--x-s3";
 
-const DEFAULT_WORKER_SIZE: u16 = 16;
-const DEFAULT_BATCH_SIZE: u16 = 1000;
+const DEFAULT_WORKER_SIZE: u16 = 24;
+const DEFAULT_BATCH_SIZE: u16 = 200;
 const DEFAULT_AWS_MAX_ATTEMPTS: u32 = 10;
 const DEFAULT_FORCE_RETRY_COUNT: u32 = 0;
 const DEFAULT_FORCE_RETRY_INTERVAL_MILLISECONDS: u64 = 1000;
@@ -48,6 +54,7 @@ const DEFAULT_ALLOW_PARALLEL_LISTINGS_IN_EXPRESS_ONE_ZONE: bool = false;
 const DEFAULT_ACCELERATE: bool = false;
 const DEFAULT_REQUEST_PAYER: bool = false;
 const DEFAULT_SHOW_NO_PROGRESS: bool = false;
+const DEFAULT_LOG_DELETION_SUMMARY: bool = true;
 const DEFAULT_IF_MATCH: bool = false;
 #[allow(dead_code)]
 const DEFAULT_ALLOW_LUA_OS_LIBRARY: bool = false;
@@ -85,7 +92,7 @@ fn parse_human_bytes(s: &str) -> Result<usize, String> {
 // CLIArgs (clap-derived argument struct)
 // ---------------------------------------------------------------------------
 
-/// s3rm - Extremely fast Amazon S3 object deletion tool.
+/// s3rm - Fast Amazon S3 object deletion tool.
 ///
 /// Delete objects from S3 buckets with powerful filtering,
 /// safety features, and versioning support.
@@ -95,7 +102,9 @@ fn parse_human_bytes(s: &str) -> Result<usize, String> {
 ///   s3rm s3://my-bucket/temp/ --filter-include-regex '.*\.tmp$' --force
 ///   s3rm s3://my-bucket/old-data/ --delete-all-versions -vv
 #[derive(Parser, Clone, Debug)]
-#[command(name = "s3rm", version, about, long_about = None)]
+#[cfg_attr(feature = "version", command(version = format!("{} ({} {}), {}", build::PKG_VERSION, build::SHORT_COMMIT, build::BUILD_TARGET, build::RUST_VERSION)))]
+#[cfg_attr(not(feature = "version"), command(version))]
+#[command(name = "s3rm", about, long_about = None)]
 pub struct CLIArgs {
     /// S3 target path: s3://<BUCKET_NAME>[/prefix]
     #[arg(
@@ -122,13 +131,13 @@ pub struct CLIArgs {
     #[arg(long, env, default_value_t = DEFAULT_SHOW_NO_PROGRESS, help_heading = "General")]
     pub show_no_progress: bool,
 
+    /// Log deletion summary at completion
+    #[arg(long, env, default_value_t = DEFAULT_LOG_DELETION_SUMMARY, help_heading = "Tracing/Logging")]
+    pub log_deletion_summary: bool,
+
     /// Delete all versions of matching objects, including delete markers
     #[arg(long, env, default_value_t = DEFAULT_DELETE_ALL_VERSIONS, help_heading = "General")]
     pub delete_all_versions: bool,
-
-    /// Objects per batch deletion request (1-1000; 1 uses single-object deletion)
-    #[arg(long, env, default_value_t = DEFAULT_BATCH_SIZE, value_parser = clap::value_parser!(u16).range(1..=1000), help_heading = "General")]
-    pub batch_size: u16,
 
     /// Stop deleting after this many objects have been deleted
     #[arg(long, env, value_parser = clap::value_parser!(u64).range(1..), help_heading = "General")]
@@ -146,11 +155,17 @@ pub struct CLIArgs {
     pub filter_exclude_regex: Option<String>,
 
     /// Delete only objects whose content type matches this regex
-    #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filtering")]
+    #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filtering",
+        long_help = r#"Delete only objects whose content type matches this regular expression.
+This filter is applied after key, size, and time filters.
+May require an extra API call per object to retrieve content type."#)]
     pub filter_include_content_type_regex: Option<String>,
 
     /// Skip objects whose content type matches this regex
-    #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filtering")]
+    #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filtering",
+        long_help = r#"Skip objects whose content type matches this regular expression.
+This filter is applied after key, size, and time filters.
+May require an extra API call per object to retrieve content type."#)]
     pub filter_exclude_content_type_regex: Option<String>,
 
     /// Delete only objects whose user-defined metadata matches this regex
@@ -242,8 +257,8 @@ Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
     #[command(flatten)]
     pub verbosity: Verbosity<WarnLevel>,
 
-    /// Output structured logs in JSON format
-    #[arg(long, env, default_value_t = DEFAULT_JSON_TRACING, help_heading = "Tracing/Logging")]
+    /// Output structured logs in JSON format (requires -f/--force)
+    #[arg(long, env, default_value_t = DEFAULT_JSON_TRACING, requires = "force", help_heading = "Tracing/Logging")]
     pub json_tracing: bool,
 
     /// Include AWS SDK internal traces in log output
@@ -315,6 +330,10 @@ Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
     /// Number of concurrent deletion workers (1-65535)
     #[arg(long, env, default_value_t = DEFAULT_WORKER_SIZE, value_parser = clap::value_parser!(u16).range(1..), help_heading = "Performance")]
     pub worker_size: u16,
+
+    /// Objects per batch deletion request (1-1000; 1 uses single-object deletion)
+    #[arg(long, env, default_value_t = DEFAULT_BATCH_SIZE, value_parser = clap::value_parser!(u16).range(1..=1000), help_heading = "Performance")]
+    pub batch_size: u16,
 
     /// Number of concurrent listing operations
     #[arg(long, env, default_value_t = DEFAULT_MAX_PARALLEL_LISTINGS, value_parser = clap::value_parser!(u16).range(1..), help_heading = "Performance")]
@@ -654,6 +673,16 @@ impl TryFrom<CLIArgs> for Config {
             batch_size = 1;
         }
 
+        // Validate rate limit vs batch size
+        if let Some(rate_limit) = args.rate_limit_objects {
+            if rate_limit < batch_size as u32 {
+                return Err(format!(
+                    "--rate-limit-objects ({}) must be greater than or equal to --batch-size ({}).",
+                    rate_limit, batch_size,
+                ));
+            }
+        }
+
         // Handle Lua script loading
         let filter_callback_lua_script: Option<String>;
         let event_callback_lua_script: Option<String>;
@@ -724,6 +753,7 @@ impl TryFrom<CLIArgs> for Config {
         Ok(Config {
             target,
             show_no_progress: args.show_no_progress,
+            log_deletion_summary: args.log_deletion_summary,
             target_client_config,
             force_retry_config: ForceRetryConfig {
                 force_retry_count: args.force_retry_count,

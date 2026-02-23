@@ -1,6 +1,6 @@
 // Property-based tests for event callback invocation.
 //
-// **Property 32: Event Callback Invocation**
+// Feature: s3rm-rs, Property 32: Event Callback Invocation
 // For any registered event callback (Lua or Rust), the tool should invoke
 // the callback for progress updates, errors, and completion events with
 // structured event data including event type, object key, status, timestamps,
@@ -59,7 +59,7 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
 
-        /// **Property 32: Event Callback Invocation**
+        /// Feature: s3rm-rs, Property 32: Event Callback Invocation
         /// **Validates: Requirements 7.6, 7.7**
         ///
         /// For any registered event callback with ALL_EVENTS flag, every
@@ -100,7 +100,7 @@ mod tests {
             });
         }
 
-        /// **Property 32: Event Callback Invocation (structured data)**
+        /// Feature: s3rm-rs, Property 32: Event Callback Invocation (structured data)
         /// **Validates: Requirements 7.7**
         ///
         /// Event callbacks receive structured event data including event type,
@@ -135,7 +135,7 @@ mod tests {
             });
         }
 
-        /// **Property 32: Event Callback Invocation (flag filtering)**
+        /// Feature: s3rm-rs, Property 32: Event Callback Invocation (flag filtering)
         /// **Validates: Requirements 7.6**
         ///
         /// When a callback is registered with specific event flags, only
@@ -174,7 +174,7 @@ mod tests {
             });
         }
 
-        /// **Property 32: Event Callback Invocation (dry_run propagation)**
+        /// Feature: s3rm-rs, Property 32: Event Callback Invocation (dry_run propagation)
         /// **Validates: Requirements 7.6**
         ///
         /// When dry_run is set on the EventManager, all dispatched events

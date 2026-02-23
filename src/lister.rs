@@ -110,6 +110,7 @@ pub(crate) mod tests {
                 prefix: "prefix/".to_string(),
             },
             show_no_progress: false,
+            log_deletion_summary: false,
             target_client_config: None,
             force_retry_config: ForceRetryConfig {
                 force_retry_count: 0,
@@ -407,7 +408,7 @@ pub(crate) mod tests {
 
 /// Property-based tests for ObjectLister parallel listing configuration.
 ///
-/// **Property 5: Parallel Listing Configuration**
+/// Feature: s3rm-rs, Property 5: Parallel Listing Configuration
 /// **Validates: Requirements 1.5, 1.6, 1.7**
 ///
 /// For any parallel listing configuration, the Object Lister should use the
@@ -434,6 +435,7 @@ mod property_tests {
                 prefix: "prefix/".to_string(),
             },
             show_no_progress: false,
+            log_deletion_summary: false,
             target_client_config: None,
             force_retry_config: ForceRetryConfig {
                 force_retry_count: 0,
@@ -467,7 +469,7 @@ mod property_tests {
         }
     }
 
-    // Property 5: Parallel Listing Configuration
+    // Feature: s3rm-rs, Property 5: Parallel Listing Configuration
     // Validates: Requirements 1.5, 1.6, 1.7
     //
     // For any valid parallel listing configuration, the config correctly

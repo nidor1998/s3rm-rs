@@ -1,7 +1,7 @@
-// **Property 29: Retry with Exponential Backoff**
+// Feature: s3rm-rs, Property 29: Retry with Exponential Backoff
 // **Validates: Requirements 6.1, 6.2, 6.6**
 //
-// **Property 30: Failure Tracking and Continuation**
+// Feature: s3rm-rs, Property 30: Failure Tracking and Continuation
 // **Validates: Requirements 6.4, 6.5**
 
 #[cfg(test)]
@@ -16,13 +16,13 @@ mod tests {
     use std::time::Duration;
 
     // -----------------------------------------------------------------------
-    // Property 29: Retry with Exponential Backoff
+    // Feature: s3rm-rs, Property 29: Retry with Exponential Backoff
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
 
-        /// **Property 29: Retry with Exponential Backoff**
+        /// Feature: s3rm-rs, Property 29: Retry with Exponential Backoff
         /// **Validates: Requirements 6.1, 6.2**
         ///
         /// For any RetryConfig with aws_max_attempts in [1, 50] and
@@ -88,7 +88,7 @@ mod tests {
             })?;
         }
 
-        /// **Property 29: Retry with Exponential Backoff (retryable classification)**
+        /// Feature: s3rm-rs, Property 29: Retry with Exponential Backoff (retryable classification)
         /// **Validates: Requirements 6.1, 6.6**
         ///
         /// DeletionError::Throttled (SlowDown), NetworkError, and ServiceError
@@ -128,7 +128,7 @@ mod tests {
             );
         }
 
-        /// **Property 29: Retry with Exponential Backoff (S3rmError retryable)**
+        /// Feature: s3rm-rs, Property 29: Retry with Exponential Backoff (S3rmError retryable)
         /// **Validates: Requirements 6.1**
         ///
         /// Only S3rmError::AwsSdk is retryable at the pipeline level;
@@ -159,13 +159,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 30: Failure Tracking and Continuation
+    // Feature: s3rm-rs, Property 30: Failure Tracking and Continuation
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
 
-        /// **Property 30: Failure Tracking and Continuation**
+        /// Feature: s3rm-rs, Property 30: Failure Tracking and Continuation
         /// **Validates: Requirements 6.4, 6.5**
         ///
         /// For any mix of successful and failed deletions, DeletionStatsReport
@@ -211,7 +211,7 @@ mod tests {
             prop_assert_eq!(snap.stats_failed_objects, expected_failed);
         }
 
-        /// **Property 30: Failure Tracking and Continuation (concurrent)**
+        /// Feature: s3rm-rs, Property 30: Failure Tracking and Continuation (concurrent)
         /// **Validates: Requirements 6.4, 6.5**
         ///
         /// Concurrent increment_deleted and increment_failed calls from
@@ -274,7 +274,7 @@ mod tests {
             })?;
         }
 
-        /// **Property 30: Failure Tracking and Continuation (pipeline continues)**
+        /// Feature: s3rm-rs, Property 30: Failure Tracking and Continuation (pipeline continues)
         /// **Validates: Requirements 6.4, 6.5**
         ///
         /// When some objects fail in a batch, the pipeline continues processing:

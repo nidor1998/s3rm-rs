@@ -9,12 +9,13 @@
 //! (HeadObject / GetObjectTagging).
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput;
+use aws_sdk_s3::primitives::DateTimeFormat;
 use aws_sdk_s3::types::Tag;
 use aws_smithy_runtime_api::client::result::SdkError;
 use aws_smithy_runtime_api::http::Response;
@@ -95,7 +96,7 @@ const EXCLUDE_TAG_REGEX_FILTER_NAME: &str = "exclude_tag_regex_filter";
 pub struct ObjectDeleter {
     worker_index: u16,
     base: Stage,
-    deletion_stats_report: Arc<Mutex<DeletionStatsReport>>,
+    deletion_stats_report: Arc<DeletionStatsReport>,
     delete_counter: Arc<AtomicU64>,
     /// Deletion backend: BatchDeleter (batch_size > 1) or SingleDeleter (batch_size == 1).
     deleter: Box<dyn Deleter>,
@@ -109,7 +110,7 @@ impl ObjectDeleter {
     pub fn new(
         base: Stage,
         worker_index: u16,
-        deletion_stats_report: Arc<Mutex<DeletionStatsReport>>,
+        deletion_stats_report: Arc<DeletionStatsReport>,
         delete_counter: Arc<AtomicU64>,
     ) -> Self {
         // Clone the target storage for the deleter backend.
@@ -183,8 +184,7 @@ impl ObjectDeleter {
 
     async fn process_object(&mut self, object: S3Object) -> Result<()> {
         // Check max_delete threshold
-        self.delete_counter.fetch_add(1, Ordering::SeqCst);
-        let deleted_count = self.delete_counter.load(Ordering::SeqCst);
+        let deleted_count = self.delete_counter.fetch_add(1, Ordering::SeqCst) + 1;
         if let Some(max_delete) = self.base.config.max_delete {
             if deleted_count > max_delete {
                 self.base
@@ -428,11 +428,20 @@ impl ObjectDeleter {
             // Per-object info logging (matching s3sync pattern).
             // Dry-run uses "[dry-run]" prefix like s3sync's storage layer.
             let version_id_str = dk.version_id.as_deref().unwrap_or("");
+            let last_modified_str = obj_by_key
+                .get(&lookup_key)
+                .map(|o| {
+                    o.last_modified()
+                        .fmt(DateTimeFormat::DateTime)
+                        .unwrap_or_default()
+                })
+                .unwrap_or_default();
             if is_dry_run {
                 info!(
                     key = dk.key.as_str(),
                     version_id = version_id_str,
                     size = size,
+                    last_modified = last_modified_str.as_str(),
                     "[dry-run] delete completed.",
                 );
             } else {
@@ -440,14 +449,12 @@ impl ObjectDeleter {
                     key = dk.key.as_str(),
                     version_id = version_id_str,
                     size = size,
+                    last_modified = last_modified_str.as_str(),
                     "delete completed.",
                 );
             }
 
-            self.deletion_stats_report
-                .lock()
-                .unwrap()
-                .increment_deleted(size);
+            self.deletion_stats_report.increment_deleted(size);
 
             self.base
                 .send_stats(DeletionStatistics::DeleteComplete {
@@ -472,10 +479,13 @@ impl ObjectDeleter {
 
         // Emit per-object stats and events for failures.
         for fk in &delete_result.failed {
-            self.deletion_stats_report
-                .lock()
-                .unwrap()
-                .increment_failed();
+            self.deletion_stats_report.increment_failed();
+
+            self.base
+                .send_stats(DeletionStatistics::DeleteWarning {
+                    key: fk.key.clone(),
+                })
+                .await;
 
             let mut event_data = EventData::new(EventType::DELETE_FAILED);
             event_data.dry_run = is_dry_run;
@@ -487,6 +497,21 @@ impl ObjectDeleter {
                 .event_manager
                 .trigger_event(event_data)
                 .await;
+        }
+
+        // Set warning flag and optionally stop pipeline on deletion failures.
+        if !delete_result.failed.is_empty() {
+            self.base.set_warning();
+
+            if self.base.config.warn_as_error {
+                warn!(
+                    worker_index = self.worker_index,
+                    failed_count = delete_result.failed.len(),
+                    "deletion failures promoted to error (--warn-as-error). cancelling pipeline.",
+                );
+                self.base.cancellation_token.cancel();
+                return Ok(());
+            }
         }
 
         // Forward all objects to next stage
@@ -820,20 +845,19 @@ pub fn format_tags(tags: &[Tag]) -> String {
 pub fn generate_tagging_string(
     get_object_tagging_output: &Option<GetObjectTaggingOutput>,
 ) -> Option<String> {
-    if get_object_tagging_output.is_none() {
-        return None;
+    let output = get_object_tagging_output.as_ref()?;
+
+    let tags = output.tag_set();
+    if tags.is_empty() {
+        return Some(String::new());
     }
 
-    let mut tags_key_value_string = String::new();
-    for tag in get_object_tagging_output.clone().unwrap().tag_set() {
-        let tag_string = format!("{}={}", encode(tag.key()), encode(tag.value()),);
-        if !tags_key_value_string.is_empty() {
-            tags_key_value_string.push('&');
-        }
-        tags_key_value_string.push_str(&tag_string);
-    }
-
-    Some(tags_key_value_string)
+    Some(
+        tags.iter()
+            .map(|tag| format!("{}={}", encode(tag.key()), encode(tag.value())))
+            .collect::<Vec<_>>()
+            .join("&"),
+    )
 }
 
 // ---------------------------------------------------------------------------

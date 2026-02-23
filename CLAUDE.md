@@ -4,7 +4,7 @@ This document provides instructions for working with the s3rm-rs spec using Clau
 
 ## Overview
 
-s3rm-rs is a high-performance S3 object deletion tool built in Rust. The project follows a spec-driven development approach with:
+s3rm-rs is an S3 object deletion tool built in Rust. The project follows a spec-driven development approach with:
 - Requirements document defining user stories and acceptance criteria
 - Design document detailing architecture and components
 - Tasks document with implementation checklist
@@ -175,6 +175,7 @@ cargo fmt
 
 ### Steering (Active Phase)
 - steering/init_build/tasks.md - Implementation task list
+- steering/init_build/e2e_test_plan.md - E2E test plan (Task 29: 62 test cases)
 
 ### Source Code
 - `src/lib.rs` - Library entry point and public API
@@ -265,6 +266,7 @@ Based on the current status, the remaining work includes:
 5. **Follow Patterns**: Reuse patterns from s3sync where applicable
 6. **Property Tests**: Focus on correctness properties, not just examples
 7. **No auto `/check-commit-push`**: Never run `/check-commit-push` automatically. Only run it when the user explicitly asks.
+8. **No autonomous commits**: Never run `git commit` or `mcp__git__git_commit` without explicit human approval. The settings file enforces this — commit operations are not in the allow list and will always prompt for confirmation.
 
 ## Getting Help
 

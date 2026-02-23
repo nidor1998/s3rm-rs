@@ -1,7 +1,7 @@
 /*!
 # s3rm-rs
 
-s3rm-rs is an extremely fast Amazon S3 object deletion tool.
+s3rm-rs is a fast Amazon S3 object deletion tool.
 It can be used to delete objects from S3 buckets with powerful filtering,
 safety features, and versioning support.
 
@@ -162,8 +162,14 @@ pub use types::{S3Object, S3Target};
 // Error types
 pub use types::error::{S3rmError, exit_code_from_error, is_cancelled_error};
 
-// Deletion outcome and error types
-pub use types::{DeletionError, DeletionEvent, DeletionOutcome};
+/// Per-object deletion error returned when an individual object fails to delete.
+pub use types::DeletionError;
+
+/// Per-object deletion event emitted for each processed object (success or failure).
+pub use types::DeletionEvent;
+
+/// Outcome of a single object deletion attempt (success with metadata, or error).
+pub use types::DeletionOutcome;
 
 // Cancellation token
 pub use types::token::{PipelineCancellationToken, create_pipeline_cancellation_token};

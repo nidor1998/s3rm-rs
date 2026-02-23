@@ -1,10 +1,10 @@
 # Product Overview
 
-s3rm-rs is a high-performance Amazon S3 object deletion tool designed for bulk deletion operations. Built as a sibling to s3sync, it leverages Rust's performance and the AWS SDK to provide fast, reliable deletion of S3 objects with comprehensive safety features and versioning support.
+s3rm-rs is an Amazon S3 object deletion tool designed for bulk deletion operations. Built as a sibling to s3sync, it leverages Rust's performance and the AWS SDK to provide reliable deletion of S3 objects with comprehensive safety features and versioning support.
 
 ## Key Features
 
-- Extremely fast bulk deletion (target: ~25,000 objects/second)
+- Bulk deletion up to ~3,500 objects/second (the S3 API limit)
 - Batch deletion using S3's DeleteObjects API (up to 1000 objects per request)
 - Parallel processing with configurable worker pools (1-65,535 workers)
 - Comprehensive filtering: regex patterns, size, time, content-type, metadata, tags, Lua callbacks

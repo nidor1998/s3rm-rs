@@ -13,6 +13,8 @@ mod tests {
     use anyhow::Result;
     use proptest::prelude::*;
 
+    use std::sync::Mutex;
+
     // -----------------------------------------------------------------------
     // Mock PromptHandler for testing
     // -----------------------------------------------------------------------
@@ -41,6 +43,36 @@ mod tests {
         }
     }
 
+    /// Capturing mock that records the `target_display` and `use_color` arguments
+    /// passed to `read_confirmation`. Used for Property 19 testing.
+    struct CapturingPromptHandler {
+        response: String,
+        captured_target: Mutex<Option<String>>,
+        captured_use_color: Mutex<Option<bool>>,
+    }
+
+    impl CapturingPromptHandler {
+        fn new(response: &str) -> Self {
+            Self {
+                response: response.to_string(),
+                captured_target: Mutex::new(None),
+                captured_use_color: Mutex::new(None),
+            }
+        }
+    }
+
+    impl PromptHandler for CapturingPromptHandler {
+        fn read_confirmation(&self, target_display: &str, use_color: bool) -> Result<String> {
+            *self.captured_target.lock().unwrap() = Some(target_display.to_string());
+            *self.captured_use_color.lock().unwrap() = Some(use_color);
+            Ok(self.response.clone())
+        }
+
+        fn is_interactive(&self) -> bool {
+            true
+        }
+    }
+
     /// Mock prompt handler that always reports as non-interactive.
     struct NonInteractivePromptHandler;
 
@@ -58,6 +90,60 @@ mod tests {
     // Test helpers
     // -----------------------------------------------------------------------
 
+    fn make_config_with_target(
+        dry_run: bool,
+        force: bool,
+        json_tracing: bool,
+        disable_color: bool,
+        bucket: &str,
+        prefix: &str,
+    ) -> Config {
+        Config {
+            target: StoragePath::S3 {
+                bucket: bucket.to_string(),
+                prefix: prefix.to_string(),
+            },
+            show_no_progress: false,
+            log_deletion_summary: false,
+            target_client_config: None,
+            force_retry_config: ForceRetryConfig {
+                force_retry_count: 0,
+                force_retry_interval_milliseconds: 0,
+            },
+            tracing_config: Some(TracingConfig {
+                tracing_level: log::Level::Info,
+                json_tracing,
+                aws_sdk_tracing: false,
+                span_events_tracing: false,
+                disable_color_tracing: disable_color,
+            }),
+            worker_size: 4,
+            warn_as_error: false,
+            dry_run,
+            rate_limit_objects: None,
+            max_parallel_listings: 1,
+            object_listing_queue_size: 1000,
+            max_parallel_listing_max_depth: 1,
+            allow_parallel_listings_in_express_one_zone: false,
+            filter_config: FilterConfig::default(),
+            max_keys: 1000,
+            auto_complete_shell: None,
+            event_callback_lua_script: None,
+            filter_callback_lua_script: None,
+            allow_lua_os_library: false,
+            allow_lua_unsafe_vm: false,
+            lua_vm_memory_limit: 0,
+            if_match: false,
+            max_delete: None,
+            filter_manager: FilterManager::new(),
+            event_manager: EventManager::new(),
+            batch_size: 1000,
+            delete_all_versions: false,
+            force,
+            test_user_defined_callback: false,
+        }
+    }
+
     fn make_config(dry_run: bool, force: bool, json_tracing: bool) -> Config {
         Config {
             target: StoragePath::S3 {
@@ -65,6 +151,7 @@ mod tests {
                 prefix: String::new(),
             },
             show_no_progress: false,
+            log_deletion_summary: false,
             target_client_config: None,
             force_retry_config: ForceRetryConfig {
                 force_retry_count: 0,
@@ -105,7 +192,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 16: Dry-Run Mode Safety
+    // Feature: s3rm-rs, Property 16: Dry-Run Mode Safety
     // **Validates: Requirements 3.1**
     //
     // In dry-run mode, the pipeline runs fully (listing, filtering) but
@@ -137,7 +224,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 17: Confirmation Prompt Validation
+    // Feature: s3rm-rs, Property 17: Confirmation Prompt Validation
     // **Validates: Requirements 3.3**
     //
     // For the confirmation prompt, only the exact string "yes" should be
@@ -185,7 +272,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 18: Force Flag Behavior
+    // Feature: s3rm-rs, Property 18: Force Flag Behavior
     // **Validates: Requirements 3.4, 13.2**
     //
     // For any deletion operation with the force flag enabled, confirmation
@@ -211,6 +298,85 @@ mod tests {
 
             let result = checker.check_before_deletion();
             prop_assert!(result.is_ok());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Feature: s3rm-rs, Property 19: Confirmation Prompt Target Display
+    // **Validates: Requirements 3.5**
+    //
+    // For any destructive deletion operation (not dry-run, not force), the
+    // confirmation prompt should display the target prefix (e.g.
+    // `s3://bucket/prefix`) with colored text so users can verify which
+    // objects will be affected.
+    // -----------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        #[test]
+        fn property_19_prompt_displays_s3_uri_target(
+            bucket in "[a-z0-9][a-z0-9.-]{2,20}",
+            prefix in "[a-zA-Z0-9/_.-]{0,30}",
+            disable_color in proptest::bool::ANY,
+        ) {
+            // Feature: s3rm-rs, Property 19: Confirmation Prompt Target Display
+            // **Validates: Requirements 3.5**
+            //
+            // When the confirmation prompt is triggered (not dry-run, not force,
+            // interactive), the target_display passed to read_confirmation must
+            // be in the format `s3://bucket/prefix` (or `s3://bucket/` if prefix
+            // is empty), and use_color must reflect the disable_color setting.
+            let config = make_config_with_target(
+                false,          // dry_run
+                false,          // force
+                false,          // json_tracing (must be false so prompt fires)
+                disable_color,
+                &bucket,
+                &prefix,
+            );
+
+            let handler = std::sync::Arc::new(CapturingPromptHandler::new("yes"));
+            // We need to extract captured values after check_before_deletion.
+            // Since SafetyChecker takes Box<dyn PromptHandler>, we wrap with a
+            // forwarding handler that shares state via Arc.
+            let handler_clone = handler.clone();
+
+            // Build a forwarding PromptHandler that delegates to the Arc'd handler.
+            struct ForwardingHandler(std::sync::Arc<CapturingPromptHandler>);
+            impl PromptHandler for ForwardingHandler {
+                fn read_confirmation(&self, target_display: &str, use_color: bool) -> Result<String> {
+                    self.0.read_confirmation(target_display, use_color)
+                }
+                fn is_interactive(&self) -> bool {
+                    true
+                }
+            }
+
+            let checker = SafetyChecker::with_prompt_handler(
+                &config,
+                Box::new(ForwardingHandler(handler_clone)),
+            );
+
+            let result = checker.check_before_deletion();
+            prop_assert!(result.is_ok(), "Prompt accepted 'yes' should succeed");
+
+            // Verify target_display format
+            let captured = handler.captured_target.lock().unwrap();
+            let target = captured.as_ref().expect("prompt should have been called");
+            let expected = if prefix.is_empty() {
+                format!("s3://{}/", bucket)
+            } else {
+                format!("s3://{}/{}", bucket, prefix)
+            };
+            prop_assert_eq!(target, &expected,
+                "target_display should be s3://bucket/prefix format");
+
+            // Verify use_color reflects disable_color setting
+            let captured_color = handler.captured_use_color.lock().unwrap();
+            let use_color = captured_color.expect("use_color should have been captured");
+            prop_assert_eq!(use_color, !disable_color,
+                "use_color should be the inverse of disable_color");
         }
     }
 

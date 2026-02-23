@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use tracing::{debug, error};
+use tracing::{debug, warn};
 
 use crate::config::Config;
 use crate::types::S3Object;
@@ -62,11 +62,12 @@ impl Deleter for SingleDeleter {
                 });
             }
             Err(e) => {
-                error!(
+                warn!(
                     key = key,
                     version_id = version_id,
-                    error = e.to_string(),
-                    "DeleteObject failed."
+                    error = %e,
+                    "S3 DeleteObject API call failed for key '{}'.",
+                    key,
                 );
                 result.failed.push(FailedKey {
                     key: key.to_string(),

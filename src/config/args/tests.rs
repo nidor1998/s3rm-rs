@@ -146,10 +146,12 @@ fn parse_logging_options() {
         "s3://bucket/",
         "-vvv",
         "--json-tracing",
+        "--force",
         "--disable-color-tracing",
     ];
     let cli = parse_from_args(args).unwrap();
     assert!(cli.json_tracing);
+    assert!(cli.force);
     assert!(cli.disable_color_tracing);
 }
 
@@ -233,8 +235,8 @@ fn config_from_minimal_args() {
     assert_eq!(prefix, "prefix/");
     assert!(!config.dry_run);
     assert!(!config.force);
-    assert_eq!(config.batch_size, 1000);
-    assert_eq!(config.worker_size, 16);
+    assert_eq!(config.batch_size, 200);
+    assert_eq!(config.worker_size, 24);
 }
 
 #[test]
@@ -313,6 +315,40 @@ fn parse_rejects_rate_limit_objects_below_minimum() {
 }
 
 #[test]
+fn config_rejects_rate_limit_below_batch_size() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--rate-limit-objects",
+        "50",
+        "--batch-size",
+        "200",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let result = Config::try_from(cli);
+    assert!(result.is_err());
+    assert!(
+        result.unwrap_err().contains(
+            "--rate-limit-objects (50) must be greater than or equal to --batch-size (200)"
+        )
+    );
+}
+
+#[test]
+fn config_accepts_rate_limit_equal_to_batch_size() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--rate-limit-objects",
+        "200",
+        "--batch-size",
+        "200",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    assert!(Config::try_from(cli).is_ok());
+}
+
+#[test]
 fn parse_rejects_max_parallel_listings_zero() {
     let args = vec!["s3rm", "s3://bucket/", "--max-parallel-listings", "0"];
     assert!(parse_from_args(args).is_err());
@@ -360,7 +396,7 @@ fn config_express_onezone_with_parallel_listings_keeps_batch_size() {
     ];
     let cli = parse_from_args(args).unwrap();
     let config = Config::try_from(cli).unwrap();
-    assert_eq!(config.batch_size, 1000);
+    assert_eq!(config.batch_size, 200);
 }
 
 #[test]
@@ -575,10 +611,19 @@ proptest! {
     })]
 
     #[test]
-    fn test_exit_code_mapping_cancelled(_dummy in 0..1i32) {
+    fn test_exit_code_mapping_cancelled(
+        deleted in 0u64..1000,
+        failed in 0u64..1000,
+    ) {
         use crate::types::error::S3rmError;
+        // Cancelled always returns exit code 0
         let err = anyhow::anyhow!(S3rmError::Cancelled);
         prop_assert_eq!(crate::types::error::exit_code_from_error(&err), 0);
+        prop_assert_eq!(S3rmError::Cancelled.exit_code(), 0);
+
+        // PartialFailure always returns exit code 3, regardless of counts
+        let partial_err = anyhow::anyhow!(S3rmError::PartialFailure { deleted, failed });
+        prop_assert_eq!(crate::types::error::exit_code_from_error(&partial_err), 3);
     }
 
     #[test]

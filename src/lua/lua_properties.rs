@@ -38,7 +38,7 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
-    // Property 11: Lua Filter Callback Execution
+    // Feature: s3rm-rs, Property 11: Lua Filter Callback Execution
     // **Validates: Requirements 2.8**
     //
     // *For any* Lua filter script provided, the tool should execute the script
@@ -48,7 +48,7 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
 
-        /// **Property 11: Lua Filter Callback Execution**
+        /// Feature: s3rm-rs, Property 11: Lua Filter Callback Execution
         /// **Validates: Requirements 2.8**
         ///
         /// For any S3 object, a Lua filter that returns `true` should pass the object,
@@ -75,7 +75,7 @@ mod tests {
             })?;
         }
 
-        /// **Property 11: Lua Filter Callback Execution (false case)**
+        /// Feature: s3rm-rs, Property 11: Lua Filter Callback Execution (false case)
         /// **Validates: Requirements 2.8**
         ///
         /// A Lua filter that always returns `false` should reject every object.
@@ -101,7 +101,7 @@ mod tests {
             })?;
         }
 
-        /// **Property 11: Lua Filter Callback Execution (key-based)**
+        /// Feature: s3rm-rs, Property 11: Lua Filter Callback Execution (key-based)
         /// **Validates: Requirements 2.8**
         ///
         /// A Lua filter that matches on key prefix should correctly distinguish
@@ -144,7 +144,7 @@ mod tests {
             })?;
         }
 
-        /// **Property 11: Lua Filter Callback Execution (size-based)**
+        /// Feature: s3rm-rs, Property 11: Lua Filter Callback Execution (size-based)
         /// **Validates: Requirements 2.8**
         ///
         /// A Lua filter that checks size should correctly filter based on object size.
@@ -177,7 +177,7 @@ mod tests {
             })?;
         }
 
-        /// **Property 11: Lua filter receives correct object fields**
+        /// Feature: s3rm-rs, Property 11: Lua filter receives correct object fields
         /// **Validates: Requirements 2.8**
         ///
         /// The Lua filter callback must receive all S3Object fields correctly.
@@ -210,7 +210,7 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
-    // Property 14: Lua Callback Type Support
+    // Feature: s3rm-rs, Property 14: Lua Callback Type Support
     // **Validates: Requirements 2.12**
     //
     // *For any* Lua script provided, the tool should support both filter callbacks
@@ -220,7 +220,7 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(30))]
 
-        /// **Property 14: Lua Callback Type Support (filter type)**
+        /// Feature: s3rm-rs, Property 14: Lua Callback Type Support (filter type)
         /// **Validates: Requirements 2.12**
         ///
         /// A Lua filter callback that defines `filter()` should be callable and
@@ -250,7 +250,7 @@ mod tests {
             })?;
         }
 
-        /// **Property 14: Lua Callback Type Support (event type)**
+        /// Feature: s3rm-rs, Property 14: Lua Callback Type Support (event type)
         /// **Validates: Requirements 2.12**
         ///
         /// A Lua event callback that defines `on_event()` should be callable
@@ -312,7 +312,7 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
-    // Property 15: Lua Sandbox Security
+    // Feature: s3rm-rs, Property 15: Lua Sandbox Security
     // **Validates: Requirements 2.13, 2.14**
     //
     // *For any* Lua script executed in safe mode (default), attempts to access
@@ -323,7 +323,7 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(20))]
 
-        /// **Property 15: Lua Sandbox Security (safe mode blocks OS)**
+        /// Feature: s3rm-rs, Property 15: Lua Sandbox Security (safe mode blocks OS)
         /// **Validates: Requirements 2.13**
         ///
         /// In safe mode, OS library calls should fail for any script that
@@ -342,7 +342,7 @@ mod tests {
             prop_assert!(result.is_err(), "os function should be blocked in safe mode: {}", os_func);
         }
 
-        /// **Property 15: Lua Sandbox Security (safe mode blocks IO)**
+        /// Feature: s3rm-rs, Property 15: Lua Sandbox Security (safe mode blocks IO)
         /// **Validates: Requirements 2.13**
         ///
         /// In safe mode, IO library calls should fail for any script that
@@ -360,7 +360,7 @@ mod tests {
             prop_assert!(result.is_err(), "io function should be blocked in safe mode: {}", io_func);
         }
 
-        /// **Property 15: Lua Sandbox Security (allow_lua_os_library mode)**
+        /// Feature: s3rm-rs, Property 15: Lua Sandbox Security (allow_lua_os_library mode)
         /// **Validates: Requirements 2.14**
         ///
         /// When the OS library is explicitly enabled, OS functions should succeed.

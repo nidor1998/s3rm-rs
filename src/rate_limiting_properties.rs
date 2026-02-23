@@ -1,6 +1,6 @@
 // Property-based tests for rate limiting enforcement.
 //
-// **Property 36: Rate Limiting Enforcement**
+// Feature: s3rm-rs, Property 36: Rate Limiting Enforcement
 // For any rate limit configuration, the Rate Limiter should enforce that
 // the deletion rate does not exceed the specified maximum objects per second.
 // **Validates: Requirements 8.7**
@@ -72,6 +72,7 @@ mod tests {
                 prefix: "prefix/".to_string(),
             },
             show_no_progress: false,
+            log_deletion_summary: false,
             target_client_config: Some(make_test_client_config()),
             force_retry_config: ForceRetryConfig {
                 force_retry_count: 0,
@@ -126,13 +127,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 36: Rate Limiting Enforcement
+    // Feature: s3rm-rs, Property 36: Rate Limiting Enforcement
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
 
-        /// **Property 36: Rate Limiting Enforcement (CLI propagation)**
+        /// Feature: s3rm-rs, Property 36: Rate Limiting Enforcement (CLI propagation)
         /// **Validates: Requirements 8.7**
         ///
         /// For any valid rate limit value provided via CLI, the parsed Config
@@ -147,6 +148,8 @@ mod tests {
                 "s3://test-bucket/prefix/",
                 "--rate-limit-objects",
                 &rate_str,
+                "--batch-size",
+                "1",
             ];
 
             let cli = parse_from_args(args).unwrap();
@@ -159,30 +162,30 @@ mod tests {
             );
         }
 
-        /// **Property 36: Rate Limiting Enforcement (no rate limit default)**
-        /// **Validates: Requirements 8.7**
-        ///
-        /// When no --rate-limit-objects is specified, rate_limit_objects in
-        /// Config should be None, meaning no rate limiting is applied.
-        #[test]
-        fn prop_rate_limit_default_none(
-            _dummy in 0u32..1u32,
-        ) {
-            let args: Vec<&str> = vec![
-                "s3rm",
-                "s3://test-bucket/prefix/",
-            ];
+    }
 
-            let cli = parse_from_args(args).unwrap();
-            let config = Config::try_from(cli).unwrap();
+    /// Feature: s3rm-rs, Property 36: Rate Limiting Enforcement (no rate limit default)
+    /// **Validates: Requirements 8.7**
+    ///
+    /// When no --rate-limit-objects is specified, rate_limit_objects in
+    /// Config should be None, meaning no rate limiting is applied.
+    #[test]
+    fn prop_rate_limit_default_none() {
+        let args: Vec<&str> = vec!["s3rm", "s3://test-bucket/prefix/"];
 
-            prop_assert!(
-                config.rate_limit_objects.is_none(),
-                "rate_limit_objects must be None when not specified"
-            );
-        }
+        let cli = parse_from_args(args).unwrap();
+        let config = Config::try_from(cli).unwrap();
 
-        /// **Property 36: Rate Limiting Enforcement (minimum value rejection)**
+        assert!(
+            config.rate_limit_objects.is_none(),
+            "rate_limit_objects must be None when not specified"
+        );
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// Feature: s3rm-rs, Property 36: Rate Limiting Enforcement (minimum value rejection)
         /// **Validates: Requirements 8.7**
         ///
         /// For any rate limit value below the minimum (10), CLI parsing should
@@ -208,7 +211,7 @@ mod tests {
             );
         }
 
-        /// **Property 36: Rate Limiting Enforcement (rate limiter creation)**
+        /// Feature: s3rm-rs, Property 36: Rate Limiting Enforcement (rate limiter creation)
         /// **Validates: Requirements 8.7**
         ///
         /// For any valid rate limit value, create_storage should successfully
@@ -252,80 +255,47 @@ mod tests {
             })?;
         }
 
-        /// **Property 36: Rate Limiting Enforcement (refill computation)**
+        /// Feature: s3rm-rs, Property 36: Rate Limiting Enforcement (storage creation without rate limit)
         /// **Validates: Requirements 8.7**
         ///
-        /// The rate limiter refill amount should be computed correctly:
-        /// - For values <= REFILL_PER_INTERVAL_DIVIDER (10): refill = 1
-        /// - For values > REFILL_PER_INTERVAL_DIVIDER: refill = value / 10
-        /// This ensures the token bucket refills at the correct rate to
-        /// enforce the configured objects-per-second limit.
+        /// When rate_limit_objects is None, create_storage should still succeed
+        /// and create a valid storage instance (no rate limiter applied),
+        /// regardless of worker_size.
         #[test]
-        fn prop_rate_limit_refill_computation(
-            rate_limit in arb_rate_limit(),
+        fn prop_rate_limit_none_storage_creation(
+            worker_size in 1u16..64,
         ) {
-            const REFILL_PER_INTERVAL_DIVIDER: usize = 10;
+            init_dummy_tracing_subscriber();
 
-            let expected_refill = if (rate_limit as usize) <= REFILL_PER_INTERVAL_DIVIDER {
-                1
-            } else {
-                rate_limit as usize / REFILL_PER_INTERVAL_DIVIDER
-            };
+            let mut config = make_test_config(None);
+            config.worker_size = worker_size;
 
-            // The refill must always be at least 1
-            prop_assert!(
-                expected_refill >= 1,
-                "Refill must be at least 1, got {} for rate_limit={}",
-                expected_refill,
-                rate_limit
-            );
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
 
-            // For rates > 10, refill should be rate / 10 (integer division)
-            if rate_limit > 10 {
-                prop_assert_eq!(
-                    expected_refill,
-                    rate_limit as usize / REFILL_PER_INTERVAL_DIVIDER,
-                    "Refill for rate_limit={} should be {}",
-                    rate_limit,
-                    rate_limit as usize / REFILL_PER_INTERVAL_DIVIDER
+            rt.block_on(async {
+                let cancellation_token =
+                    crate::types::token::create_pipeline_cancellation_token();
+                let (stats_sender, _stats_receiver) = async_channel::unbounded();
+                let has_warning = Arc::new(AtomicBool::new(false));
+
+                let storage = create_storage(
+                    config,
+                    cancellation_token,
+                    stats_sender,
+                    has_warning,
+                )
+                .await;
+
+                prop_assert!(
+                    storage.get_client().is_some(),
+                    "Storage must be created successfully without rate limiting"
                 );
-            }
 
-            // Verify the RateLimiter can be constructed with these values.
-            // leaky_bucket panics on invalid config, so reaching here means success.
-            let _rate_limiter = leaky_bucket::RateLimiter::builder()
-                .max(rate_limit as usize)
-                .initial(rate_limit as usize)
-                .refill(expected_refill)
-                .fair(true)
-                .build();
-        }
-
-        /// **Property 36: Rate Limiting Enforcement (CLI round-trip)**
-        /// **Validates: Requirements 8.7**
-        ///
-        /// The --rate-limit-objects value should round-trip correctly through
-        /// the full CLI -> Config pipeline for any valid value.
-        #[test]
-        fn prop_rate_limit_config_round_trip(
-            rate_limit in arb_rate_limit(),
-        ) {
-            let rate_str = rate_limit.to_string();
-            let args: Vec<&str> = vec![
-                "s3rm",
-                "s3://test-bucket/prefix/",
-                "--rate-limit-objects",
-                &rate_str,
-            ];
-
-            let cli = parse_from_args(args).unwrap();
-            let config = Config::try_from(cli).unwrap();
-
-            prop_assert_eq!(
-                config.rate_limit_objects.unwrap(),
-                rate_limit,
-                "rate_limit_objects must survive full CLI -> Config pipeline"
-            );
+                Ok(())
+            })?;
         }
     }
 }

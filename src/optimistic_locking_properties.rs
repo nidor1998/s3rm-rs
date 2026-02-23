@@ -1,10 +1,10 @@
-// **Property 41: If-Match Conditional Deletion**
+// Feature: s3rm-rs, Property 41: If-Match Conditional Deletion
 // **Validates: Requirements 11.1, 11.2**
 //
-// **Property 42: If-Match Flag Propagation**
+// Feature: s3rm-rs, Property 42: If-Match Flag Propagation
 // **Validates: Requirements 11.3**
 //
-// **Property 43: Batch Conditional Deletion Handling**
+// Feature: s3rm-rs, Property 43: Batch Conditional Deletion Handling
 // **Validates: Requirements 11.4**
 
 #[cfg(test)]
@@ -23,6 +23,7 @@ mod tests {
                 prefix: "prefix/".to_string(),
             },
             show_no_progress: false,
+            log_deletion_summary: false,
             target_client_config: None,
             force_retry_config: ForceRetryConfig {
                 force_retry_count: 0,
@@ -57,13 +58,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Property 41: If-Match Conditional Deletion
+    // Feature: s3rm-rs, Property 41: If-Match Conditional Deletion
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
 
-        /// **Property 41: If-Match Conditional Deletion**
+        /// Feature: s3rm-rs, Property 41: If-Match Conditional Deletion
         /// **Validates: Requirements 11.1, 11.2**
         ///
         /// When if_match is enabled, SingleDeleter must pass the object's ETag
@@ -146,28 +147,29 @@ mod tests {
             })?;
         }
 
-        /// **Property 41: If-Match Conditional Deletion (PreconditionFailed is non-retryable)**
-        /// **Validates: Requirements 11.2**
-        ///
-        /// PreconditionFailed errors (ETag mismatch) are never retryable — the
-        /// object should be skipped rather than retried.
-        #[test]
-        fn prop_precondition_failed_is_not_retryable(_dummy in 0u32..1) {
-            prop_assert!(
-                !DeletionError::PreconditionFailed.is_retryable(),
-                "PreconditionFailed must not be retryable — object should be skipped"
-            );
-        }
+    }
+
+    /// Feature: s3rm-rs, Property 41: If-Match Conditional Deletion (PreconditionFailed is non-retryable)
+    /// **Validates: Requirements 11.2**
+    ///
+    /// PreconditionFailed errors (ETag mismatch) are never retryable — the
+    /// object should be skipped rather than retried.
+    #[test]
+    fn precondition_failed_is_not_retryable() {
+        assert!(
+            !DeletionError::PreconditionFailed.is_retryable(),
+            "PreconditionFailed must not be retryable — object should be skipped"
+        );
     }
 
     // -----------------------------------------------------------------------
-    // Property 42: If-Match Flag Propagation
+    // Feature: s3rm-rs, Property 42: If-Match Flag Propagation
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
 
-        /// **Property 42: If-Match Flag Propagation**
+        /// Feature: s3rm-rs, Property 42: If-Match Flag Propagation
         /// **Validates: Requirements 11.3**
         ///
         /// The --if-match CLI flag is a boolean toggle. When present, Config.if_match
@@ -194,11 +196,11 @@ mod tests {
             );
         }
 
-        /// **Property 42: If-Match Flag Propagation (default)**
+        /// Feature: s3rm-rs, Property 42: If-Match Flag Propagation (default)
         /// **Validates: Requirements 11.3**
         ///
-        /// When --if-match is omitted and the IF_MATCH env var is unset,
-        /// Config.if_match defaults to false for any valid bucket name.
+        /// When --if-match is omitted, Config.if_match defaults to false
+        /// for any valid bucket name.
         #[test]
         fn prop_if_match_default_is_false(
             bucket in "[a-z][a-z0-9-]{2,10}",
@@ -207,27 +209,22 @@ mod tests {
                 .with_env_filter("dummy=trace")
                 .try_init();
 
-            // Ensure the env var is not influencing the result.
-            // SAFETY: This test is the only writer of IF_MATCH in this process;
-            // proptest runs cases sequentially within a single test function.
-            unsafe { std::env::remove_var("IF_MATCH") };
-
             let target = format!("s3://{}/", bucket);
             let args = vec!["s3rm", target.as_str()];
             let parsed = parse_from_args(args).unwrap();
             let config = Config::try_from(parsed).unwrap();
-            prop_assert!(!config.if_match, "Default if_match must be false when flag and env var are absent");
+            prop_assert!(!config.if_match, "Default if_match must be false when flag is absent");
         }
     }
 
     // -----------------------------------------------------------------------
-    // Property 43: Batch Conditional Deletion Handling
+    // Feature: s3rm-rs, Property 43: Batch Conditional Deletion Handling
     // -----------------------------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
 
-        /// **Property 43: Batch Conditional Deletion Handling**
+        /// Feature: s3rm-rs, Property 43: Batch Conditional Deletion Handling
         /// **Validates: Requirements 11.4**
         ///
         /// When if_match is enabled, BatchDeleter must include per-object ETags
@@ -323,7 +320,7 @@ mod tests {
             })?;
         }
 
-        /// **Property 43: Batch Conditional Deletion Handling (batch size respected)**
+        /// Feature: s3rm-rs, Property 43: Batch Conditional Deletion Handling (batch size respected)
         /// **Validates: Requirements 11.4**
         ///
         /// When if_match is enabled and the batch contains more objects than

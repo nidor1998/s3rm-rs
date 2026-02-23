@@ -17,8 +17,9 @@ mod tracing_init;
 pub mod ui_config;
 
 const EXIT_CODE_WARNING: i32 = 3;
+const EXIT_CODE_ABNORMAL_TERMINATION: i32 = 101;
 
-/// s3rm - Extremely fast Amazon S3 object deletion tool.
+/// s3rm - Fast Amazon S3 object deletion tool.
 ///
 /// This binary is a thin wrapper over the s3rm-rs library.
 /// All core functionality is implemented in the library crate.
@@ -115,20 +116,29 @@ async fn run(mut config: Config) -> Result<()> {
             return Err(e);
         }
 
+        let log_deletion_summary = config.log_deletion_summary;
+
         let indicator_join_handle = indicator::show_indicator(
             pipeline.get_stats_receiver(),
             ui_config::is_progress_indicator_needed(&config),
             ui_config::is_show_result_needed(&config),
-            true, // log_deletion_summary
+            log_deletion_summary,
             config.dry_run,
         );
 
         pipeline.run().await;
-        indicator_join_handle.await?;
+        if let Err(e) = indicator_join_handle.await {
+            error!("indicator task panicked: {}", e);
+            std::process::exit(EXIT_CODE_ABNORMAL_TERMINATION);
+        }
 
         let duration_sec = format!("{:.3}", start_time.elapsed().as_secs_f32());
 
         if pipeline.has_error() {
+            if pipeline.has_panic() {
+                error!(duration_sec = duration_sec, "s3rm abnormal termination.");
+                std::process::exit(EXIT_CODE_ABNORMAL_TERMINATION);
+            }
             let errors = pipeline.get_errors_and_consume().unwrap();
             for err in &errors {
                 if is_cancelled_error(err) {

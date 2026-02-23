@@ -595,17 +595,17 @@ tests/
 |   +-- mod.rs             # TestHelper, bucket management, pipeline runner
 +-- e2e_filter.rs          # Tests 29.1-29.12 + prefix-scoped filter tests (24 tests)
 +-- e2e_deletion.rs        # Tests 29.13-29.17 + prefix-scoped deletion tests (7 tests)
-+-- e2e_safety.rs          # Tests 29.18-29.20 (safety features)
-+-- e2e_versioning.rs      # Tests 29.21-29.23 (versioning)
-+-- e2e_callback.rs        # Tests 29.24-29.30 (Lua + Rust callbacks)
-+-- e2e_optimistic.rs      # Tests 29.31-29.32a (if-match)
-+-- e2e_performance.rs     # Tests 29.33-29.37 (performance options)
-+-- e2e_tracing.rs         # Tests 29.38-29.44 (logging/tracing)
-+-- e2e_retry.rs           # Tests 29.45-29.47 (retry/timeout options)
-+-- e2e_error.rs           # Tests 29.48-29.50 (error handling, access denial)
-+-- e2e_aws_config.rs      # Tests 29.51-29.53 (AWS config options)
-+-- e2e_combined.rs        # Tests 29.54-29.59 (combined/advanced scenarios)
-+-- e2e_stats.rs           # Tests 29.60-29.61 (statistics verification)
++-- e2e_safety.rs          # Tests 29.18-29.20 (3 tests)
++-- e2e_versioning.rs      # Tests 29.21-29.23 (3 tests)
++-- e2e_callback.rs        # Tests 29.24-29.30 (7 tests)
++-- e2e_optimistic.rs      # Tests 29.31-29.32a (3 tests)
++-- e2e_performance.rs     # Tests 29.33-29.37 (5 tests)
++-- e2e_tracing.rs         # Tests 29.38-29.44 (7 tests)
++-- e2e_retry.rs           # Tests 29.45-29.47 (3 tests)
++-- e2e_error.rs           # Tests 29.48-29.50 + exit codes, rate-limit validation (6 tests)
++-- e2e_aws_config.rs      # Tests 29.51-29.53a (4 tests)
++-- e2e_combined.rs        # Tests 29.54-29.59a (7 tests)
++-- e2e_stats.rs           # Tests 29.60-29.61 (2 tests)
 ```
 
 _Requirements: 1.1-1.11, 2.1-2.14, 3.1-3.6, 4.1-4.10, 5.1-5.5, 6.1-6.6, 7.1-7.7, 8.1-8.8, 10.1-10.7, 11.1-11.4, 12.1-12.9, 13.1-13.7_

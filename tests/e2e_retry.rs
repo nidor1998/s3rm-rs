@@ -57,6 +57,9 @@ async fn e2e_retry_options() {
             result.stats.stats_deleted_objects, 10,
             "Should delete all 10 objects"
         );
+
+        let remaining = helper.count_objects(&bucket, "retry/").await;
+        assert_eq!(remaining, 0, "All retry/ objects should be removed from S3");
         guard.cleanup().await;
     });
 }
@@ -109,6 +112,9 @@ async fn e2e_timeout_options() {
             result.stats.stats_deleted_objects, 10,
             "Should delete all 10 objects"
         );
+
+        let remaining = helper.count_objects(&bucket, "timeout/").await;
+        assert_eq!(remaining, 0, "All timeout/ objects should be removed from S3");
         guard.cleanup().await;
     });
 }
@@ -151,6 +157,9 @@ async fn e2e_disable_stalled_stream_protection() {
             result.stats.stats_deleted_objects, 10,
             "Should delete all 10 objects"
         );
+
+        let remaining = helper.count_objects(&bucket, "stalled/").await;
+        assert_eq!(remaining, 0, "All stalled/ objects should be removed from S3");
         guard.cleanup().await;
     });
 }

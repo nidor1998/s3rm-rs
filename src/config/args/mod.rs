@@ -132,7 +132,7 @@ pub struct CLIArgs {
     pub show_no_progress: bool,
 
     /// Report deletion status (suppresses the deletion summary log)
-    #[arg(long, env, default_value_t = DEFAULT_REPORT_DELETION_STATUS, help_heading = "General")]
+    #[arg(long, env, default_value_t = DEFAULT_REPORT_DELETION_STATUS, help_heading = "Tracing/Logging")]
     pub report_deletion_status: bool,
 
     /// Delete all versions of matching objects, including delete markers

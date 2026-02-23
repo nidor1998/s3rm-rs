@@ -116,14 +116,13 @@ async fn run(mut config: Config) -> Result<()> {
             return Err(e);
         }
 
-        // When reporting deletion status, a deletion summary log is not needed.
-        let log_sync_summary = !config.report_deletion_status;
+        let log_deletion_summary = config.report_deletion_status;
 
         let indicator_join_handle = indicator::show_indicator(
             pipeline.get_stats_receiver(),
             ui_config::is_progress_indicator_needed(&config),
             ui_config::is_show_result_needed(&config),
-            log_sync_summary,
+            log_deletion_summary,
             config.dry_run,
         );
 

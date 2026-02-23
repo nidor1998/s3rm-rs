@@ -823,7 +823,7 @@ Phase 25: Property-Based Testing Infrastructure (Task 25)
 
 
 
-- [ ] 29. Automated E2E Integration Testing
+- [-] 29. Automated E2E Integration Testing
   - **Executor**: This task MUST be performed by the `test-architect` agent.
   - **Full test plan**: See [`steering/init_build/e2e_test_plan.md`](e2e_test_plan.md)
   - 62 test cases (29.0–29.61) across 14 test files + shared infrastructure

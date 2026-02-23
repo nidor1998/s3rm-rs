@@ -481,6 +481,12 @@ impl ObjectDeleter {
         for fk in &delete_result.failed {
             self.deletion_stats_report.increment_failed();
 
+            self.base
+                .send_stats(DeletionStatistics::DeleteWarning {
+                    key: fk.key.clone(),
+                })
+                .await;
+
             let mut event_data = EventData::new(EventType::DELETE_FAILED);
             event_data.dry_run = is_dry_run;
             event_data.key = Some(fk.key.clone());
@@ -491,6 +497,21 @@ impl ObjectDeleter {
                 .event_manager
                 .trigger_event(event_data)
                 .await;
+        }
+
+        // Set warning flag and optionally stop pipeline on deletion failures.
+        if !delete_result.failed.is_empty() {
+            self.base.set_warning();
+
+            if self.base.config.warn_as_error {
+                warn!(
+                    worker_index = self.worker_index,
+                    failed_count = delete_result.failed.len(),
+                    "deletion failures promoted to error (--warn-as-error). cancelling pipeline.",
+                );
+                self.base.cancellation_token.cancel();
+                return Ok(());
+            }
         }
 
         // Forward all objects to next stage

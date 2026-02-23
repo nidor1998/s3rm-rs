@@ -618,6 +618,7 @@ mod tests {
     use crate::types::DeletionStatistics;
     use crate::types::token::create_pipeline_cancellation_token;
     use async_trait::async_trait;
+    use aws_sdk_s3::primitives::DateTime;
     use aws_sdk_s3::types::Object;
     use std::sync::atomic::AtomicBool;
 
@@ -986,8 +987,20 @@ mod tests {
         init_dummy_tracing_subscriber();
 
         let objects = vec![
-            S3Object::NotVersioning(Object::builder().key("file1.txt").size(100).build()),
-            S3Object::NotVersioning(Object::builder().key("file2.txt").size(200).build()),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("file1.txt")
+                    .size(100)
+                    .last_modified(DateTime::from_secs(0))
+                    .build(),
+            ),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("file2.txt")
+                    .size(200)
+                    .last_modified(DateTime::from_secs(0))
+                    .build(),
+            ),
         ];
 
         let (stats_sender, stats_receiver) = async_channel::unbounded();
@@ -1030,7 +1043,11 @@ mod tests {
         init_dummy_tracing_subscriber();
 
         let objects = vec![S3Object::NotVersioning(
-            Object::builder().key("delete-me.txt").size(50).build(),
+            Object::builder()
+                .key("delete-me.txt")
+                .size(50)
+                .last_modified(DateTime::from_secs(0))
+                .build(),
         )];
 
         let (stats_sender, stats_receiver) = async_channel::unbounded();
@@ -1116,9 +1133,27 @@ mod tests {
 
         // Create objects but cancel immediately
         let objects = vec![
-            S3Object::NotVersioning(Object::builder().key("key1").size(10).build()),
-            S3Object::NotVersioning(Object::builder().key("key2").size(20).build()),
-            S3Object::NotVersioning(Object::builder().key("key3").size(30).build()),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("key1")
+                    .size(10)
+                    .last_modified(DateTime::from_secs(0))
+                    .build(),
+            ),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("key2")
+                    .size(20)
+                    .last_modified(DateTime::from_secs(0))
+                    .build(),
+            ),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("key3")
+                    .size(30)
+                    .last_modified(DateTime::from_secs(0))
+                    .build(),
+            ),
         ];
 
         let (stats_sender, stats_receiver) = async_channel::unbounded();
@@ -1163,8 +1198,20 @@ mod tests {
         init_dummy_tracing_subscriber();
 
         let objects = vec![
-            S3Object::NotVersioning(Object::builder().key("include-me.log").size(100).build()),
-            S3Object::NotVersioning(Object::builder().key("exclude-me.txt").size(200).build()),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("include-me.log")
+                    .size(100)
+                    .last_modified(DateTime::from_secs(0))
+                    .build(),
+            ),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("exclude-me.txt")
+                    .size(200)
+                    .last_modified(DateTime::from_secs(0))
+                    .build(),
+            ),
         ];
 
         let (stats_sender, stats_receiver) = async_channel::unbounded();
@@ -1215,6 +1262,7 @@ mod tests {
                 Object::builder()
                     .key(format!("file{i}.txt"))
                     .size(10)
+                    .last_modified(DateTime::from_secs(0))
                     .build(),
             ));
         }
@@ -1266,6 +1314,7 @@ mod tests {
                 Object::builder()
                     .key(format!("batch{i}.txt"))
                     .size(25)
+                    .last_modified(DateTime::from_secs(0))
                     .build(),
             ));
         }
@@ -1438,6 +1487,7 @@ mod tests {
                 Object::builder()
                     .key(format!("file{i}.txt"))
                     .size(10)
+                    .last_modified(DateTime::from_secs(0))
                     .build(),
             ));
         }
@@ -1510,8 +1560,20 @@ mod tests {
         init_dummy_tracing_subscriber();
 
         let objects = vec![
-            S3Object::NotVersioning(Object::builder().key("event1.txt").size(50).build()),
-            S3Object::NotVersioning(Object::builder().key("event2.txt").size(75).build()),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("event1.txt")
+                    .size(50)
+                    .last_modified(DateTime::from_secs(0))
+                    .build(),
+            ),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("event2.txt")
+                    .size(75)
+                    .last_modified(DateTime::from_secs(0))
+                    .build(),
+            ),
         ];
 
         let (stats_sender, stats_receiver) = async_channel::unbounded();
@@ -1603,9 +1665,27 @@ mod tests {
         init_dummy_tracing_subscriber();
 
         let objects = vec![
-            S3Object::NotVersioning(Object::builder().key("keep-me.log").size(100).build()),
-            S3Object::NotVersioning(Object::builder().key("remove-me.txt").size(200).build()),
-            S3Object::NotVersioning(Object::builder().key("also-keep.log").size(300).build()),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("keep-me.log")
+                    .size(100)
+                    .last_modified(DateTime::from_secs(0))
+                    .build(),
+            ),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("remove-me.txt")
+                    .size(200)
+                    .last_modified(DateTime::from_secs(0))
+                    .build(),
+            ),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("also-keep.log")
+                    .size(300)
+                    .last_modified(DateTime::from_secs(0))
+                    .build(),
+            ),
         ];
 
         let (stats_sender, stats_receiver) = async_channel::unbounded();
@@ -1794,10 +1874,34 @@ mod tests {
         init_dummy_tracing_subscriber();
 
         let objects = vec![
-            S3Object::NotVersioning(Object::builder().key("ok1.txt").size(10).build()),
-            S3Object::NotVersioning(Object::builder().key("fail1.txt").size(20).build()),
-            S3Object::NotVersioning(Object::builder().key("ok2.txt").size(30).build()),
-            S3Object::NotVersioning(Object::builder().key("fail2.txt").size(40).build()),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("ok1.txt")
+                    .size(10)
+                    .last_modified(DateTime::from_secs(0))
+                    .build(),
+            ),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("fail1.txt")
+                    .size(20)
+                    .last_modified(DateTime::from_secs(0))
+                    .build(),
+            ),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("ok2.txt")
+                    .size(30)
+                    .last_modified(DateTime::from_secs(0))
+                    .build(),
+            ),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("fail2.txt")
+                    .size(40)
+                    .last_modified(DateTime::from_secs(0))
+                    .build(),
+            ),
         ];
 
         let (stats_sender, stats_receiver) = async_channel::unbounded();
@@ -2068,5 +2172,287 @@ mod tests {
             !end_events.is_empty(),
             "Expected PIPELINE_END event even on error path"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Pipeline: warn_as_error feature (post-run promotion of warnings to errors)
+    // -----------------------------------------------------------------------
+
+    /// Mock storage where delete_objects returns non-retryable partial failures.
+    /// Non-retryable errors stay as FailedKeys and trigger the warn_as_error path.
+    #[derive(Clone)]
+    struct NonRetryableFailureMockStorage {
+        objects: Vec<S3Object>,
+        stats_sender: async_channel::Sender<DeletionStatistics>,
+        has_warning: Arc<AtomicBool>,
+        /// Keys that will fail with non-retryable error in batch delete
+        fail_in_batch: Arc<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl StorageTrait for NonRetryableFailureMockStorage {
+        fn is_express_onezone_storage(&self) -> bool {
+            false
+        }
+
+        async fn list_objects(
+            &self,
+            sender: &async_channel::Sender<S3Object>,
+            _max_keys: i32,
+        ) -> Result<()> {
+            for obj in &self.objects {
+                sender.send(obj.clone()).await.unwrap();
+            }
+            Ok(())
+        }
+
+        async fn list_object_versions(
+            &self,
+            _sender: &async_channel::Sender<S3Object>,
+            _max_keys: i32,
+        ) -> Result<()> {
+            Ok(())
+        }
+
+        async fn head_object(
+            &self,
+            _key: &str,
+            _version_id: Option<String>,
+        ) -> Result<aws_sdk_s3::operation::head_object::HeadObjectOutput> {
+            Ok(aws_sdk_s3::operation::head_object::HeadObjectOutput::builder().build())
+        }
+
+        async fn get_object_tagging(
+            &self,
+            _key: &str,
+            _version_id: Option<String>,
+        ) -> Result<aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput> {
+            Ok(
+                aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput::builder()
+                    .build()
+                    .unwrap(),
+            )
+        }
+
+        async fn delete_object(
+            &self,
+            _key: &str,
+            _version_id: Option<String>,
+            _if_match: Option<String>,
+        ) -> Result<aws_sdk_s3::operation::delete_object::DeleteObjectOutput> {
+            Ok(aws_sdk_s3::operation::delete_object::DeleteObjectOutput::builder().build())
+        }
+
+        async fn delete_objects(
+            &self,
+            objects: Vec<aws_sdk_s3::types::ObjectIdentifier>,
+        ) -> Result<aws_sdk_s3::operation::delete_objects::DeleteObjectsOutput> {
+            use aws_sdk_s3::types::{DeletedObject, Error as AwsS3Error};
+
+            let mut builder = aws_sdk_s3::operation::delete_objects::DeleteObjectsOutput::builder();
+
+            for oi in &objects {
+                let key = oi.key().to_string();
+                if self.fail_in_batch.contains(&key) {
+                    // Non-retryable error: AccessDenied
+                    builder = builder.errors(
+                        AwsS3Error::builder()
+                            .key(&key)
+                            .code("AccessDenied")
+                            .message("Access denied")
+                            .build(),
+                    );
+                } else {
+                    builder = builder.deleted(
+                        DeletedObject::builder()
+                            .key(oi.key())
+                            .set_version_id(oi.version_id().map(|s| s.to_string()))
+                            .build(),
+                    );
+                }
+            }
+
+            Ok(builder.build())
+        }
+
+        async fn is_versioning_enabled(&self) -> Result<bool> {
+            Ok(false)
+        }
+
+        fn get_client(&self) -> Option<Arc<aws_sdk_s3::Client>> {
+            None
+        }
+
+        fn get_stats_sender(&self) -> async_channel::Sender<DeletionStatistics> {
+            self.stats_sender.clone()
+        }
+
+        async fn send_stats(&self, stats: DeletionStatistics) {
+            let _ = self.stats_sender.send(stats).await;
+        }
+
+        fn set_warning(&self) {
+            self.has_warning
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    /// Pipeline integration test: warn_as_error=true with non-retryable
+    /// partial failures should produce a pipeline error after completion.
+    ///
+    /// This tests the post-run check in execute_pipeline (line 267):
+    /// if warn_as_error is true and has_warning is set, record a
+    /// "warnings promoted to errors" error.
+    #[tokio::test]
+    async fn pipeline_warn_as_error_true_promotes_warnings_to_errors() {
+        init_dummy_tracing_subscriber();
+
+        let objects = vec![
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("ok.txt")
+                    .size(10)
+                    .last_modified(DateTime::from_secs(1000))
+                    .build(),
+            ),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("fail.txt")
+                    .size(20)
+                    .last_modified(DateTime::from_secs(1000))
+                    .build(),
+            ),
+        ];
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let fail_in_batch = Arc::new(vec!["fail.txt".to_string()]);
+
+        let storage: Storage = Box::new(NonRetryableFailureMockStorage {
+            objects,
+            stats_sender,
+            has_warning: has_warning.clone(),
+            fail_in_batch,
+        });
+
+        let mut config = create_test_config();
+        config.force = true;
+        config.batch_size = 1000;
+        config.worker_size = 1;
+        config.warn_as_error = true;
+
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let mut pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token,
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        pipeline.run().await;
+
+        // Pipeline MUST report an error because warn_as_error=true and failures occurred
+        assert!(
+            pipeline.has_error(),
+            "Pipeline must report error when warn_as_error=true and warnings exist"
+        );
+        assert!(
+            pipeline.has_warning(),
+            "Warning flag must be set when partial failures occur"
+        );
+
+        let errors = pipeline.get_errors_and_consume().unwrap();
+        let error_messages: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+        assert!(
+            error_messages
+                .iter()
+                .any(|m| m.contains("warnings promoted to errors")),
+            "Error message should mention promotion, got: {:?}",
+            error_messages
+        );
+    }
+
+    /// Pipeline integration test: warn_as_error=false with non-retryable
+    /// partial failures should produce a warning but NOT a pipeline error.
+    #[tokio::test]
+    async fn pipeline_warn_as_error_false_does_not_promote_warnings() {
+        init_dummy_tracing_subscriber();
+
+        let objects = vec![
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("ok.txt")
+                    .size(10)
+                    .last_modified(DateTime::from_secs(1000))
+                    .build(),
+            ),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("fail.txt")
+                    .size(20)
+                    .last_modified(DateTime::from_secs(1000))
+                    .build(),
+            ),
+        ];
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let fail_in_batch = Arc::new(vec!["fail.txt".to_string()]);
+
+        let storage: Storage = Box::new(NonRetryableFailureMockStorage {
+            objects,
+            stats_sender,
+            has_warning: has_warning.clone(),
+            fail_in_batch,
+        });
+
+        let mut config = create_test_config();
+        config.force = true;
+        config.batch_size = 1000;
+        config.worker_size = 1;
+        config.warn_as_error = false;
+
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let mut pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token,
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        pipeline.run().await;
+
+        // Pipeline should NOT report an error when warn_as_error=false
+        assert!(
+            !pipeline.has_error(),
+            "Pipeline should not report error when warn_as_error=false"
+        );
+
+        // But warning flag should still be set
+        assert!(
+            pipeline.has_warning(),
+            "Warning flag should be set when partial failures occur"
+        );
+
+        // Some deletions should have succeeded
+        let stats = pipeline.get_deletion_stats();
+        assert_eq!(stats.stats_deleted_objects, 1); // "ok.txt"
+        assert_eq!(stats.stats_failed_objects, 1); // "fail.txt"
     }
 }

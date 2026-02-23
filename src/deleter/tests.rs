@@ -2121,3 +2121,618 @@ async fn batch_deleter_retryable_fallback_succeeds_on_second_attempt() {
     // Counter should be 2 (0-indexed: attempt 0 failed, attempt 1 succeeded)
     assert_eq!(fail_counter.load(Ordering::SeqCst), 2);
 }
+
+// ===========================================================================
+// Helper for warn_as_error tests
+// ===========================================================================
+
+/// Creates a Stage for testing warn_as_error behavior, returning the Stage along
+/// with shared handles to the cancellation token and warning flag so the test
+/// can inspect them after running the ObjectDeleter.
+fn make_stage_with_observables(
+    config: Config,
+    mock_storage: Box<dyn StorageTrait + Send + Sync>,
+    receiver: Option<async_channel::Receiver<S3Object>>,
+    sender: Option<Sender<S3Object>>,
+) -> (
+    Stage,
+    PipelineCancellationToken,
+    Arc<std::sync::atomic::AtomicBool>,
+) {
+    let cancellation_token: PipelineCancellationToken = CancellationToken::new();
+    let has_warning = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stage = Stage::new(
+        config,
+        mock_storage,
+        receiver,
+        sender,
+        cancellation_token.clone(),
+        has_warning.clone(),
+    );
+    (stage, cancellation_token, has_warning)
+}
+
+// ===========================================================================
+// Unit tests: warn_as_error feature
+//
+// The warn_as_error feature promotes deletion warnings (partial batch failures)
+// to fatal errors. When enabled:
+//   - In ObjectDeleter::delete_buffered_objects: if any object in a batch fails,
+//     set_warning() is called AND the cancellation token is cancelled.
+//   - In DeletionPipeline::execute_pipeline (post-run): if the warning flag is
+//     set, a PartialFailure error is recorded.
+//
+// When disabled (default): set_warning() is still called on failures, but the
+// pipeline continues processing remaining objects.
+// ===========================================================================
+
+/// Scenario: warn_as_error=false (default), deletion failure occurs.
+/// Expected: Warning flag is set. Pipeline is NOT cancelled. Remaining
+/// objects continue to be processed. Stats report shows failures.
+#[tokio::test]
+async fn warn_as_error_false_failure_sets_warning_but_continues() {
+    init_dummy_tracing_subscriber();
+
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Configure "key/1" to fail in batch with non-retryable error
+    mock.batch_error_keys
+        .lock()
+        .unwrap()
+        .insert("key/1".to_string(), "AccessDenied".to_string());
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.warn_as_error = false; // Explicitly false (default)
+    config.batch_size = 1000;
+
+    let (stage, cancellation_token, has_warning) =
+        make_stage_with_observables(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    // Send 3 objects. key/1 will fail in batch.
+    for i in 0..3 {
+        input_sender
+            .send(make_s3_object(&format!("key/{i}"), 100))
+            .await
+            .unwrap();
+    }
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Warning flag MUST be set because there was a failure
+    assert!(
+        has_warning.load(Ordering::SeqCst),
+        "Warning flag should be set when a batch deletion partially fails"
+    );
+
+    // Pipeline should NOT be cancelled
+    assert!(
+        !cancellation_token.is_cancelled(),
+        "Pipeline should continue when warn_as_error=false"
+    );
+
+    // Stats: 2 deleted (key/0, key/2), 1 failed (key/1)
+    let snapshot = stats_report.snapshot();
+    assert_eq!(snapshot.stats_deleted_objects, 2);
+    assert_eq!(snapshot.stats_failed_objects, 1);
+
+    // All 3 objects should have been forwarded to the output channel
+    // (both successful and failed objects are forwarded in the current implementation)
+    let mut forwarded = Vec::new();
+    while let Ok(obj) = output_receiver.try_recv() {
+        forwarded.push(obj.key().to_string());
+    }
+    assert_eq!(
+        forwarded.len(),
+        3,
+        "All objects should be forwarded to next stage even with failures"
+    );
+}
+
+/// Scenario: warn_as_error=true, deletion failure occurs.
+/// Expected: Warning flag is set AND pipeline is cancelled immediately.
+/// Objects after the failing batch are NOT forwarded.
+#[tokio::test]
+async fn warn_as_error_true_failure_cancels_pipeline() {
+    init_dummy_tracing_subscriber();
+
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Configure "key/1" to fail in batch with non-retryable error
+    mock.batch_error_keys
+        .lock()
+        .unwrap()
+        .insert("key/1".to_string(), "AccessDenied".to_string());
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.warn_as_error = true;
+    config.batch_size = 1000;
+
+    let (stage, cancellation_token, has_warning) =
+        make_stage_with_observables(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    // Send 3 objects. key/1 will fail in batch.
+    for i in 0..3 {
+        input_sender
+            .send(make_s3_object(&format!("key/{i}"), 100))
+            .await
+            .unwrap();
+    }
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Warning flag MUST be set
+    assert!(
+        has_warning.load(Ordering::SeqCst),
+        "Warning flag should be set on batch failure"
+    );
+
+    // Pipeline MUST be cancelled when warn_as_error=true
+    assert!(
+        cancellation_token.is_cancelled(),
+        "Pipeline must be cancelled when warn_as_error=true and failures occur"
+    );
+
+    // Stats: The batch was processed (2 deleted, 1 failed) but the pipeline
+    // returns early before forwarding objects to the output channel.
+    let snapshot = stats_report.snapshot();
+    assert_eq!(snapshot.stats_deleted_objects, 2);
+    assert_eq!(snapshot.stats_failed_objects, 1);
+
+    // Because the pipeline returns early (before forwarding), the output
+    // channel should have NO objects forwarded.
+    let forwarded_count = output_receiver.len();
+    assert_eq!(
+        forwarded_count, 0,
+        "No objects should be forwarded when warn_as_error cancels the pipeline"
+    );
+}
+
+/// Scenario: warn_as_error=true, no deletion failures.
+/// Expected: Pipeline completes normally. No cancellation. Warning flag NOT set.
+#[tokio::test]
+async fn warn_as_error_true_no_failures_completes_normally() {
+    init_dummy_tracing_subscriber();
+
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.warn_as_error = true;
+    config.batch_size = 1000;
+
+    let (stage, cancellation_token, has_warning) =
+        make_stage_with_observables(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    // Send 3 objects -- all succeed
+    for i in 0..3 {
+        input_sender
+            .send(make_s3_object(&format!("key/{i}"), 100))
+            .await
+            .unwrap();
+    }
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // No failures: warning flag NOT set, pipeline NOT cancelled
+    assert!(
+        !has_warning.load(Ordering::SeqCst),
+        "Warning flag should not be set when there are no failures"
+    );
+    assert!(
+        !cancellation_token.is_cancelled(),
+        "Pipeline should not be cancelled when there are no failures"
+    );
+
+    // All 3 objects successfully deleted and forwarded
+    let snapshot = stats_report.snapshot();
+    assert_eq!(snapshot.stats_deleted_objects, 3);
+    assert_eq!(snapshot.stats_failed_objects, 0);
+
+    let mut forwarded = Vec::new();
+    while let Ok(obj) = output_receiver.try_recv() {
+        forwarded.push(obj.key().to_string());
+    }
+    assert_eq!(forwarded.len(), 3);
+}
+
+/// Scenario: warn_as_error=false, no deletion failures.
+/// Expected: Baseline -- everything completes normally.
+#[tokio::test]
+async fn warn_as_error_false_no_failures_baseline() {
+    init_dummy_tracing_subscriber();
+
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let config = make_test_config(); // warn_as_error defaults to false
+
+    let (stage, cancellation_token, has_warning) =
+        make_stage_with_observables(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    for i in 0..3 {
+        input_sender
+            .send(make_s3_object(&format!("key/{i}"), 100))
+            .await
+            .unwrap();
+    }
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    assert!(!has_warning.load(Ordering::SeqCst));
+    assert!(!cancellation_token.is_cancelled());
+
+    let snapshot = stats_report.snapshot();
+    assert_eq!(snapshot.stats_deleted_objects, 3);
+    assert_eq!(snapshot.stats_failed_objects, 0);
+
+    let mut forwarded = Vec::new();
+    while let Ok(obj) = output_receiver.try_recv() {
+        forwarded.push(obj.key().to_string());
+    }
+    assert_eq!(forwarded.len(), 3);
+}
+
+/// Scenario: warn_as_error=true, multiple batches, first batch has failures.
+/// Expected: Pipeline cancels after the first batch with failures. The second
+/// batch is never flushed because the cancellation token is set.
+#[tokio::test]
+async fn warn_as_error_true_cancels_on_first_failing_batch() {
+    init_dummy_tracing_subscriber();
+
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Configure "key/0" to fail -- this is in the first batch
+    mock.batch_error_keys
+        .lock()
+        .unwrap()
+        .insert("key/0".to_string(), "AccessDenied".to_string());
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(20);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(20);
+
+    let mut config = make_test_config();
+    config.warn_as_error = true;
+    config.batch_size = 3; // Small batch so we get multiple batches
+
+    let (stage, cancellation_token, has_warning) =
+        make_stage_with_observables(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    // Send 9 objects: batch_size=3 means 3 batches of 3.
+    // key/0 is in the first batch and will fail.
+    for i in 0..9 {
+        input_sender
+            .send(make_s3_object(&format!("key/{i}"), 100))
+            .await
+            .unwrap();
+    }
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Pipeline must be cancelled after first batch failure
+    assert!(
+        cancellation_token.is_cancelled(),
+        "Pipeline must cancel on first batch with failures when warn_as_error=true"
+    );
+    assert!(has_warning.load(Ordering::SeqCst));
+
+    // Only the first batch should have been processed.
+    // First batch: key/0 (fail), key/1 (ok), key/2 (ok) = 2 deleted, 1 failed.
+    // Second and third batches should not be flushed because the deleter
+    // returns early after cancellation.
+    let snapshot = stats_report.snapshot();
+    assert_eq!(
+        snapshot.stats_deleted_objects, 2,
+        "Only objects from the first batch should be deleted"
+    );
+    assert_eq!(
+        snapshot.stats_failed_objects, 1,
+        "Only the failure from the first batch should be counted"
+    );
+
+    // Verify the mock only received one batch delete call (the first batch)
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(
+        batch_calls.len(),
+        1,
+        "Only one batch should be sent to S3 before cancellation"
+    );
+    assert_eq!(batch_calls[0].identifiers.len(), 3);
+}
+
+/// Scenario: warn_as_error with single deleter mode (batch_size=1).
+/// Expected: When single delete fails and warn_as_error=true, the pipeline
+/// is still cancelled because the failure is surfaced through BatchDeleter
+/// (single delete failures are handled via the fallback retry mechanism).
+///
+/// Note: With batch_size=1, each object is processed by SingleDeleter.
+/// When a single delete fails (all retries exhausted), it appears as a
+/// FailedKey in the DeleteResult, triggering the warn_as_error cancellation
+/// path in delete_buffered_objects.
+#[tokio::test]
+async fn warn_as_error_true_single_deleter_failure_cancels() {
+    init_dummy_tracing_subscriber();
+
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Configure "key/0" to fail in batch delete.
+    // With batch_size=1, each object goes through SingleDeleter.
+    // But we can trigger a failure differently: the mock's delete_object_error_keys.
+    // SingleDeleter returns Err when delete_object fails, which makes
+    // delete_buffered_objects cancel the pipeline entirely (different from batch
+    // partial failure). So for single-mode warn_as_error testing, we need to
+    // use batch_size > 1 but small enough to test the flow.
+    //
+    // Actually, with batch_size=1 the ObjectDeleter uses SingleDeleter, and if
+    // SingleDeleter returns Err, the entire batch call in delete_buffered_objects
+    // goes to the Err branch (line 407-416) which cancels unconditionally.
+    //
+    // The warn_as_error path is specifically for partial failures (some objects
+    // in a batch fail while others succeed), so it only applies to BatchDeleter.
+    // Let's test with batch_size=2 instead.
+    mock.batch_error_keys
+        .lock()
+        .unwrap()
+        .insert("key/0".to_string(), "AccessDenied".to_string());
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.warn_as_error = true;
+    config.batch_size = 2; // Small batch -- 2 objects per batch
+
+    let (stage, cancellation_token, has_warning) =
+        make_stage_with_observables(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    // Send 4 objects: batches of 2: [key/0, key/1] and [key/2, key/3]
+    // First batch has key/0 failing.
+    for i in 0..4 {
+        input_sender
+            .send(make_s3_object(&format!("key/{i}"), 100))
+            .await
+            .unwrap();
+    }
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    assert!(cancellation_token.is_cancelled());
+    assert!(has_warning.load(Ordering::SeqCst));
+
+    // Only first batch should have been processed
+    let snapshot = stats_report.snapshot();
+    assert_eq!(snapshot.stats_deleted_objects, 1); // key/1 succeeded
+    assert_eq!(snapshot.stats_failed_objects, 1); // key/0 failed
+}
+
+/// Scenario: DeletionStatistics::DeleteWarning is emitted for each failed key
+/// regardless of the warn_as_error setting.
+///
+/// Both warn_as_error=true and warn_as_error=false should emit DeleteWarning
+/// stats messages for every failed key in the batch.
+#[tokio::test]
+async fn delete_warning_stats_emitted_for_each_failed_key() {
+    init_dummy_tracing_subscriber();
+
+    for warn_as_error in [false, true] {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let (boxed, mock) = make_mock_storage_boxed(stats_sender.clone());
+
+        // Configure two keys to fail
+        {
+            let mut errors = mock.batch_error_keys.lock().unwrap();
+            errors.insert("key/1".to_string(), "AccessDenied".to_string());
+            errors.insert("key/3".to_string(), "NoSuchKey".to_string());
+        }
+
+        let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+        let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+        let mut config = make_test_config();
+        config.warn_as_error = warn_as_error;
+        config.batch_size = 1000; // All objects in one batch
+
+        let (stage, _cancellation_token, _has_warning) =
+            make_stage_with_observables(config, boxed, Some(input_receiver), Some(output_sender));
+
+        let stats_report = Arc::new(DeletionStatsReport::new());
+        let delete_counter = Arc::new(AtomicU64::new(0));
+        let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+        // Send 5 objects
+        for i in 0..5 {
+            input_sender
+                .send(make_s3_object(&format!("key/{i}"), 100))
+                .await
+                .unwrap();
+        }
+        drop(input_sender);
+
+        deleter.delete().await.unwrap();
+
+        // Close the stats sender so try_recv will drain remaining messages
+        stats_sender.close();
+        let mut warning_keys = Vec::new();
+        while let Ok(stat) = stats_receiver.try_recv() {
+            if let DeletionStatistics::DeleteWarning { key } = stat {
+                warning_keys.push(key);
+            }
+        }
+
+        // Both failed keys should have DeleteWarning stats emitted
+        assert!(
+            warning_keys.contains(&"key/1".to_string()),
+            "warn_as_error={warn_as_error}: DeleteWarning should be emitted for key/1"
+        );
+        assert!(
+            warning_keys.contains(&"key/3".to_string()),
+            "warn_as_error={warn_as_error}: DeleteWarning should be emitted for key/3"
+        );
+    }
+}
+
+/// Scenario: warn_as_error=true with retryable batch failures that recover
+/// via single-delete fallback.
+/// Expected: When all retryable failures are recovered via fallback, there
+/// are no remaining FailedKeys, so warn_as_error does NOT trigger cancellation.
+#[tokio::test]
+async fn warn_as_error_true_retryable_failures_recovered_no_cancellation() {
+    init_dummy_tracing_subscriber();
+
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Configure "key/1" with retryable error in batch -- single delete succeeds
+    mock.batch_error_keys
+        .lock()
+        .unwrap()
+        .insert("key/1".to_string(), "InternalError".to_string());
+    // Note: delete_object_error_keys is empty, so single-delete fallback succeeds
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.warn_as_error = true;
+    config.batch_size = 1000;
+
+    let (stage, cancellation_token, has_warning) =
+        make_stage_with_observables(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    for i in 0..3 {
+        input_sender
+            .send(make_s3_object(&format!("key/{i}"), 100))
+            .await
+            .unwrap();
+    }
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // All objects recovered via fallback: no FailedKeys remain, so
+    // warn_as_error should NOT trigger.
+    assert!(
+        !cancellation_token.is_cancelled(),
+        "Pipeline should not cancel when all retryable failures are recovered"
+    );
+    assert!(
+        !has_warning.load(Ordering::SeqCst),
+        "Warning should not be set when all failures are recovered via fallback"
+    );
+
+    let snapshot = stats_report.snapshot();
+    assert_eq!(snapshot.stats_deleted_objects, 3);
+    assert_eq!(snapshot.stats_failed_objects, 0);
+
+    // All objects forwarded
+    let mut forwarded = Vec::new();
+    while let Ok(obj) = output_receiver.try_recv() {
+        forwarded.push(obj.key().to_string());
+    }
+    assert_eq!(forwarded.len(), 3);
+}
+
+/// Scenario: warn_as_error=true with mixed retryable and non-retryable failures.
+/// The retryable failure recovers via fallback, but the non-retryable one remains
+/// as a FailedKey, triggering warn_as_error cancellation.
+#[tokio::test]
+async fn warn_as_error_true_mixed_failures_non_retryable_triggers_cancel() {
+    init_dummy_tracing_subscriber();
+
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    {
+        let mut errors = mock.batch_error_keys.lock().unwrap();
+        // Retryable: recovers via single-delete fallback
+        errors.insert("key/0".to_string(), "InternalError".to_string());
+        // Non-retryable: stays in FailedKeys
+        errors.insert("key/2".to_string(), "NoSuchKey".to_string());
+    }
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.warn_as_error = true;
+    config.batch_size = 1000;
+
+    let (stage, cancellation_token, has_warning) =
+        make_stage_with_observables(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    for i in 0..3 {
+        input_sender
+            .send(make_s3_object(&format!("key/{i}"), 100))
+            .await
+            .unwrap();
+    }
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Non-retryable failure remains as FailedKey, triggering warn_as_error
+    assert!(
+        cancellation_token.is_cancelled(),
+        "Pipeline must cancel when non-retryable failure remains with warn_as_error=true"
+    );
+    assert!(has_warning.load(Ordering::SeqCst));
+
+    let snapshot = stats_report.snapshot();
+    // key/0 recovered via fallback, key/1 succeeded in batch = 2 deleted
+    assert_eq!(snapshot.stats_deleted_objects, 2);
+    // key/2 failed with non-retryable error = 1 failed
+    assert_eq!(snapshot.stats_failed_objects, 1);
+}

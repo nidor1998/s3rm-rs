@@ -47,8 +47,25 @@
 - `init_dummy_tracing_subscriber()` pattern used everywhere for tracing init
 
 ## Key File Sizes
-- `src/deleter/tests.rs`: 2029 lines (richest test file)
-- `src/pipeline.rs` test module: ~800 lines
+- `src/deleter/tests.rs`: ~2500 lines (richest test file, now includes warn_as_error tests)
+- `src/pipeline.rs` test module: ~1100 lines (includes warn_as_error pipeline tests)
 - `src/config/args/tests.rs`: 601 lines
 - `src/versioning_properties.rs`: 677 lines
 - `src/optimistic_locking_properties.rs`: 589 lines
+
+## Known Pre-Existing Bugs
+- 9 pipeline tests fail because `Object::builder()` calls lack `.last_modified()`.
+  Affected: `pipeline_runs_with_mock_storage_and_deletes`, `pipeline_batch_deletion`,
+  `pipeline_multiple_workers`, `pipeline_with_filters`, `pipeline_max_delete_*`,
+  `pipeline_event_callback_fires_during_execution`, `pipeline_rust_filter_callback_integration`,
+  `pipeline_partial_batch_failure_retries_via_single_delete`, `pipeline_runs_with_mock_storage_dry_run`.
+  The `S3Object::last_modified()` method calls `.unwrap()` on `None`.
+  **Fix**: Add `.last_modified(DateTime::from_secs(1000))` to all Object builders in pipeline tests.
+
+## Test Helper Patterns (deleter/tests.rs)
+- `make_stage_with_mock()`: Creates Stage with internal cancellation_token/has_warning (no external access)
+- `make_stage_with_observables()`: Returns (Stage, CancellationToken, has_warning) for tests that need
+  to inspect pipeline state after ObjectDeleter runs (e.g., warn_as_error tests)
+- `MockStorage.batch_error_keys`: HashMap<String, String> to simulate per-key batch failures
+- `MockStorage.delete_object_error_keys`: HashMap<String, String> for single-delete failures
+- `FailOnceMock`: Custom StorageTrait impl that fails first call, succeeds second (retry testing)

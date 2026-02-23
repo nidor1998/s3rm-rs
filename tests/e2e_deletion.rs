@@ -124,6 +124,7 @@ async fn e2e_single_deletion_mode() {
         //          S3 DeleteObject API (one object at a time) instead of batch.
         // Setup:   Upload 20 objects.
         // Expected: All 20 objects deleted; stats show 20 deleted, 0 failed.
+        //           Objects are actually removed from S3.
         //
         // Validates: Requirement 1.2
 
@@ -156,6 +157,14 @@ async fn e2e_single_deletion_mode() {
             result.stats.stats_failed_objects, 0,
             "No objects should fail"
         );
+
+        // Verify objects are actually removed from S3
+        let remaining = helper.count_objects(&bucket, "single/").await;
+        assert_eq!(
+            remaining, 0,
+            "All objects should be removed from S3 after single deletion"
+        );
+
         guard.cleanup().await;
     });
 }

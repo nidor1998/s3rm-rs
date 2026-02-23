@@ -342,21 +342,16 @@ impl StorageTrait for S3Storage {
         Ok(())
     }
 
-    async fn head_object(
-        &self,
-        relative_key: &str,
-        version_id: Option<String>,
-    ) -> Result<HeadObjectOutput> {
+    async fn head_object(&self, key: &str, version_id: Option<String>) -> Result<HeadObjectOutput> {
         self.exec_rate_limit_objects_per_sec().await;
 
-        let full_key = prepend_prefix(&self.prefix, relative_key);
         self.client
             .as_ref()
             .unwrap()
             .head_object()
             .set_request_payer(self.request_payer.clone())
             .bucket(&self.bucket)
-            .key(&full_key)
+            .key(key)
             .set_version_id(version_id.clone())
             .send()
             .await
@@ -364,12 +359,12 @@ impl StorageTrait for S3Storage {
                 let (s3_error_code, s3_error_message) = extract_sdk_error_details(&e);
                 tracing::error!(
                     bucket = self.bucket,
-                    key = %full_key,
+                    key = %key,
                     version_id = version_id,
                     s3_error_code = s3_error_code,
                     s3_error_message = s3_error_message,
                     "S3 HeadObject API call failed for s3://{}/{}: {} ({}).",
-                    self.bucket, full_key, s3_error_code, s3_error_message,
+                    self.bucket, key, s3_error_code, s3_error_message,
                 );
                 anyhow::anyhow!(e).context("aws_sdk_s3::client::head_object() failed.")
             })
@@ -377,19 +372,18 @@ impl StorageTrait for S3Storage {
 
     async fn get_object_tagging(
         &self,
-        relative_key: &str,
+        key: &str,
         version_id: Option<String>,
     ) -> Result<GetObjectTaggingOutput> {
         self.exec_rate_limit_objects_per_sec().await;
 
-        let full_key = prepend_prefix(&self.prefix, relative_key);
         self.client
             .as_ref()
             .unwrap()
             .get_object_tagging()
             .set_request_payer(self.request_payer.clone())
             .bucket(&self.bucket)
-            .key(&full_key)
+            .key(key)
             .set_version_id(version_id.clone())
             .send()
             .await
@@ -397,12 +391,12 @@ impl StorageTrait for S3Storage {
                 let (s3_error_code, s3_error_message) = extract_sdk_error_details(&e);
                 tracing::error!(
                     bucket = self.bucket,
-                    key = %full_key,
+                    key = %key,
                     version_id = version_id,
                     s3_error_code = s3_error_code,
                     s3_error_message = s3_error_message,
                     "S3 GetObjectTagging API call failed for s3://{}/{}: {} ({}).",
-                    self.bucket, full_key, s3_error_code, s3_error_message,
+                    self.bucket, key, s3_error_code, s3_error_message,
                 );
                 anyhow::anyhow!(e).context("aws_sdk_s3::client::get_object_tagging() failed.")
             })
@@ -410,20 +404,19 @@ impl StorageTrait for S3Storage {
 
     async fn delete_object(
         &self,
-        relative_key: &str,
+        key: &str,
         version_id: Option<String>,
         if_match: Option<String>,
     ) -> Result<DeleteObjectOutput> {
         self.exec_rate_limit_objects_per_sec().await;
 
-        let full_key = prepend_prefix(&self.prefix, relative_key);
         self.client
             .as_ref()
             .unwrap()
             .delete_object()
             .set_request_payer(self.request_payer.clone())
             .bucket(&self.bucket)
-            .key(&full_key)
+            .key(key)
             .set_version_id(version_id.clone())
             .set_if_match(if_match)
             .send()
@@ -432,12 +425,12 @@ impl StorageTrait for S3Storage {
                 let (s3_error_code, s3_error_message) = extract_sdk_error_details(&e);
                 tracing::warn!(
                     bucket = self.bucket,
-                    key = %full_key,
+                    key = %key,
                     version_id = version_id,
                     s3_error_code = s3_error_code,
                     s3_error_message = s3_error_message,
                     "S3 DeleteObject API call failed for s3://{}/{}: {} ({}).",
-                    self.bucket, full_key, s3_error_code, s3_error_message,
+                    self.bucket, key, s3_error_code, s3_error_message,
                 );
                 anyhow::anyhow!(e).context("aws_sdk_s3::client::delete_object() failed.")
             })
@@ -893,18 +886,6 @@ impl S3Storage {
     }
 }
 
-/// Prepend the storage prefix to a relative key to form the full S3 key.
-///
-/// If the prefix is empty, returns the relative key as-is.
-/// Reused from s3sync's key generation pattern.
-fn prepend_prefix(prefix: &str, relative_key: &str) -> String {
-    if prefix.is_empty() {
-        relative_key.to_string()
-    } else {
-        format!("{prefix}{relative_key}")
-    }
-}
-
 /// Check if a bucket name indicates Express One Zone storage.
 ///
 /// Express One Zone bucket names end with `--x-s3`.
@@ -961,22 +942,6 @@ mod tests {
             force: false,
             test_user_defined_callback: false,
         }
-    }
-
-    #[test]
-    fn prepend_prefix_with_prefix() {
-        init_dummy_tracing_subscriber();
-
-        assert_eq!(prepend_prefix("logs/", "file.txt"), "logs/file.txt");
-        assert_eq!(prepend_prefix("a/b/c/", "key.json"), "a/b/c/key.json");
-    }
-
-    #[test]
-    fn prepend_prefix_empty_prefix() {
-        init_dummy_tracing_subscriber();
-
-        assert_eq!(prepend_prefix("", "file.txt"), "file.txt");
-        assert_eq!(prepend_prefix("", "a/b/c"), "a/b/c");
     }
 
     #[test]

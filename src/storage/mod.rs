@@ -74,35 +74,31 @@ pub trait StorageTrait: DynClone {
 
     /// Get object metadata via HeadObject API.
     ///
-    /// `relative_key` is the object key relative to the storage prefix;
-    /// the prefix is prepended internally before calling S3.
+    /// `key` is the full S3 object key as returned by the listing API;
+    /// no prefix is prepended — callers must pass the complete key.
     /// Used by ObjectDeleter for content-type and metadata filtering.
-    async fn head_object(
-        &self,
-        relative_key: &str,
-        version_id: Option<String>,
-    ) -> Result<HeadObjectOutput>;
+    async fn head_object(&self, key: &str, version_id: Option<String>) -> Result<HeadObjectOutput>;
 
     /// Get object tags via GetObjectTagging API.
     ///
-    /// `relative_key` is the object key relative to the storage prefix;
-    /// the prefix is prepended internally before calling S3.
+    /// `key` is the full S3 object key as returned by the listing API;
+    /// no prefix is prepended — callers must pass the complete key.
     /// Used by ObjectDeleter for tag filtering.
     async fn get_object_tagging(
         &self,
-        relative_key: &str,
+        key: &str,
         version_id: Option<String>,
     ) -> Result<GetObjectTaggingOutput>;
 
     /// Delete a single object via DeleteObject API.
     ///
-    /// `relative_key` is the object key relative to the storage prefix;
-    /// the prefix is prepended internally before calling S3.
+    /// `key` is the full S3 object key as returned by the listing API;
+    /// no prefix is prepended — callers must pass the complete key.
     /// Supports version_id for versioned deletions and if_match for
     /// optimistic locking (ETag-based conditional deletion).
     async fn delete_object(
         &self,
-        relative_key: &str,
+        key: &str,
         version_id: Option<String>,
         if_match: Option<String>,
     ) -> Result<DeleteObjectOutput>;

@@ -20,13 +20,13 @@ use std::io::Write as IoWrite;
 async fn e2e_multiple_filters_combined() {
     e2e_timeout!(async {
         // Purpose: Verify multiple filters combine with AND logic. An object must
-        //          pass ALL filters (prefix, regex, AND size) to be deleted.
+        //          pass ALL filters (regex AND size) to be deleted.
         // Setup:   Upload 30 objects:
         //          - 10 with key logs/small{i}.txt (100B)
         //          - 10 with key logs/large{i}.txt (10KB)
         //          - 10 with key data/large{i}.dat (10KB)
-        // Expected: Only 10 logs/large{i}.txt objects deleted (matching prefix
-        //           logs/, regex \.txt$, AND size > 1KB). 20 others remain.
+        // Expected: Only 10 logs/large{i}.txt objects deleted (matching regex
+        //           \.txt$ AND size > 1KB). 20 others remain.
         //
         // Validates: Requirement 2.11
 
@@ -64,7 +64,7 @@ async fn e2e_multiple_filters_combined() {
         }
 
         let config = TestHelper::build_config(vec![
-            &format!("s3://{bucket}/logs/"),
+            &format!("s3://{bucket}/"),
             "--filter-include-regex",
             r"\.txt$",
             "--filter-larger-size",
@@ -84,11 +84,14 @@ async fn e2e_multiple_filters_combined() {
         assert_eq!(
             remaining_logs_small.len(),
             10,
-            "Small txt files should remain"
+            "Small txt files should remain (fail size filter)"
         );
 
         let remaining_data = helper.list_objects(&bucket, "data/").await;
-        assert_eq!(remaining_data.len(), 10, "Data files should remain");
+        assert_eq!(
+            remaining_data.len(), 10,
+            "Data files should remain (fail regex filter)"
+        );
         guard.cleanup().await;
     });
 }
@@ -286,15 +289,9 @@ async fn e2e_max_delete_with_filters() {
             to_delete_remaining >= 25,
             "At least 25 to-delete/ objects should remain (max-delete 5); got {to_delete_remaining}"
         );
-        assert!(
-            result.stats.stats_deleted_objects >= max_delete_value,
-            "At least {max_delete_value} objects should be deleted (the check fires after the limit is hit); got {}",
-            result.stats.stats_deleted_objects
-        );
-        assert!(
-            result.stats.stats_deleted_objects <= max_delete_value,
-            "At most {max_delete_value} objects should be deleted with batch-size=1; got {}",
-            result.stats.stats_deleted_objects
+        assert_eq!(
+            result.stats.stats_deleted_objects, max_delete_value,
+            "Exactly {max_delete_value} objects should be deleted (batch-size=1 ensures precise max-delete enforcement)"
         );
         guard.cleanup().await;
     });

@@ -1904,6 +1904,8 @@ pub struct TestHelper {
 impl TestHelper {
     pub async fn new() -> Self;
     pub async fn create_bucket(&self, name: &str) -> String;
+    pub fn generate_directory_bucket_name(&self, az_id: &str) -> String;
+    pub async fn create_directory_bucket(&self, bucket: &str, az_id: &str);
     pub fn bucket_guard(self: &Arc<Self>, bucket: &str) -> BucketGuard;
     pub async fn upload_objects(&self, bucket: &str, prefix: &str, count: usize);
     pub async fn enable_versioning(&self, bucket: &str);
@@ -1932,8 +1934,8 @@ macro_rules! e2e_timeout {
 | File | Tests | Description |
 |------|-------|-------------|
 | `tests/common/mod.rs` | — | Shared test infrastructure (`TestHelper`, `PipelineResult`, `BucketGuard`, `CollectingEventCallback`, `e2e_timeout!` macro) |
-| `tests/e2e_deletion.rs` | 5 | Basic deletion, batch mode, single mode, dry-run, force flag |
-| `tests/e2e_filter.rs` | 16 | Regex, size, time, content-type, metadata, tag, and combined filters |
+| `tests/e2e_deletion.rs` | 7 | Basic deletion, batch mode, single mode, dry-run, force flag |
+| `tests/e2e_filter.rs` | 24 | Regex, size, time, content-type, metadata, tag, and combined filters |
 | `tests/e2e_versioning.rs` | 3 | Delete markers, all-versions deletion, versioned dry-run |
 | `tests/e2e_callback.rs` | 7 | Lua filter/event callbacks, Rust event callbacks, event data validation |
 | `tests/e2e_optimistic.rs` | 3 | If-Match conditional deletion, ETag mismatch handling |
@@ -1944,6 +1946,7 @@ macro_rules! e2e_timeout {
 | `tests/e2e_aws_config.rs` | 4 | Credential loading, region config, custom endpoint, profile |
 | `tests/e2e_combined.rs` | 7 | Multi-filter combinations, pipeline integration scenarios |
 | `tests/e2e_stats.rs` | 2 | Statistics accuracy, event callback stats reporting |
+| `tests/e2e_express_one_zone.rs` | 3 | Express One Zone auto-detection, filtering, parallel listing override |
 
 **Running E2E Tests**:
 
@@ -1959,6 +1962,8 @@ RUSTFLAGS='--cfg e2e_test' cargo test --test 'e2e_*' -- --nocapture
 # Run specific test suite
 RUSTFLAGS='--cfg e2e_test' cargo test --test e2e_deletion -- --nocapture
 ```
+
+Express One Zone tests use the `S3RM_E2E_AZ_ID` environment variable to select an availability zone (defaults to `apne1-az4` if unset).
 
 **Note**: E2E tests requiring network access are performed manually as part of release validation, not in automated CI.
 

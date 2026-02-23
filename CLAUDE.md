@@ -237,6 +237,9 @@ export AWS_ACCESS_KEY_ID=your_key
 export AWS_SECRET_ACCESS_KEY=your_secret
 export AWS_DEFAULT_REGION=us-east-1
 
+# Express One Zone tests use S3RM_E2E_AZ_ID (defaults to apne1-az4)
+# export S3RM_E2E_AZ_ID=apne1-az4
+
 # Run E2E tests (requires RUSTFLAGS="--cfg e2e_test" and AWS profile s3rm-e2e-test)
 RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_deletion
 RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_filter

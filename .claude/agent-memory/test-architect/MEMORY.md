@@ -4,7 +4,7 @@
 - Unit tests: `#[cfg(test)]` modules in source files (~49 files)
 - Property tests: `*_properties.rs` files (~18 files with 53 proptest blocks)
 - Dedicated test files: `src/config/args/tests.rs`, `src/deleter/tests.rs`
-- E2E tests: `tests/e2e_*.rs` (13 files, gated behind `#[cfg(e2e_test)]`)
+- E2E tests: `tests/e2e_*.rs` (14 files, gated behind `#[cfg(e2e_test)]`)
 - ~468 total test functions (442 lib + 26 bin + 8 doctests), 49 named properties
 - All tests pass as of 2026-02-23
 
@@ -17,16 +17,15 @@
 - `src/optimistic_locking_properties.rs`: `RecordingMockStorage`, `BatchRecordingMockStorage`
 - **Recommendation**: Consolidate into shared builder-pattern mock
 
-## E2E Test Suite (66 tests, reviewed 2026-02-23)
-- 13 test files in tests/ directory + tests/common/mod.rs
+## E2E Test Suite (84 tests, reviewed 2026-02-23)
+- 14 test files in tests/ directory + tests/common/mod.rs
 - All gated behind `#[cfg(e2e_test)]`
 - AWS profile: `s3rm-e2e-test`
 - BucketGuard RAII with catch_unwind for double-panic safety
 - `e2e_timeout!` macro wraps with 5-minute tokio timeout
-- 29.32a IS implemented (previous note was wrong)
-- PipelineResult DOES capture has_panic (previous note was wrong)
-- CollectingEventCallback consolidated in tests/common/mod.rs (was duplicated)
-- Sequential uploads for ALL tests (~2700+ objects total)
+- Per-file counts: filter(24), deletion(7), callback(7), combined(7), tracing(7), error(6), performance(5), aws_config(4), optimistic(3), retry(3), safety(3), versioning(3), express_one_zone(3), stats(2)
+- All tests include S3 deletion verification (`count_objects` assertions)
+- CollectingEventCallback consolidated in tests/common/mod.rs
 
 ## E2E Review Key Findings (2026-02-23, updated with fixes)
 1. **FIXED**: Test 29.58 Lua event -- `function event(data)` -> `function on_event(event_data)`

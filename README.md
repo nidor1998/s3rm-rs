@@ -1042,7 +1042,7 @@ async fn main() {
 **Supported target: Amazon S3 only.**
 
 Support for S3-compatible storage is on a best-effort basis and may behave differently.
-s3rm has been tested with Amazon S3. s3rm has comprehensive unit tests, property-based tests (proptest) covering 49 correctness properties, and 71 end-to-end integration tests across 13 test files.
+s3rm has been tested with Amazon S3. s3rm has comprehensive unit tests, property-based tests (proptest) covering 49 correctness properties, and 84 end-to-end integration tests across 14 test files.
 
 ### Running unit and property tests
 
@@ -1065,7 +1065,9 @@ RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_deletion
 RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_deletion -- e2e_prefix_deletion
 ```
 
-Available test files: `e2e_deletion`, `e2e_filter`, `e2e_versioning`, `e2e_safety`, `e2e_callback`, `e2e_optimistic`, `e2e_performance`, `e2e_tracing`, `e2e_retry`, `e2e_error`, `e2e_aws_config`, `e2e_combined`, `e2e_stats`.
+Available test files: `e2e_deletion`, `e2e_filter`, `e2e_versioning`, `e2e_safety`, `e2e_callback`, `e2e_optimistic`, `e2e_performance`, `e2e_tracing`, `e2e_retry`, `e2e_error`, `e2e_aws_config`, `e2e_combined`, `e2e_stats`, `e2e_express_one_zone`.
+
+Express One Zone tests require the `S3RM_E2E_AZ_ID` environment variable (defaults to `apne1-az4` if unset).
 
 S3-compatible storage is not tested when a new version is released.
 Since there is no official certification for S3-compatible storage, comprehensive testing is not possible.

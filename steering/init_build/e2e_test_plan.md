@@ -1,7 +1,7 @@
 # Task 29: Automated E2E Integration Testing
 
 > **Referenced from**: `steering/init_build/tasks.md` (Task 29)
-> **Status**: Complete — all test cases implemented (71 test functions across 13 test files + shared infrastructure)
+> **Status**: Complete — all test cases implemented (81 test functions across 13 test files + shared infrastructure)
 
 ## E2E Test Requirements Checklist
 
@@ -593,8 +593,8 @@ RUSTFLAGS="--cfg e2e_test" cargo test --all-features --test e2e_basic -- e2e_bas
 tests/
 +-- common/
 |   +-- mod.rs             # TestHelper, bucket management, pipeline runner
-+-- e2e_filter.rs          # Tests 29.1-29.12 (filtering)
-+-- e2e_deletion.rs        # Tests 29.13-29.17 (core deletion modes)
++-- e2e_filter.rs          # Tests 29.1-29.12 + prefix-scoped filter tests (24 tests)
++-- e2e_deletion.rs        # Tests 29.13-29.17 + prefix-scoped deletion tests (7 tests)
 +-- e2e_safety.rs          # Tests 29.18-29.20 (safety features)
 +-- e2e_versioning.rs      # Tests 29.21-29.23 (versioning)
 +-- e2e_callback.rs        # Tests 29.24-29.30 (Lua + Rust callbacks)

@@ -1179,3 +1179,599 @@ async fn e2e_filter_larger_size() {
         guard.cleanup().await;
     });
 }
+
+// ---------------------------------------------------------------------------
+// Prefix-scoped filter tests: verify HeadObject/GetObjectTagging-dependent
+// filters work correctly when a non-empty prefix is specified.
+//
+// The S3 listing API returns full keys (e.g., "data/file.txt"). The
+// head_object, get_object_tagging, and delete_object methods must use
+// these keys as-is without re-prepending the prefix. These tests exercise
+// that code path for each filter type.
+// ---------------------------------------------------------------------------
+
+// -- Key regex filters with prefix ------------------------------------------
+
+#[tokio::test]
+async fn e2e_filter_include_regex_with_prefix() {
+    e2e_timeout!(async {
+        // Purpose: Verify --filter-include-regex works with a non-empty prefix.
+        //          Only objects under the prefix whose keys match the regex are
+        //          deleted; objects outside the prefix are untouched.
+        // Setup:   5 .log + 5 .dat under data/, 5 .log under outside/.
+        // Expected: 5 data/*.log deleted; 5 data/*.dat + 5 outside/*.log remain.
+        //
+        // Validates: Requirement 2.2 (with prefix)
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_bucket(&bucket).await;
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..5 {
+            helper
+                .put_object(&bucket, &format!("data/app{i}.log"), vec![b'L'; 100])
+                .await;
+            helper
+                .put_object(&bucket, &format!("data/app{i}.dat"), vec![b'D'; 100])
+                .await;
+        }
+        for i in 0..5 {
+            helper
+                .put_object(&bucket, &format!("outside/app{i}.log"), vec![b'O'; 100])
+                .await;
+        }
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--filter-include-regex",
+            r"\.log$",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error);
+        assert_eq!(result.stats.stats_deleted_objects, 5);
+        assert_eq!(
+            helper.count_objects(&bucket, "data/").await,
+            5,
+            "data/*.dat should remain"
+        );
+        assert_eq!(
+            helper.count_objects(&bucket, "outside/").await,
+            5,
+            "outside/ untouched"
+        );
+        guard.cleanup().await;
+    });
+}
+
+#[tokio::test]
+async fn e2e_filter_exclude_regex_with_prefix() {
+    e2e_timeout!(async {
+        // Purpose: Verify --filter-exclude-regex works with a non-empty prefix.
+        //          Objects under the prefix whose keys match the regex are kept;
+        //          non-matching objects are deleted. Objects outside the prefix
+        //          are untouched.
+        // Setup:   5 .log + 5 .dat under data/, 5 .dat under outside/.
+        // Expected: 5 data/*.dat deleted (not excluded); 5 data/*.log remain
+        //           (excluded); 5 outside/*.dat untouched.
+        //
+        // Validates: Requirement 2.2 (with prefix)
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_bucket(&bucket).await;
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..5 {
+            helper
+                .put_object(&bucket, &format!("data/keep{i}.log"), vec![b'L'; 100])
+                .await;
+            helper
+                .put_object(&bucket, &format!("data/remove{i}.dat"), vec![b'D'; 100])
+                .await;
+        }
+        for i in 0..5 {
+            helper
+                .put_object(&bucket, &format!("outside/file{i}.dat"), vec![b'O'; 100])
+                .await;
+        }
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--filter-exclude-regex",
+            r"\.log$",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error);
+        assert_eq!(result.stats.stats_deleted_objects, 5);
+        assert_eq!(
+            helper.count_objects(&bucket, "data/").await,
+            5,
+            "data/*.log should remain"
+        );
+        assert_eq!(
+            helper.count_objects(&bucket, "outside/").await,
+            5,
+            "outside/ untouched"
+        );
+        guard.cleanup().await;
+    });
+}
+
+// -- Content-type regex filters with prefix (requires HeadObject) -----------
+
+#[tokio::test]
+async fn e2e_filter_include_content_type_regex_with_prefix() {
+    e2e_timeout!(async {
+        // Purpose: Verify --filter-include-content-type-regex works with a
+        //          non-empty prefix. This exercises the HeadObject call path
+        //          that was affected by the double-prefix bug.
+        // Setup:   5 text/plain + 5 application/json under data/,
+        //          5 text/plain under outside/.
+        // Expected: 5 data/ text/plain deleted; 5 data/ json + 5 outside/ remain.
+        //
+        // Validates: Requirement 2.3 (with prefix)
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_bucket(&bucket).await;
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..5 {
+            helper
+                .put_object_with_content_type(
+                    &bucket,
+                    &format!("data/text{i}.txt"),
+                    vec![b't'; 100],
+                    "text/plain",
+                )
+                .await;
+            helper
+                .put_object_with_content_type(
+                    &bucket,
+                    &format!("data/doc{i}.json"),
+                    vec![b'j'; 100],
+                    "application/json",
+                )
+                .await;
+        }
+        for i in 0..5 {
+            helper
+                .put_object_with_content_type(
+                    &bucket,
+                    &format!("outside/text{i}.txt"),
+                    vec![b'o'; 100],
+                    "text/plain",
+                )
+                .await;
+        }
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--filter-include-content-type-regex",
+            "text/plain",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error, "Pipeline should complete without errors");
+        assert_eq!(
+            result.stats.stats_deleted_objects, 5,
+            "Should delete 5 text/plain under data/"
+        );
+        assert_eq!(
+            helper.count_objects(&bucket, "data/").await,
+            5,
+            "data/ json objects remain"
+        );
+        assert_eq!(
+            helper.count_objects(&bucket, "outside/").await,
+            5,
+            "outside/ untouched"
+        );
+        guard.cleanup().await;
+    });
+}
+
+#[tokio::test]
+async fn e2e_filter_exclude_content_type_regex_with_prefix() {
+    e2e_timeout!(async {
+        // Purpose: Verify --filter-exclude-content-type-regex works with a
+        //          non-empty prefix. Objects matching the content-type pattern
+        //          are excluded (kept); the rest under the prefix are deleted.
+        // Setup:   5 text/plain + 5 application/json under data/,
+        //          5 application/json under outside/.
+        // Expected: 5 data/ text/plain deleted (not excluded);
+        //           5 data/ json kept (excluded); 5 outside/ untouched.
+        //
+        // Validates: Requirement 2.3 (with prefix)
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_bucket(&bucket).await;
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..5 {
+            helper
+                .put_object_with_content_type(
+                    &bucket,
+                    &format!("data/remove{i}.txt"),
+                    vec![b't'; 100],
+                    "text/plain",
+                )
+                .await;
+            helper
+                .put_object_with_content_type(
+                    &bucket,
+                    &format!("data/keep{i}.json"),
+                    vec![b'j'; 100],
+                    "application/json",
+                )
+                .await;
+        }
+        for i in 0..5 {
+            helper
+                .put_object_with_content_type(
+                    &bucket,
+                    &format!("outside/doc{i}.json"),
+                    vec![b'o'; 100],
+                    "application/json",
+                )
+                .await;
+        }
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--filter-exclude-content-type-regex",
+            "application/json",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error, "Pipeline should complete without errors");
+        assert_eq!(
+            result.stats.stats_deleted_objects, 5,
+            "Should delete 5 text/plain under data/"
+        );
+        assert_eq!(
+            helper.count_objects(&bucket, "data/").await,
+            5,
+            "data/ json objects remain"
+        );
+        assert_eq!(
+            helper.count_objects(&bucket, "outside/").await,
+            5,
+            "outside/ untouched"
+        );
+        guard.cleanup().await;
+    });
+}
+
+// -- Metadata regex filters with prefix (requires HeadObject) ---------------
+
+#[tokio::test]
+async fn e2e_filter_include_metadata_regex_with_prefix() {
+    e2e_timeout!(async {
+        // Purpose: Verify --filter-include-metadata-regex works with a non-empty
+        //          prefix. This exercises the HeadObject call path for metadata
+        //          retrieval with prefixed keys.
+        // Setup:   5 objects with env=production + 5 with env=staging under data/,
+        //          5 with env=production under outside/.
+        // Expected: 5 data/ env=production deleted; 5 data/ staging +
+        //           5 outside/ remain.
+        //
+        // Validates: Requirement 2.4 (with prefix)
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_bucket(&bucket).await;
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..5 {
+            let mut meta_prod = HashMap::new();
+            meta_prod.insert("env".to_string(), "production".to_string());
+            helper
+                .put_object_with_metadata(
+                    &bucket,
+                    &format!("data/prod{i}.dat"),
+                    vec![b'p'; 100],
+                    meta_prod,
+                )
+                .await;
+
+            let mut meta_stage = HashMap::new();
+            meta_stage.insert("env".to_string(), "staging".to_string());
+            helper
+                .put_object_with_metadata(
+                    &bucket,
+                    &format!("data/stage{i}.dat"),
+                    vec![b's'; 100],
+                    meta_stage,
+                )
+                .await;
+        }
+        for i in 0..5 {
+            let mut meta_prod = HashMap::new();
+            meta_prod.insert("env".to_string(), "production".to_string());
+            helper
+                .put_object_with_metadata(
+                    &bucket,
+                    &format!("outside/prod{i}.dat"),
+                    vec![b'o'; 100],
+                    meta_prod,
+                )
+                .await;
+        }
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--filter-include-metadata-regex",
+            "env=production",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error, "Pipeline should complete without errors");
+        assert_eq!(
+            result.stats.stats_deleted_objects, 5,
+            "Should delete 5 env=production under data/"
+        );
+        assert_eq!(
+            helper.count_objects(&bucket, "data/").await,
+            5,
+            "data/ staging objects remain"
+        );
+        assert_eq!(
+            helper.count_objects(&bucket, "outside/").await,
+            5,
+            "outside/ untouched"
+        );
+        guard.cleanup().await;
+    });
+}
+
+#[tokio::test]
+async fn e2e_filter_exclude_metadata_regex_with_prefix() {
+    e2e_timeout!(async {
+        // Purpose: Verify --filter-exclude-metadata-regex works with a non-empty
+        //          prefix. Objects matching the metadata pattern are excluded (kept).
+        // Setup:   5 objects with env=production + 5 with env=staging under data/,
+        //          5 with env=staging under outside/.
+        // Expected: 5 data/ env=production deleted (not excluded);
+        //           5 data/ staging kept (excluded); 5 outside/ untouched.
+        //
+        // Validates: Requirement 2.4 (with prefix)
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_bucket(&bucket).await;
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..5 {
+            let mut meta_prod = HashMap::new();
+            meta_prod.insert("env".to_string(), "production".to_string());
+            helper
+                .put_object_with_metadata(
+                    &bucket,
+                    &format!("data/prod{i}.dat"),
+                    vec![b'p'; 100],
+                    meta_prod,
+                )
+                .await;
+
+            let mut meta_stage = HashMap::new();
+            meta_stage.insert("env".to_string(), "staging".to_string());
+            helper
+                .put_object_with_metadata(
+                    &bucket,
+                    &format!("data/stage{i}.dat"),
+                    vec![b's'; 100],
+                    meta_stage,
+                )
+                .await;
+        }
+        for i in 0..5 {
+            let mut meta_stage = HashMap::new();
+            meta_stage.insert("env".to_string(), "staging".to_string());
+            helper
+                .put_object_with_metadata(
+                    &bucket,
+                    &format!("outside/stage{i}.dat"),
+                    vec![b'o'; 100],
+                    meta_stage,
+                )
+                .await;
+        }
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--filter-exclude-metadata-regex",
+            "env=staging",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error, "Pipeline should complete without errors");
+        assert_eq!(
+            result.stats.stats_deleted_objects, 5,
+            "Should delete 5 env=production under data/"
+        );
+        assert_eq!(
+            helper.count_objects(&bucket, "data/").await,
+            5,
+            "data/ staging objects remain"
+        );
+        assert_eq!(
+            helper.count_objects(&bucket, "outside/").await,
+            5,
+            "outside/ untouched"
+        );
+        guard.cleanup().await;
+    });
+}
+
+// -- Tag regex filters with prefix (requires GetObjectTagging) --------------
+
+#[tokio::test]
+async fn e2e_filter_include_tag_regex_with_prefix() {
+    e2e_timeout!(async {
+        // Purpose: Verify --filter-include-tag-regex works with a non-empty prefix.
+        //          This exercises the GetObjectTagging call path with prefixed keys.
+        // Setup:   5 objects tagged status=expired + 5 tagged status=active under
+        //          data/, 5 tagged status=expired under outside/.
+        // Expected: 5 data/ status=expired deleted; 5 data/ active +
+        //           5 outside/ remain.
+        //
+        // Validates: Requirement 2.5 (with prefix)
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_bucket(&bucket).await;
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..5 {
+            let mut tags_expired = HashMap::new();
+            tags_expired.insert("status".to_string(), "expired".to_string());
+            helper
+                .put_object_with_tags(
+                    &bucket,
+                    &format!("data/old{i}.dat"),
+                    vec![b'e'; 100],
+                    tags_expired,
+                )
+                .await;
+
+            let mut tags_active = HashMap::new();
+            tags_active.insert("status".to_string(), "active".to_string());
+            helper
+                .put_object_with_tags(
+                    &bucket,
+                    &format!("data/current{i}.dat"),
+                    vec![b'a'; 100],
+                    tags_active,
+                )
+                .await;
+        }
+        for i in 0..5 {
+            let mut tags_expired = HashMap::new();
+            tags_expired.insert("status".to_string(), "expired".to_string());
+            helper
+                .put_object_with_tags(
+                    &bucket,
+                    &format!("outside/old{i}.dat"),
+                    vec![b'o'; 100],
+                    tags_expired,
+                )
+                .await;
+        }
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--filter-include-tag-regex",
+            "status=expired",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error, "Pipeline should complete without errors");
+        assert_eq!(
+            result.stats.stats_deleted_objects, 5,
+            "Should delete 5 status=expired under data/"
+        );
+        assert_eq!(
+            helper.count_objects(&bucket, "data/").await,
+            5,
+            "data/ active objects remain"
+        );
+        assert_eq!(
+            helper.count_objects(&bucket, "outside/").await,
+            5,
+            "outside/ untouched"
+        );
+        guard.cleanup().await;
+    });
+}
+
+#[tokio::test]
+async fn e2e_filter_exclude_tag_regex_with_prefix() {
+    e2e_timeout!(async {
+        // Purpose: Verify --filter-exclude-tag-regex works with a non-empty prefix.
+        //          Objects matching the tag pattern are excluded (kept).
+        // Setup:   5 objects tagged status=expired + 5 tagged status=active under
+        //          data/, 5 tagged status=active under outside/.
+        // Expected: 5 data/ status=expired deleted (not excluded);
+        //           5 data/ active kept (excluded); 5 outside/ untouched.
+        //
+        // Validates: Requirement 2.5 (with prefix)
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_bucket(&bucket).await;
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..5 {
+            let mut tags_expired = HashMap::new();
+            tags_expired.insert("status".to_string(), "expired".to_string());
+            helper
+                .put_object_with_tags(
+                    &bucket,
+                    &format!("data/old{i}.dat"),
+                    vec![b'e'; 100],
+                    tags_expired,
+                )
+                .await;
+
+            let mut tags_active = HashMap::new();
+            tags_active.insert("status".to_string(), "active".to_string());
+            helper
+                .put_object_with_tags(
+                    &bucket,
+                    &format!("data/current{i}.dat"),
+                    vec![b'a'; 100],
+                    tags_active,
+                )
+                .await;
+        }
+        for i in 0..5 {
+            let mut tags_active = HashMap::new();
+            tags_active.insert("status".to_string(), "active".to_string());
+            helper
+                .put_object_with_tags(
+                    &bucket,
+                    &format!("outside/current{i}.dat"),
+                    vec![b'o'; 100],
+                    tags_active,
+                )
+                .await;
+        }
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--filter-exclude-tag-regex",
+            "status=active",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error, "Pipeline should complete without errors");
+        assert_eq!(
+            result.stats.stats_deleted_objects, 5,
+            "Should delete 5 status=expired under data/"
+        );
+        assert_eq!(
+            helper.count_objects(&bucket, "data/").await,
+            5,
+            "data/ active objects remain"
+        );
+        assert_eq!(
+            helper.count_objects(&bucket, "outside/").await,
+            5,
+            "outside/ untouched"
+        );
+        guard.cleanup().await;
+    });
+}

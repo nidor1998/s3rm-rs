@@ -175,6 +175,7 @@ cargo fmt
 
 ### Steering (Active Phase)
 - steering/init_build/tasks.md - Implementation task list
+- steering/init_build/e2e_test_plan.md - E2E test plan (Task 29: 62 test cases)
 
 ### Source Code
 - `src/lib.rs` - Library entry point and public API

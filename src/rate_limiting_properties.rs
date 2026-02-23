@@ -148,6 +148,8 @@ mod tests {
                 "s3://test-bucket/prefix/",
                 "--rate-limit-objects",
                 &rate_str,
+                "--batch-size",
+                "1",
             ];
 
             let cli = parse_from_args(args).unwrap();

@@ -675,7 +675,7 @@ impl TryFrom<CLIArgs> for Config {
 
         // Validate rate limit vs batch size
         if let Some(rate_limit) = args.rate_limit_objects {
-            if (rate_limit as u16) < batch_size {
+            if rate_limit < batch_size as u32 {
                 return Err(format!(
                     "--rate-limit-objects ({}) must be greater than or equal to --batch-size ({}).",
                     rate_limit, batch_size,

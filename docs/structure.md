@@ -36,6 +36,22 @@
 ├── docs/                   # Permanent documentation (requirements, design, product, tech, structure)
 ├── steering/
 │   └── init_build/         # Active build phase (tasks, phase README)
+├── tests/                  # E2E integration tests (gated behind #[cfg(e2e_test)], require AWS credentials with s3rm-e2e-test profile)
+│   ├── common/
+│   │   └── mod.rs          # Shared E2E test infrastructure (TestHelper, BucketGuard, etc.)
+│   ├── e2e_aws_config.rs   # AWS configuration tests (4 tests)
+│   ├── e2e_callback.rs     # Callback tests - Lua and Rust (7 tests)
+│   ├── e2e_combined.rs     # Combined feature tests (7 tests)
+│   ├── e2e_deletion.rs     # Deletion mode tests (5 tests)
+│   ├── e2e_error.rs        # Error handling and exit code tests (6 tests)
+│   ├── e2e_filter.rs       # Filter tests - regex, size, time, etc. (16 tests)
+│   ├── e2e_optimistic.rs   # Optimistic locking / If-Match tests (3 tests)
+│   ├── e2e_performance.rs  # Performance configuration tests (5 tests)
+│   ├── e2e_retry.rs        # Retry and timeout tests (3 tests)
+│   ├── e2e_safety.rs       # Safety feature tests - dry-run, max-delete (3 tests)
+│   ├── e2e_stats.rs        # Statistics and event callback tests (2 tests)
+│   ├── e2e_tracing.rs      # Logging and tracing tests (7 tests)
+│   └── e2e_versioning.rs   # S3 versioning tests (3 tests)
 ├── .github/
 │   ├── pull_request_template.md  # PR template (AI-only project notice)
 │   └── workflows/
@@ -150,7 +166,10 @@ src/
 
 ## Testing Organization
 
-Tests are co-located with source code:
+Tests are co-located with source code or collected under `tests/`:
 - Unit tests in `#[cfg(test)]` modules within each source file
 - Property-based tests in `*_properties.rs` files alongside source modules
-- E2E integration tests planned for `tests/` directory (not yet implemented)
+- E2E integration tests in `tests/e2e_*.rs` files, each gated behind `#[cfg(e2e_test)]`
+  - Require live AWS credentials configured under the `s3rm-e2e-test` AWS profile
+  - Shared helpers (bucket setup/teardown, object seeding, assertion utilities) live in `tests/common/mod.rs`
+  - 62 test cases total across 13 test files covering deletion, filtering, versioning, safety, callbacks, tracing, retry, optimistic locking, performance, statistics, error handling, AWS config, and combined scenarios

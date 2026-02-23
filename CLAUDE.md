@@ -175,7 +175,7 @@ cargo fmt
 
 ### Steering (Active Phase)
 - steering/init_build/tasks.md - Implementation task list
-- steering/init_build/e2e_test_plan.md - E2E test plan (Task 29: 62 test cases)
+- steering/init_build/e2e_test_plan.md - E2E test plan (Task 29: 71 test functions across 13 test files, complete)
 
 ### Source Code
 - `src/lib.rs` - Library entry point and public API
@@ -237,20 +237,32 @@ export AWS_ACCESS_KEY_ID=your_key
 export AWS_SECRET_ACCESS_KEY=your_secret
 export AWS_DEFAULT_REGION=us-east-1
 
-# Run E2E tests
-cargo test --test e2e_basic_deletion
-cargo test --test e2e_filtering
-cargo test --test e2e_versioning
+# Run E2E tests (requires RUSTFLAGS="--cfg e2e_test" and AWS profile s3rm-e2e-test)
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_deletion
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_filter
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_versioning
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_safety
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_callback
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_optimistic
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_performance
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_tracing
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_retry
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_error
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_aws_config
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_combined
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_stats
+
+# Run all E2E tests at once
+RUSTFLAGS="--cfg e2e_test" cargo test --all-features --test '*' -- --test-threads=8
 ```
 
 ## Next Steps for Development
 
 Based on the current status, the remaining work includes:
 
-### Task 29: Manual E2E Testing (In Progress)
-- Code is complete and ready
-- Requires AWS credentials for execution
-- Test scenarios documented in tasks.md
+### Task 30: Final Checkpoint / Pre-Release Validation (Pending)
+- Run all unit, property, and E2E tests with 100% pass rate
+- Verify code coverage, clippy, rustfmt, cargo-deny, and documentation builds
 
 ### Task 31: Release Preparation (Pending)
 - Cross-platform binary builds (Linux, Windows, macOS)

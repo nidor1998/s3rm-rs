@@ -8,7 +8,7 @@
 mod common;
 
 use common::{CollectingEventCallback, TestHelper};
-use s3rm_rs::{EventData, EventType, FilterCallback, S3Object};
+use s3rm_rs::{EventType, FilterCallback, S3Object};
 use std::io::Write as IoWrite;
 use std::sync::{Arc, Mutex};
 

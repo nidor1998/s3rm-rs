@@ -8,7 +8,7 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-26 complete (including Tasks 24-25: comprehensive unit tests and property testing infrastructure). Task 23 checkpoint complete (CLI polish, spec audit, docs, infrastructure). Task 27 partially complete (27.1, 27.2, 27.3, 27.5 done; 27.4 CHANGELOG.md remains). Task 28 partially complete (28.1, 28.2, 28.4 done; 28.3 coverage and 28.5 benchmarks remain). All 49 correctness properties have property-based tests (83 proptest functions, 431 lib tests, 26 binary tests, 8 doc-tests). Note: 9 pipeline integration tests have pre-existing failures due to `unwrap()` on AWS SDK optional fields in S3Object construction (known technical debt in types/mod.rs); 422 lib tests pass. Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, CI/CD integration, additional property tests, comprehensive unit tests, and property testing infrastructure all established. Rustdoc documentation, examples, CONTRIBUTING.md, SECURITY.md, Dockerfile, build info (shadow-rs), and PR template added. Code quality checks (clippy, rustfmt, cargo-deny) all pass.
+**Current Achievement**: Tasks 1-26 complete (including Tasks 24-25: comprehensive unit tests and property testing infrastructure). Task 23 checkpoint complete (CLI polish, spec audit, docs, infrastructure). Task 27 partially complete (27.1, 27.2, 27.3, 27.5 done; 27.4 CHANGELOG.md remains). Task 28 partially complete (28.1, 28.2, 28.4 done; 28.3 coverage and 28.5 benchmarks remain). All 49 correctness properties have property-based tests (442 lib tests, 26 binary tests). Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, CI/CD integration, additional property tests, comprehensive unit tests, and property testing infrastructure all established. Rustdoc documentation, examples, CONTRIBUTING.md, SECURITY.md, Dockerfile, build info (shadow-rs), and PR template added. Code quality checks (clippy, rustfmt, cargo-deny) all pass.
 
 ## Current Status
 
@@ -757,12 +757,12 @@ Phase 25: Property-Based Testing Infrastructure (Task 25)
   - [x] Verify each property has a corresponding property-based test file — 15 property test files with 83 proptest functions
   - [x] Verify each test runs with appropriate iteration counts
   - [x] Verify each test includes comment tag: "Feature: s3rm-rs, Property N: [property text]"
-  - [x] Run all property tests: `cargo test --lib` — 431 tests pass
+  - [x] Run all property tests: `cargo test --lib` — 442 tests pass
   - [x] Document any missing property tests — none missing
   - _Requirements: All requirements (comprehensive coverage)_
 
 
-**Implemented Property Tests**: Properties 1-49 (49 of 49). All correctness properties have property-based tests.
+**Implemented Property Tests**: Properties 1-49 (49 of 49). All correctness properties have property-based tests. Test totals: 442 lib tests (all pass), 26 binary tests (all pass).
 
 - [-] 27. Documentation and Examples
   - [x] 27.1 Write README.md (completed in commit 4082dbe on build/init/task23)
@@ -936,7 +936,7 @@ Phase 25: Property-Based Testing Infrastructure (Task 25)
 
 ## Implementation Status Summary
 
-Tasks 1-26 complete (including Task 23 checkpoint, Task 24 unit tests, Task 25 property testing infrastructure). Task 27 partially complete (27.1, 27.2, 27.3, 27.5 done; 27.4 CHANGELOG.md remains). Task 28 partially complete (28.1 clippy, 28.2 rustfmt, 28.4 cargo-deny all pass; 28.3 coverage and 28.5 benchmarks remain). All merged to init_build. Test totals: 431 lib tests (422 pass, 9 pre-existing pipeline failures), 26 binary tests (all pass), 8 doc-tests (all pass).
+Tasks 1-26 complete (including Task 23 checkpoint, Task 24 unit tests, Task 25 property testing infrastructure). Task 27 partially complete (27.1, 27.2, 27.3, 27.5 done; 27.4 CHANGELOG.md remains). Task 28 partially complete (28.1 clippy, 28.2 rustfmt, 28.4 cargo-deny all pass; 28.3 coverage and 28.5 benchmarks remain). All merged to init_build. Test totals: 442 lib tests (all pass), 26 binary tests (all pass).
 
 **Already implemented across Tasks 1-25** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)

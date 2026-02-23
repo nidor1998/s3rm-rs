@@ -851,7 +851,7 @@ pub struct CLIArgs {
     pub aws_sdk_tracing: bool,
     pub span_events_tracing: bool,
     pub disable_color_tracing: bool,
-    pub report_deletion_status: bool,  // default true, help_heading = "Tracing/Logging"
+    pub log_deletion_summary: bool,  // default true, help_heading = "Tracing/Logging"
 
     // Performance (same as s3sync)
     pub worker_size: u16,                  // value_parser range(1..)
@@ -968,7 +968,7 @@ async fn run(mut config: Config) -> Result<()> {
         return Err(e);
     }
 
-    let log_deletion_summary = config.report_deletion_status;
+    let log_deletion_summary = config.log_deletion_summary;
 
     // Start progress indicator after prerequisites pass
     let indicator_join_handle = indicator::show_indicator(
@@ -1021,7 +1021,7 @@ s3rm s3://my-bucket/ --filter-mtime-before 2023-01-01 --worker-size 100
 Options are organized into clear categories matching s3sync's help structure:
 - **General**: dry-run, force, show-no-progress, delete-all-versions, max-delete
 - **Filtering**: Regex, size, time filters (identical to s3sync)
-- **Tracing/Logging**: Verbosity, JSON, color control, AWS SDK tracing, span events, report-deletion-status
+- **Tracing/Logging**: Verbosity, JSON, color control, AWS SDK tracing, span events, log-deletion-summary
 - **AWS Configuration**: Credentials, region, endpoint (target-* only, no source-*)
 - **Performance**: Worker count, batch-size, parallel listings, rate limiting (identical to s3sync)
 - **Retry Options**: Max attempts, backoff configuration (identical to s3sync)
@@ -1218,7 +1218,7 @@ pub fn create_pipeline_cancellation_token() -> PipelineCancellationToken {
 pub struct Config {
     pub target: StoragePath,
     pub show_no_progress: bool,
-    pub report_deletion_status: bool,
+    pub log_deletion_summary: bool,
     pub target_client_config: Option<ClientConfig>,
     pub force_retry_config: ForceRetryConfig,
     pub tracing_config: Option<TracingConfig>,

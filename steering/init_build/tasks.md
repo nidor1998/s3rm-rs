@@ -836,7 +836,7 @@ Phase 26: Automated E2E Integration Testing (Task 29)
   - Run all unit tests: `cargo test --lib` (verify 100% pass rate)
   - Run all property-based tests: `cargo test --lib` (verify 100% pass rate)
   - Run all integration tests: `cargo test --test '*'`
-  - Verify code coverage meets target (>95% line coverage)
+  - Verify code coverage meets target (>95% line coverage) -- `cargo llvm-cov report` (combined lib+bin+E2E): 93.94% regions, 87.59% functions, 93.74% lines (2026-02-23)
   - Verify clippy has no warnings: `cargo clippy --all-targets --all-features`
   - Verify rustfmt is applied: `cargo fmt --all -- --check`
   - Verify security audit passes: `cargo audit && cargo deny check`
@@ -882,7 +882,7 @@ Phase 26: Automated E2E Integration Testing (Task 29)
 
 ## Implementation Status Summary
 
-Tasks 1-29 complete (including Task 23 checkpoint, Task 24 unit tests, Task 25 property testing infrastructure, Task 27 documentation, Task 28 code quality: clippy, rustfmt, cargo-deny all pass, Task 29 automated E2E integration testing). All merged to init_build. Test totals: 454 lib tests (all pass), 26 binary tests (all pass), 84 E2E tests (14 test files, all pass). All tests verified passing 2026-02-23.
+Tasks 1-29 complete (including Task 23 checkpoint, Task 24 unit tests, Task 25 property testing infrastructure, Task 27 documentation, Task 28 code quality: clippy, rustfmt, cargo-deny all pass, Task 29 automated E2E integration testing). All merged to init_build. Test totals: 454 lib tests (all pass), 26 binary tests (all pass), 84 E2E tests (14 test files, all pass). All tests verified passing 2026-02-23. Combined coverage (`cargo llvm-cov report`): 93.94% regions, 87.59% functions, 93.74% lines.
 
 **Already implemented across Tasks 1-25** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)

@@ -33,6 +33,8 @@ pub struct PipelineResult {
     pub stats: DeletionStats,
     /// Whether the pipeline encountered any error.
     pub has_error: bool,
+    /// Whether a pipeline stage panicked (task panic detected).
+    pub has_panic: bool,
     /// Whether the pipeline encountered any warning.
     pub has_warning: bool,
     /// Error messages collected from the pipeline (empty if no errors).
@@ -52,9 +54,13 @@ impl Drop for BucketGuard {
     fn drop(&mut self) {
         let helper = self.helper.clone();
         let bucket = self.bucket.clone();
-        tokio::runtime::Handle::current().block_on(async move {
-            helper.delete_bucket_cascade(&bucket).await;
-        });
+        // Catch panics from block_on() to avoid double-panic abort when the
+        // runtime is shutting down (e.g., if the test already panicked).
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            tokio::runtime::Handle::current().block_on(async move {
+                helper.delete_bucket_cascade(&bucket).await;
+            });
+        }));
     }
 }
 
@@ -409,6 +415,36 @@ impl TestHelper {
             .unwrap_or_else(|e| panic!("Failed to put object {key} with full properties: {e}"));
     }
 
+    /// Upload multiple objects in parallel for faster test setup.
+    ///
+    /// Each entry is a `(key, body)` pair. Uploads run concurrently using a
+    /// `JoinSet`, significantly reducing wall-clock time compared to sequential
+    /// uploads.
+    pub async fn put_objects_parallel(&self, bucket: &str, objects: Vec<(String, Vec<u8>)>) {
+        let mut set = tokio::task::JoinSet::new();
+        let client = self.client.clone();
+        let bucket = bucket.to_string();
+
+        for (key, body) in objects {
+            let client = client.clone();
+            let bucket = bucket.clone();
+            set.spawn(async move {
+                client
+                    .put_object()
+                    .bucket(&bucket)
+                    .key(&key)
+                    .body(body.into())
+                    .send()
+                    .await
+                    .unwrap_or_else(|e| panic!("Failed to put object {key} in {bucket}: {e}"));
+            });
+        }
+
+        while let Some(result) = set.join_next().await {
+            result.expect("Upload task panicked");
+        }
+    }
+
     /// List remaining object keys under the given prefix.
     pub async fn list_objects(&self, bucket: &str, prefix: &str) -> Vec<String> {
         let mut keys = Vec::new();
@@ -580,6 +616,7 @@ impl TestHelper {
         // Collect results
         let stats = pipeline.get_deletion_stats();
         let has_error = pipeline.has_error();
+        let has_panic = pipeline.has_panic();
         let has_warning = pipeline.has_warning();
         let errors = if has_error {
             pipeline
@@ -595,8 +632,35 @@ impl TestHelper {
         PipelineResult {
             stats,
             has_error,
+            has_panic,
             has_warning,
             errors,
         }
     }
+}
+
+/// Default timeout for E2E tests (5 minutes).
+///
+/// Each E2E test creates a bucket, uploads objects, runs the pipeline, and
+/// cleans up. 5 minutes is generous but prevents indefinite hangs.
+pub const E2E_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// Wraps an async E2E test body with a timeout.
+///
+/// Usage:
+/// ```ignore
+/// #[tokio::test]
+/// async fn e2e_my_test() {
+///     e2e_timeout!(async {
+///         // test body here
+///     });
+/// }
+/// ```
+#[macro_export]
+macro_rules! e2e_timeout {
+    ($body:expr) => {
+        tokio::time::timeout(common::E2E_TIMEOUT, $body)
+            .await
+            .expect("E2E test timed out")
+    };
 }

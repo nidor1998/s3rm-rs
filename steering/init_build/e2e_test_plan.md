@@ -39,8 +39,11 @@
   - `generate_bucket_name() -> String` -- returns `s3rm-e2e-{uuid}` for test isolation
   - `build_config(args: Vec<&str>) -> Config` -- calls `build_config_from_args` with common defaults prepended
   - `run_pipeline(config: Config) -> PipelineResult` -- creates token, runs pipeline, returns stats + error state
-  - `init_tracing()` -- initializes a dummy tracing subscriber for test output
-  - `PipelineResult` struct: `stats: DeletionStats`, `has_error: bool`, `has_warning: bool`, `errors: Vec<String>`
+  - `PipelineResult` struct: `stats: DeletionStats`, `has_error: bool`, `has_panic: bool`, `has_warning: bool`, `errors: Vec<String>`
+  - `E2E_TIMEOUT` constant: 5 minute default timeout for all E2E tests
+  - `e2e_timeout!` macro: wraps async test bodies with `tokio::time::timeout` to prevent indefinite hangs
+  - `put_objects_parallel(bucket, objects)` -- uploads multiple objects concurrently for faster test setup
+  - Note: `init_tracing()` was planned but not needed — the pipeline initializes tracing internally
   - Region constant: use region from the `s3rm-e2e-test` profile (e.g., `us-east-1`)
   - All helper methods are `async` and use `tokio`
 

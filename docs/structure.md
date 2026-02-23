@@ -44,6 +44,7 @@
 │   ├── e2e_combined.rs     # Combined feature tests (7 tests)
 │   ├── e2e_deletion.rs     # Deletion mode tests (7 tests)
 │   ├── e2e_error.rs        # Error handling and exit code tests (6 tests)
+│   ├── e2e_express_one_zone.rs # Express One Zone directory bucket tests (3 tests)
 │   ├── e2e_filter.rs       # Filter tests - regex, size, time, etc. (24 tests)
 │   ├── e2e_optimistic.rs   # Optimistic locking / If-Match tests (3 tests)
 │   ├── e2e_performance.rs  # Performance configuration tests (5 tests)
@@ -172,4 +173,4 @@ Tests are co-located with source code or collected under `tests/`:
 - E2E integration tests in `tests/e2e_*.rs` files, each gated behind `#[cfg(e2e_test)]`
   - Require live AWS credentials configured under the `s3rm-e2e-test` AWS profile
   - Shared helpers (bucket setup/teardown, object seeding, assertion utilities) live in `tests/common/mod.rs`
-  - 81 test cases total across 13 test files covering deletion, filtering, versioning, safety, callbacks, tracing, retry, optimistic locking, performance, statistics, error handling, AWS config, and combined scenarios
+  - 84 test cases total across 14 test files covering deletion, filtering, versioning, safety, callbacks, tracing, retry, optimistic locking, performance, statistics, error handling, AWS config, Express One Zone, and combined scenarios

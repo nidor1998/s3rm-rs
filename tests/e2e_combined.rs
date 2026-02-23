@@ -89,7 +89,8 @@ async fn e2e_multiple_filters_combined() {
 
         let remaining_data = helper.list_objects(&bucket, "data/").await;
         assert_eq!(
-            remaining_data.len(), 10,
+            remaining_data.len(),
+            10,
             "Data files should remain (fail regex filter)"
         );
         guard.cleanup().await;

@@ -57,7 +57,10 @@ async fn e2e_worker_size_configuration() {
         );
 
         let remaining = helper.count_objects(&bucket, "workers/").await;
-        assert_eq!(remaining, 0, "All workers/ objects should be removed from S3");
+        assert_eq!(
+            remaining, 0,
+            "All workers/ objects should be removed from S3"
+        );
         guard.cleanup().await;
     });
 }
@@ -109,7 +112,10 @@ async fn e2e_rate_limit_objects() {
         );
 
         let remaining = helper.count_objects(&bucket, "ratelimit/").await;
-        assert_eq!(remaining, 0, "All ratelimit/ objects should be removed from S3");
+        assert_eq!(
+            remaining, 0,
+            "All ratelimit/ objects should be removed from S3"
+        );
         guard.cleanup().await;
     });
 }
@@ -258,7 +264,10 @@ async fn e2e_max_keys_listing() {
         );
 
         let remaining = helper.count_objects(&bucket, "maxkeys/").await;
-        assert_eq!(remaining, 0, "All maxkeys/ objects should be removed from S3");
+        assert_eq!(
+            remaining, 0,
+            "All maxkeys/ objects should be removed from S3"
+        );
         guard.cleanup().await;
     });
 }

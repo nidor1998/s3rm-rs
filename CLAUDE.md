@@ -175,7 +175,7 @@ cargo fmt
 
 ### Steering (Active Phase)
 - steering/init_build/tasks.md - Implementation task list
-- steering/init_build/e2e_test_plan.md - E2E test plan (Task 29: 81 test functions across 13 test files, complete)
+- steering/init_build/e2e_test_plan.md - E2E test plan (Task 29: 84 test functions across 14 test files, complete)
 
 ### Source Code
 - `src/lib.rs` - Library entry point and public API
@@ -251,6 +251,7 @@ RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_error
 RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_aws_config
 RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_combined
 RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_stats
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_express_one_zone
 
 # Run all E2E tests at once
 RUSTFLAGS="--cfg e2e_test" cargo test --all-features --test '*' -- --test-threads=8

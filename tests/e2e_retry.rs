@@ -114,7 +114,10 @@ async fn e2e_timeout_options() {
         );
 
         let remaining = helper.count_objects(&bucket, "timeout/").await;
-        assert_eq!(remaining, 0, "All timeout/ objects should be removed from S3");
+        assert_eq!(
+            remaining, 0,
+            "All timeout/ objects should be removed from S3"
+        );
         guard.cleanup().await;
     });
 }
@@ -159,7 +162,10 @@ async fn e2e_disable_stalled_stream_protection() {
         );
 
         let remaining = helper.count_objects(&bucket, "stalled/").await;
-        assert_eq!(remaining, 0, "All stalled/ objects should be removed from S3");
+        assert_eq!(
+            remaining, 0,
+            "All stalled/ objects should be removed from S3"
+        );
         guard.cleanup().await;
     });
 }

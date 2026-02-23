@@ -66,7 +66,10 @@ async fn e2e_verbosity_levels() {
             "-v: Should delete 5 objects"
         );
         let remaining = helper.count_objects(&bucket_v, "trace/").await;
-        assert_eq!(remaining, 0, "-v: All trace/ objects should be removed from S3");
+        assert_eq!(
+            remaining, 0,
+            "-v: All trace/ objects should be removed from S3"
+        );
 
         // Test with -vv (detailed logging)
         let bucket_vv = setup_small_bucket(&helper).await;
@@ -84,7 +87,10 @@ async fn e2e_verbosity_levels() {
             "-vv: Should delete 5 objects"
         );
         let remaining = helper.count_objects(&bucket_vv, "trace/").await;
-        assert_eq!(remaining, 0, "-vv: All trace/ objects should be removed from S3");
+        assert_eq!(
+            remaining, 0,
+            "-vv: All trace/ objects should be removed from S3"
+        );
 
         // Test with -vvv (debug logging)
         let bucket_vvv = setup_small_bucket(&helper).await;
@@ -105,7 +111,10 @@ async fn e2e_verbosity_levels() {
             "-vvv: Should delete 5 objects"
         );
         let remaining = helper.count_objects(&bucket_vvv, "trace/").await;
-        assert_eq!(remaining, 0, "-vvv: All trace/ objects should be removed from S3");
+        assert_eq!(
+            remaining, 0,
+            "-vvv: All trace/ objects should be removed from S3"
+        );
 
         guard_v.cleanup().await;
         guard_vv.cleanup().await;
@@ -291,7 +300,10 @@ async fn e2e_log_deletion_summary() {
         );
 
         let remaining = helper.count_objects(&bucket, "summary/").await;
-        assert_eq!(remaining, 0, "All summary/ objects should be removed from S3");
+        assert_eq!(
+            remaining, 0,
+            "All summary/ objects should be removed from S3"
+        );
         guard.cleanup().await;
     });
 }

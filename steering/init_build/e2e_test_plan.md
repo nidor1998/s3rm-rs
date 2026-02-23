@@ -1,7 +1,7 @@
 # Task 29: Automated E2E Integration Testing
 
 > **Referenced from**: `steering/init_build/tasks.md` (Task 29)
-> **Status**: Complete — all test cases implemented (81 test functions across 13 test files + shared infrastructure)
+> **Status**: Complete — all test cases implemented (84 test functions across 14 test files + shared infrastructure)
 
 ## E2E Test Requirements Checklist
 
@@ -498,10 +498,32 @@ Each filtering test uploads ~20 objects with varying properties, runs the pipeli
 The following CLI options are NOT tested in E2E because they require infrastructure not available in standard E2E test environments:
 - `--target-endpoint-url`: Requires a running S3-compatible service (MinIO/LocalStack). Out of scope for AWS E2E.
 - `--target-accelerate`: Requires S3 Transfer Acceleration enabled on the test bucket. Out of scope.
-- `--allow-parallel-listings-in-express-one-zone`: Requires Express One Zone directory bucket. Out of scope.
 - `--auto-complete-shell`: Shell completion generator, not a runtime feature. Covered by unit tests.
 - `--aws-config-file`, `--aws-shared-credentials-file`: Indirectly tested via `--target-profile s3rm-e2e-test` which uses the default credential file paths. Explicit path override testing is infrastructure-dependent.
 - `--target-session-token`: Conflicts with `--target-profile`; implicitly covered by 29.48 (credential group). Testing with STS temporary credentials requires an STS assume-role setup.
+
+## E2E Test Plan: Express One Zone Directory Bucket Tests
+
+- [x] 29.62 `e2e_express_one_zone_auto_batch_size_one`
+  - **Tests**: Auto-detection of Express One Zone directory bucket sets batch_size=1
+  - **Setup**: Create directory bucket (name ending in `--{az_id}--x-s3`), upload 10 objects
+  - **Config**: `s3://{bucket}/data/ --force` (no explicit `--batch-size`)
+  - **Assertions**: All 10 objects deleted; stats show 10 deleted, 0 failed; objects verified removed from S3
+  - _Requirements: 1.11_
+
+- [x] 29.63 `e2e_express_one_zone_with_filter`
+  - **Tests**: Filtering works correctly with Express One Zone directory buckets
+  - **Setup**: Create directory bucket, upload 5 `delete/` objects and 5 `keep/` objects
+  - **Config**: `s3://{bucket}/ --filter-include-regex "^delete/" --force`
+  - **Assertions**: Only 5 `delete/` objects deleted; 5 `keep/` objects remain; auto batch_size=1 does not interfere with filters
+  - _Requirements: 1.11, 2.2_
+
+- [x] 29.64 `e2e_express_one_zone_allow_parallel_listings_override`
+  - **Tests**: `--allow-parallel-listings-in-express-one-zone` with explicit `--batch-size` overrides auto-detection
+  - **Setup**: Create directory bucket, upload 20 objects
+  - **Config**: `s3://{bucket}/bulk/ --allow-parallel-listings-in-express-one-zone --batch-size 10 --force`
+  - **Assertions**: All 20 objects deleted with user-specified batch_size=10 (not auto-set to 1); stats show 20 deleted, 0 failed
+  - _Requirements: 1.11_
 
 ## E2E Test Plan: Combined/Advanced Tests
 
@@ -606,6 +628,7 @@ tests/
 +-- e2e_aws_config.rs      # Tests 29.51-29.53a (4 tests)
 +-- e2e_combined.rs        # Tests 29.54-29.59a (7 tests)
 +-- e2e_stats.rs           # Tests 29.60-29.61 (2 tests)
++-- e2e_express_one_zone.rs # Tests 29.62-29.64 (3 tests)
 ```
 
 _Requirements: 1.1-1.11, 2.1-2.14, 3.1-3.6, 4.1-4.10, 5.1-5.5, 6.1-6.6, 7.1-7.7, 8.1-8.8, 10.1-10.7, 11.1-11.4, 12.1-12.9, 13.1-13.7_

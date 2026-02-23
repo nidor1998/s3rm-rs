@@ -11,7 +11,8 @@ use std::sync::{Arc, Mutex};
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::types::{
-    BucketLocationConstraint, BucketVersioningStatus, CreateBucketConfiguration, Delete,
+    BucketInfo, BucketLocationConstraint, BucketType, BucketVersioningStatus,
+    CreateBucketConfiguration, DataRedundancy, Delete, LocationInfo, LocationType,
     ObjectIdentifier, VersioningConfiguration,
 };
 use s3rm_rs::config::args::build_config_from_args;
@@ -149,6 +150,46 @@ impl TestHelper {
             .send()
             .await
             .unwrap_or_else(|e| panic!("Failed to enable versioning on {bucket}: {e}"));
+    }
+
+    /// Generate a unique Express One Zone directory bucket name.
+    ///
+    /// Format: `s3rm-e2e-{short_uuid}--{az_id}--x-s3`
+    /// The `--x-s3` suffix is required for S3 Express One Zone directory buckets.
+    pub fn generate_directory_bucket_name(&self, az_id: &str) -> String {
+        let short_id = Uuid::new_v4().to_string().replace('-', "");
+        let short_id = &short_id[..12];
+        format!("s3rm-e2e-{short_id}--{az_id}--x-s3")
+    }
+
+    /// Create an Express One Zone directory bucket.
+    ///
+    /// Directory buckets use `SingleAvailabilityZone` data redundancy and require
+    /// an availability zone ID (e.g., `apne1-az4`). The bucket name must end with
+    /// `--{az_id}--x-s3`.
+    pub async fn create_directory_bucket(&self, bucket: &str, az_id: &str) {
+        let bucket_cfg = CreateBucketConfiguration::builder()
+            .location(
+                LocationInfo::builder()
+                    .name(az_id)
+                    .r#type(LocationType::AvailabilityZone)
+                    .build(),
+            )
+            .bucket(
+                BucketInfo::builder()
+                    .data_redundancy(DataRedundancy::SingleAvailabilityZone)
+                    .r#type(BucketType::Directory)
+                    .build(),
+            )
+            .build();
+
+        self.client
+            .create_bucket()
+            .bucket(bucket)
+            .create_bucket_configuration(bucket_cfg)
+            .send()
+            .await
+            .unwrap_or_else(|e| panic!("Failed to create directory bucket {bucket}: {e}"));
     }
 
     /// Delete all objects (including versions and delete markers) and then delete the bucket.

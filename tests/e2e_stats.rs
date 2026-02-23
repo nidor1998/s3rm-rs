@@ -170,7 +170,10 @@ async fn e2e_event_callback_receives_all_event_types() {
         }
 
         let remaining = helper.count_objects(&bucket, "events/").await;
-        assert_eq!(remaining, 0, "All events/ objects should be removed from S3");
+        assert_eq!(
+            remaining, 0,
+            "All events/ objects should be removed from S3"
+        );
         guard.cleanup().await;
     });
 }

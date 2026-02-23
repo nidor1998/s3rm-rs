@@ -790,7 +790,7 @@ Phase 25: Property-Based Testing Infrastructure (Task 25)
     - Document each example with comments
     - _Requirements: 2.8, 7.6, 12.1_
 
-  - [ ] 27.4 Write CHANGELOG.md
+  - [x] 27.4 Write CHANGELOG.md (completed in commit de7157d on build/init/task23)
     - Document initial release features
     - Document differences from s3sync
     - Document breaking changes (if any)
@@ -936,7 +936,7 @@ Phase 25: Property-Based Testing Infrastructure (Task 25)
 
 ## Implementation Status Summary
 
-Tasks 1-26 complete (including Task 23 checkpoint, Task 24 unit tests, Task 25 property testing infrastructure). Task 27 partially complete (27.1, 27.2, 27.3, 27.5 done; 27.4 CHANGELOG.md remains). Task 28 partially complete (28.1 clippy, 28.2 rustfmt, 28.4 cargo-deny all pass; 28.3 coverage and 28.5 benchmarks remain). All merged to init_build. Test totals: 442 lib tests (all pass), 26 binary tests (all pass).
+Tasks 1-27 complete (including Task 23 checkpoint, Task 24 unit tests, Task 25 property testing infrastructure, Task 27 documentation). Task 28 partially complete (28.1 clippy, 28.2 rustfmt, 28.4 cargo-deny all pass; 28.3 coverage and 28.5 benchmarks remain). All merged to init_build. Test totals: 442 lib tests (all pass), 26 binary tests (all pass).
 
 **Already implemented across Tasks 1-25** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)
@@ -992,7 +992,6 @@ Tasks 1-26 complete (including Task 23 checkpoint, Task 24 unit tests, Task 25 p
 - 27.5: CONTRIBUTING.md (done in Task 23, commit c9bedf8)
 
 **Remaining work**:
-- Task 27.4: CHANGELOG.md (not yet created)
 - Task 28.3: Test coverage measurement (not yet run)
 - Task 28.5: Benchmarks (optional, not yet created)
 - Task 29: Integration Testing / Manual E2E (not yet started, requires AWS credentials)

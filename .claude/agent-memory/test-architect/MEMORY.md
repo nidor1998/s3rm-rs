@@ -5,8 +5,9 @@
 - Property tests: `*_properties.rs` files (~18 files with 53 proptest blocks)
 - Dedicated test files: `src/config/args/tests.rs`, `src/deleter/tests.rs`
 - E2E tests: `tests/e2e_*.rs` (14 files, gated behind `#[cfg(e2e_test)]`)
-- ~468 total test functions (442 lib + 26 bin + 8 doctests), 49 named properties
-- All tests pass as of 2026-02-23
+- ~488 total test functions (454 lib + 26 bin + 8 doctests), 49 named properties
+- All unit/property/binary tests pass as of 2026-02-23
+- All 84 E2E tests (14 test files) pass as of 2026-02-23 (verified with live AWS)
 
 ## Mock Storage Locations (6 separate implementations)
 - `src/filters/mod.rs` lines 294-375: Minimal stub (filters only)

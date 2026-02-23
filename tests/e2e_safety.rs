@@ -122,15 +122,9 @@ async fn e2e_max_delete_threshold() {
             remaining >= 40,
             "At least 40 objects should remain (max-delete 10); got {remaining} remaining"
         );
-        assert!(
-            result.stats.stats_deleted_objects >= max_delete_value,
-            "At least {max_delete_value} objects should be deleted (the check fires after the limit is hit); got {}",
-            result.stats.stats_deleted_objects
-        );
-        assert!(
-            result.stats.stats_deleted_objects <= max_delete_value,
-            "At most {max_delete_value} objects should be deleted with batch-size=1; got {}",
-            result.stats.stats_deleted_objects
+        assert_eq!(
+            result.stats.stats_deleted_objects, max_delete_value,
+            "Exactly {max_delete_value} objects should be deleted (batch-size=1 ensures precise max-delete enforcement)"
         );
         guard.cleanup().await;
     });
@@ -174,6 +168,9 @@ async fn e2e_force_flag_skips_confirmation() {
             result.stats.stats_deleted_objects, 10,
             "All 10 objects should be deleted"
         );
+
+        let remaining = helper.count_objects(&bucket, "data/").await;
+        assert_eq!(remaining, 0, "All data/ objects should be removed from S3");
         guard.cleanup().await;
     });
 }

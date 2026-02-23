@@ -1,11 +1,12 @@
 # Test Architect Memory - s3rm-rs
 
 ## Project Structure
-- Unit tests: `#[cfg(test)]` modules in source files (~31 files)
-- Property tests: `*_properties.rs` files (~16 files)
+- Unit tests: `#[cfg(test)]` modules in source files (~49 files)
+- Property tests: `*_properties.rs` files (~18 files with 53 proptest blocks)
 - Dedicated test files: `src/config/args/tests.rs`, `src/deleter/tests.rs`
-- No integration tests in `tests/` directory yet
-- ~375 total test functions across 49 files, 49 proptest! blocks
+- E2E tests: `tests/e2e_*.rs` (13 files, gated behind `#[cfg(e2e_test)]`)
+- ~468 total test functions (442 lib + 26 bin + 8 doctests), 49 named properties
+- All tests pass as of 2026-02-23
 
 ## Mock Storage Locations (6 separate implementations)
 - `src/filters/mod.rs` lines 294-375: Minimal stub (filters only)
@@ -24,20 +25,22 @@
 - `src/storage/s3/mod.rs`: `make_test_config(bucket, prefix)`
 - `src/bin/s3rm/ui_config.rs`: `make_config(show_no_progress, tracing_config)`
 
-## Known Anti-Patterns
-- `_dummy in 0u8..1` in proptest blocks = single-case, not real property testing
+## Known Anti-Patterns Found in Review
+- Empty proptest block: `src/additional_properties.rs` lines 472-474
 - Config field echo tests: set field, read field, assert equal (tautological)
-- `unsafe { std::env::remove_var() }` in optimistic_locking_properties.rs (not process-isolated)
-- Tests without assertions: `pipeline_cancellation_stops_processing`, tracing init tests
+- Tests without assertions: `pipeline_cancellation_stops_processing`, all 3 indicator property tests
+- `init_dummy_tracing_subscriber()` duplicated in 15+ modules
 
-## Coverage Gaps (from audit)
-1. Pipeline error handling (storage failures, partial deletion failures)
+## Coverage Gaps (from full audit, 2026-02-23)
+1. Pipeline error handling (storage failures, partial deletion failures through full pipeline)
 2. Pipeline max-delete threshold integration
 3. Content-type/metadata/tag filtering through full pipeline
 4. Event callback integration through pipeline
-5. Rust filter callback through pipeline
-6. Versioned pipeline end-to-end
-7. Concurrent stats accuracy under multiple workers
+5. Express One Zone auto-configuration (Req 1.11)
+6. Rate-limit >= batch-size validation (Req 8.8)
+7. Versioned pipeline end-to-end
+8. Concurrent stats accuracy under multiple workers
+9. Dry-run log format verification (`[dry-run]` prefix)
 
 ## Useful Patterns Found
 - `rusty_fork_test!` used in `src/bin/s3rm/main.rs` and `tracing_init.rs` for process isolation
@@ -45,44 +48,38 @@
 - `CollectingCallback` pattern in event tests (Arc<Mutex<Vec<EventData>>>)
 - Semaphore for serializing SIGINT tests in `ctrl_c_handler/mod.rs`
 - `init_dummy_tracing_subscriber()` pattern used everywhere for tracing init
+- `arb_batch()` generator in deleter/tests.rs -- good generator for S3 objects
+- `arb_stats_sequence()` in indicator_properties.rs -- good for DeletionStatistics events
+- `BucketGuard` RAII pattern in tests/common/mod.rs for E2E cleanup
 
 ## Key File Sizes
-- `src/deleter/tests.rs`: ~2500 lines (richest test file, now includes warn_as_error tests)
-- `src/pipeline.rs` test module: ~1100 lines (includes warn_as_error pipeline tests)
+- `src/deleter/tests.rs`: ~2500+ lines (richest test file)
+- `src/pipeline.rs` test module: ~1100+ lines
 - `src/config/args/tests.rs`: 601 lines
 - `src/versioning_properties.rs`: 677 lines
 - `src/optimistic_locking_properties.rs`: 589 lines
 
-## Known Pre-Existing Bugs
-- 9 pipeline tests fail because `Object::builder()` calls lack `.last_modified()`.
-  Affected: `pipeline_runs_with_mock_storage_and_deletes`, `pipeline_batch_deletion`,
-  `pipeline_multiple_workers`, `pipeline_with_filters`, `pipeline_max_delete_*`,
-  `pipeline_event_callback_fires_during_execution`, `pipeline_rust_filter_callback_integration`,
-  `pipeline_partial_batch_failure_retries_via_single_delete`, `pipeline_runs_with_mock_storage_dry_run`.
-  The `S3Object::last_modified()` method calls `.unwrap()` on `None`.
-  **Fix**: Add `.last_modified(DateTime::from_secs(1000))` to all Object builders in pipeline tests.
+## Previous Bug (Now Fixed)
+- 9 pipeline tests previously failed due to missing `.last_modified()` on Object builders.
+  As of 2026-02-23, all pipeline tests pass (the fix was applied).
 
 ## Test Helper Patterns (deleter/tests.rs)
-- `make_stage_with_mock()`: Creates Stage with internal cancellation_token/has_warning (no external access)
-- `make_stage_with_observables()`: Returns (Stage, CancellationToken, has_warning) for tests that need
-  to inspect pipeline state after ObjectDeleter runs (e.g., warn_as_error tests)
-- `MockStorage.batch_error_keys`: HashMap<String, String> to simulate per-key batch failures
+- `make_stage_with_mock()`: Creates Stage with internal cancellation_token/has_warning
+- `make_stage_with_observables()`: Returns (Stage, CancellationToken, has_warning)
+- `MockStorage.batch_error_keys`: HashMap<String, String> for per-key batch failures
 - `MockStorage.delete_object_error_keys`: HashMap<String, String> for single-delete failures
-- `FailOnceMock`: Custom StorageTrait impl that fails first call, succeeds second (retry testing)
+- `FailOnceMock`: Custom StorageTrait that fails first call, succeeds second
 
-## E2E Test Plan (Task 29)
-- 62 named test cases + 1 infrastructure task (29.0) across 14 test files
-- Uses `#![cfg(e2e_test)]` attribute (same as s3sync)
+## E2E Test Infrastructure
+- 13 test files in tests/ directory, gated by `#[cfg(e2e_test)]`
+- 66 test functions implemented covering tests 29.1-29.61 (except 29.32a MISSING)
 - AWS profile: `s3rm-e2e-test`
-- Tests invoke library API via `build_config_from_args` + `DeletionPipeline` (not CLI binary)
-- Unique bucket per test: `s3rm-e2e-{uuid}`
-- Post-processing always cleans up: delete all objects + delete bucket
-- Shared helper in `tests/common/mod.rs`: TestHelper, bucket ops, pipeline runner
-- s3sync reference: `tests/common/mod.rs` (62KB), profile `s3sync-e2e-test`
-- Key s3sync E2E patterns: SEMAPHORE for concurrency control, cascade delete with 10s delay
-- CLI options not tested in E2E (infrastructure-dependent): target_endpoint_url, target_accelerate,
-  allow_parallel_listings_in_express_one_zone, auto_complete_shell, aws_config_file,
-  aws_shared_credentials_file, target_session_token
-
-Notes:
-- Agent threads always have their cwd reset between bash calls, as a result please only use absolute file paths.
+- TestHelper with BucketGuard for RAII cleanup (double-panic risk in Drop)
+- `build_config()` auto-prepends binary name and profile
+- `run_pipeline()` creates token, closes stats sender, returns PipelineResult
+- PipelineResult does NOT capture has_panic -- gap
+- CollectingEventCallback duplicated in e2e_callback.rs and e2e_stats.rs
+- init_tracing() documented but NOT implemented
+- No test timeouts on any E2E test
+- Sequential object uploads (~2700 total) -- major perf bottleneck
+- Not yet validated in CI (requires real AWS credentials)

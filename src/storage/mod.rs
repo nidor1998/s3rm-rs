@@ -190,15 +190,10 @@ mod tests {
     use crate::config::{
         CLITimeoutConfig, FilterConfig, ForceRetryConfig, RetryConfig, TracingConfig,
     };
+    use crate::test_utils::init_dummy_tracing_subscriber;
     use crate::types::{AccessKeys, ClientConfigLocation, S3Credentials};
     use aws_smithy_types::checksum_config::RequestChecksumCalculation;
     use std::sync::atomic::AtomicBool;
-
-    fn init_dummy_tracing_subscriber() {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter("dummy=trace")
-            .try_init();
-    }
 
     fn make_test_client_config() -> ClientConfig {
         ClientConfig {

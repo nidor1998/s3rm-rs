@@ -104,15 +104,10 @@ impl UserDefinedFilter {
 mod tests {
     use super::*;
     use crate::filters::tests::create_base_helper;
+    use crate::test_utils::init_dummy_tracing_subscriber;
     use crate::types::S3Object;
     use crate::types::token;
     use aws_sdk_s3::types::Object;
-
-    fn init_dummy_tracing_subscriber() {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter("dummy=trace")
-            .try_init();
-    }
 
     #[tokio::test]
     async fn passes_objects_through_when_no_callback() {

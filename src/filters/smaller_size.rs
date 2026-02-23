@@ -68,17 +68,12 @@ fn is_smaller(object: &S3Object, config: &FilterConfig) -> bool {
 pub(crate) mod tests {
     use super::*;
     use crate::config::FilterConfig;
+    use crate::test_utils::init_dummy_tracing_subscriber;
     use aws_sdk_s3::types::{DeleteMarkerEntry, Object};
 
     /// Test helper: expose is_smaller for property tests.
     pub(crate) fn test_is_smaller(object: &S3Object, config: &FilterConfig) -> bool {
         is_smaller(object, config)
-    }
-
-    fn init_dummy_tracing_subscriber() {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter("dummy=trace")
-            .try_init();
     }
 
     #[test]

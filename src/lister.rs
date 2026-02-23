@@ -73,10 +73,11 @@ impl ObjectLister {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::config::{Config, FilterConfig, ForceRetryConfig};
+    use crate::config::Config;
     use crate::storage::StorageTrait;
+    use crate::test_utils::init_dummy_tracing_subscriber;
     use crate::types::token::create_pipeline_cancellation_token;
-    use crate::types::{DeletionStatistics, S3Object, StoragePath};
+    use crate::types::{DeletionStatistics, S3Object};
     use anyhow::Result;
     use async_channel::Sender;
     use async_trait::async_trait;
@@ -90,58 +91,14 @@ pub(crate) mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
-    fn init_dummy_tracing_subscriber() {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter("dummy=trace")
-            .try_init();
-    }
-
     pub(crate) fn make_test_config_pub() -> Config {
         make_test_config()
     }
 
     fn make_test_config() -> Config {
-        use crate::callback::event_manager::EventManager;
-        use crate::callback::filter_manager::FilterManager;
-
-        Config {
-            target: StoragePath::S3 {
-                bucket: "test-bucket".to_string(),
-                prefix: "prefix/".to_string(),
-            },
-            show_no_progress: false,
-            log_deletion_summary: false,
-            target_client_config: None,
-            force_retry_config: ForceRetryConfig {
-                force_retry_count: 0,
-                force_retry_interval_milliseconds: 0,
-            },
-            tracing_config: None,
-            worker_size: 1,
-            warn_as_error: false,
-            dry_run: false,
-            rate_limit_objects: None,
-            max_parallel_listings: 1,
-            object_listing_queue_size: 1000,
-            max_parallel_listing_max_depth: 0,
-            allow_parallel_listings_in_express_one_zone: false,
-            filter_config: FilterConfig::default(),
-            max_keys: 1000,
-            auto_complete_shell: None,
-            event_callback_lua_script: None,
-            filter_callback_lua_script: None,
-            allow_lua_os_library: false,
-            allow_lua_unsafe_vm: false,
-            lua_vm_memory_limit: 0,
-            if_match: false,
-            max_delete: None,
-            filter_manager: FilterManager::new(),
-            event_manager: EventManager::new(),
-            batch_size: 1000,
-            delete_all_versions: false,
-            force: false,
-            test_user_defined_callback: false,
-        }
+        let mut config = crate::test_utils::make_test_config();
+        config.worker_size = 1;
+        config
     }
 
     /// Mock storage that records which list method was called and sends

@@ -615,18 +615,14 @@ mod tests {
     use super::*;
     use crate::filters::tests::{create_mock_storage, create_test_config};
     use crate::storage::StorageTrait;
+    use crate::test_utils::init_dummy_tracing_subscriber;
     use crate::types::DeletionStatistics;
     use crate::types::token::create_pipeline_cancellation_token;
     use async_trait::async_trait;
     use aws_sdk_s3::primitives::DateTime;
     use aws_sdk_s3::types::Object;
+    use proptest::prelude::*;
     use std::sync::atomic::AtomicBool;
-
-    fn init_dummy_tracing_subscriber() {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter("dummy=trace")
-            .try_init();
-    }
 
     // -----------------------------------------------------------------------
     // Stage creation and channel communication tests
@@ -1189,8 +1185,22 @@ mod tests {
 
         pipeline.run().await;
 
-        // Should complete (either with some deletions or none, depending on timing)
-        // The important thing is it doesn't hang
+        // A pre-cancelled pipeline must not delete any objects
+        let report = pipeline.deletion_stats_report.clone();
+        assert_eq!(
+            report.stats_deleted_objects.load(Ordering::Relaxed),
+            0,
+            "Pre-cancelled pipeline must not delete objects"
+        );
+        assert_eq!(
+            report.stats_deleted_bytes.load(Ordering::Relaxed),
+            0,
+            "Pre-cancelled pipeline must not report deleted bytes"
+        );
+        assert!(
+            !pipeline.has_error(),
+            "Clean cancellation should not set error flag"
+        );
     }
 
     #[tokio::test]
@@ -2454,5 +2464,125 @@ mod tests {
         let stats = pipeline.get_deletion_stats();
         assert_eq!(stats.stats_deleted_objects, 1); // "ok.txt"
         assert_eq!(stats.stats_failed_objects, 1); // "fail.txt"
+    }
+
+    // -------------------------------------------------------------------
+    // Max-delete threshold through full pipeline
+    // **Validates: Requirements 3.6**
+    // -------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn pipeline_max_delete_stops_at_threshold() {
+        init_dummy_tracing_subscriber();
+
+        // Create 10 objects, set max_delete=3
+        let objects: Vec<S3Object> = (0..10)
+            .map(|i| {
+                S3Object::NotVersioning(
+                    Object::builder()
+                        .key(format!("obj/{i}"))
+                        .size(50)
+                        .last_modified(DateTime::from_secs(0))
+                        .build(),
+                )
+            })
+            .collect();
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage: Storage = Box::new(ListingMockStorage {
+            objects,
+            stats_sender,
+            has_warning: has_warning.clone(),
+        });
+
+        let mut config = create_test_config();
+        config.force = true;
+        config.batch_size = 1;
+        config.max_delete = Some(3);
+
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let mut pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token,
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        pipeline.run().await;
+
+        let stats = pipeline.get_deletion_stats();
+        // max_delete=3, so at most 4 objects counted (3 + the triggering one)
+        assert!(
+            stats.stats_deleted_objects <= 4,
+            "Expected at most 4 deleted objects (max_delete=3 + 1 triggering), got {}",
+            stats.stats_deleted_objects
+        );
+        assert!(
+            pipeline.has_warning(),
+            "Warning flag should be set when max-delete threshold is exceeded"
+        );
+    }
+
+    // -------------------------------------------------------------------
+    // Listing failure always sets error flag
+    // **Validates: Requirements 6.4, 6.5**
+    // -------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(10))]
+
+        #[test]
+        fn prop_listing_failure_always_sets_error(_seed in 0u32..50) {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+
+            rt.block_on(async {
+                let (stats_sender, stats_receiver) = async_channel::unbounded();
+                let has_warning = Arc::new(AtomicBool::new(false));
+                let storage: Storage = Box::new(FailingListerStorage {
+                    stats_sender,
+                    has_warning: has_warning.clone(),
+                });
+
+                let mut config = create_test_config();
+                config.force = true;
+
+                let cancellation_token = create_pipeline_cancellation_token();
+
+                let mut pipeline = DeletionPipeline {
+                    config,
+                    target: storage,
+                    cancellation_token,
+                    stats_receiver,
+                    has_error: Arc::new(AtomicBool::new(false)),
+                    has_panic: Arc::new(AtomicBool::new(false)),
+                    has_warning,
+                    errors: Arc::new(Mutex::new(VecDeque::new())),
+                    ready: true,
+                    prerequisites_checked: false,
+                    deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+                };
+
+                pipeline.run().await;
+
+                prop_assert!(
+                    pipeline.has_error(),
+                    "Pipeline must set error flag when listing fails"
+                );
+
+                Ok(())
+            })?;
+        }
     }
 }

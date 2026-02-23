@@ -42,6 +42,25 @@ mod tests {
         )
     }
 
+    /// Compute expected indicator summary counts from a stats sequence.
+    fn expected_counts(stats: &[DeletionStatistics]) -> (u64, u64, u64, u64, u64) {
+        let mut deletes = 0u64;
+        let mut bytes = 0u64;
+        let mut errors = 0u64;
+        let mut skips = 0u64;
+        let mut warnings = 0u64;
+        for s in stats {
+            match s {
+                DeletionStatistics::DeleteComplete { .. } => deletes += 1,
+                DeletionStatistics::DeleteBytes(b) => bytes += *b,
+                DeletionStatistics::DeleteError { .. } => errors += 1,
+                DeletionStatistics::DeleteSkip { .. } => skips += 1,
+                DeletionStatistics::DeleteWarning { .. } => warnings += 1,
+            }
+        }
+        (deletes, bytes, errors, skips, warnings)
+    }
+
     // -- Property 31: Progress Reporting --
 
     proptest! {
@@ -51,14 +70,16 @@ mod tests {
         /// **Validates: Requirements 7.1, 7.3, 7.4**
         ///
         /// The show_indicator task MUST complete (not hang) for any sequence
-        /// of DeletionStatistics events once the channel is closed.
-        /// This validates requirements 7.1 (progress indicator) and 7.3 (summary).
+        /// of DeletionStatistics events once the channel is closed, and the
+        /// returned summary must accurately reflect the input events.
         #[test]
         fn prop_indicator_completes_for_any_stats(
             stats in arb_stats_sequence(),
             show_progress in proptest::bool::ANY,
             show_result in proptest::bool::ANY,
         ) {
+            let (exp_del, exp_bytes, exp_err, exp_skip, exp_warn) = expected_counts(&stats);
+
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -101,11 +122,19 @@ mod tests {
                 );
 
                 // Must complete within 5 seconds
-                tokio::time::timeout(Duration::from_secs(5), handle)
+                let summary = tokio::time::timeout(Duration::from_secs(5), handle)
                     .await
                     .expect("indicator should complete within timeout")
                     .expect("indicator task should not panic");
-            });
+
+                prop_assert_eq!(summary.total_delete_count, exp_del);
+                prop_assert_eq!(summary.total_delete_bytes, exp_bytes);
+                prop_assert_eq!(summary.total_error_count, exp_err);
+                prop_assert_eq!(summary.total_skip_count, exp_skip);
+                prop_assert_eq!(summary.total_warning_count, exp_warn);
+
+                Ok(())
+            })?;
         }
 
         /// Feature: s3rm-rs, Property 31: Progress Reporting (quiet mode)
@@ -117,6 +146,8 @@ mod tests {
         fn prop_indicator_quiet_mode_completes(
             stats in arb_stats_sequence(),
         ) {
+            let (exp_del, exp_bytes, exp_err, exp_skip, exp_warn) = expected_counts(&stats);
+
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -152,22 +183,33 @@ mod tests {
 
                 let handle = show_indicator(receiver, false, false, false, false);
 
-                tokio::time::timeout(Duration::from_secs(5), handle)
+                let summary = tokio::time::timeout(Duration::from_secs(5), handle)
                     .await
                     .expect("indicator should complete within timeout")
                     .expect("indicator task should not panic");
-            });
+
+                prop_assert_eq!(summary.total_delete_count, exp_del);
+                prop_assert_eq!(summary.total_delete_bytes, exp_bytes);
+                prop_assert_eq!(summary.total_error_count, exp_err);
+                prop_assert_eq!(summary.total_skip_count, exp_skip);
+                prop_assert_eq!(summary.total_warning_count, exp_warn);
+
+                Ok(())
+            })?;
         }
 
         /// Feature: s3rm-rs, Property 31: Progress Reporting (dry-run)
         /// **Validates: Requirements 7.1**
         ///
-        /// In dry-run mode, the indicator still completes correctly.
-        /// Throughput counters are zeroed in dry-run mode.
+        /// In dry-run mode, the indicator still completes correctly and
+        /// counts are accurate. Throughput counters are zeroed in dry-run
+        /// mode (verified in the display, not in the summary).
         #[test]
         fn prop_indicator_dry_run_completes(
             stats in arb_stats_sequence(),
         ) {
+            let (exp_del, exp_bytes, exp_err, exp_skip, exp_warn) = expected_counts(&stats);
+
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -209,11 +251,19 @@ mod tests {
                     true, // dry_run = true
                 );
 
-                tokio::time::timeout(Duration::from_secs(5), handle)
+                let summary = tokio::time::timeout(Duration::from_secs(5), handle)
                     .await
                     .expect("indicator should complete within timeout")
                     .expect("indicator task should not panic");
-            });
+
+                prop_assert_eq!(summary.total_delete_count, exp_del);
+                prop_assert_eq!(summary.total_delete_bytes, exp_bytes);
+                prop_assert_eq!(summary.total_error_count, exp_err);
+                prop_assert_eq!(summary.total_skip_count, exp_skip);
+                prop_assert_eq!(summary.total_warning_count, exp_warn);
+
+                Ok(())
+            })?;
         }
     }
 }

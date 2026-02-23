@@ -14,6 +14,16 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::info;
 
+/// Summary returned by [`show_indicator`] after the stats channel closes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndicatorSummary {
+    pub total_delete_count: u64,
+    pub total_delete_bytes: u64,
+    pub total_error_count: u64,
+    pub total_skip_count: u64,
+    pub total_warning_count: u64,
+}
+
 /// Moving average window in seconds (samples).
 const MOVING_AVERAGE_PERIOD_SECS: usize = 10;
 
@@ -38,7 +48,7 @@ pub fn show_indicator(
     show_result: bool,
     log_deletion_summary: bool,
     dry_run: bool,
-) -> JoinHandle<()> {
+) -> JoinHandle<IndicatorSummary> {
     let progress_style = ProgressStyle::with_template("{wide_msg}").unwrap();
     let progress_text = ProgressBar::new(0);
     progress_text.set_style(progress_style);
@@ -129,7 +139,13 @@ pub fn show_indicator(
                         io::stdout().flush().unwrap()
                     }
 
-                    return;
+                    return IndicatorSummary {
+                        total_delete_count,
+                        total_delete_bytes,
+                        total_error_count,
+                        total_skip_count,
+                        total_warning_count,
+                    };
                 }
 
                 tokio::time::sleep(std::time::Duration::from_secs_f32(0.05)).await;
@@ -164,11 +180,16 @@ mod tests {
         drop(sender); // Close channel immediately
 
         let handle = show_indicator(receiver, false, false, false, false);
-        // Should complete quickly since channel is already closed
-        tokio::time::timeout(std::time::Duration::from_secs(5), handle)
+        let summary = tokio::time::timeout(std::time::Duration::from_secs(5), handle)
             .await
             .expect("indicator should complete within timeout")
             .expect("indicator task should not panic");
+
+        assert_eq!(summary.total_delete_count, 0);
+        assert_eq!(summary.total_delete_bytes, 0);
+        assert_eq!(summary.total_error_count, 0);
+        assert_eq!(summary.total_skip_count, 0);
+        assert_eq!(summary.total_warning_count, 0);
     }
 
     #[tokio::test]
@@ -208,10 +229,16 @@ mod tests {
         drop(sender); // Close channel
 
         let handle = show_indicator(receiver, false, false, false, false);
-        tokio::time::timeout(std::time::Duration::from_secs(5), handle)
+        let summary = tokio::time::timeout(std::time::Duration::from_secs(5), handle)
             .await
             .expect("indicator should complete within timeout")
             .expect("indicator task should not panic");
+
+        assert_eq!(summary.total_delete_count, 1);
+        assert_eq!(summary.total_delete_bytes, 1024);
+        assert_eq!(summary.total_error_count, 1);
+        assert_eq!(summary.total_skip_count, 1);
+        assert_eq!(summary.total_warning_count, 1);
     }
 
     #[tokio::test]
@@ -232,10 +259,13 @@ mod tests {
         drop(sender);
 
         let handle = show_indicator(receiver, false, false, false, true);
-        tokio::time::timeout(std::time::Duration::from_secs(5), handle)
+        let summary = tokio::time::timeout(std::time::Duration::from_secs(5), handle)
             .await
             .expect("indicator should complete within timeout")
             .expect("indicator task should not panic");
+
+        assert_eq!(summary.total_delete_count, 1);
+        assert_eq!(summary.total_delete_bytes, 2048);
     }
 
     #[tokio::test]

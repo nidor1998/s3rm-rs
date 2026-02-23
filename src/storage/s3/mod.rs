@@ -916,13 +916,8 @@ fn is_express_onezone_bucket(bucket: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::init_dummy_tracing_subscriber;
     use aws_smithy_types::checksum_config::RequestChecksumCalculation;
-
-    fn init_dummy_tracing_subscriber() {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter("dummy=trace")
-            .try_init();
-    }
 
     fn make_test_config(bucket: &str, prefix: &str) -> Config {
         use crate::callback::event_manager::EventManager;

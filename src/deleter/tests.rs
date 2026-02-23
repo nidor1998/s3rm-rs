@@ -18,13 +18,14 @@ use proptest::prelude::*;
 use tokio_util::sync::CancellationToken;
 
 use super::*;
-use crate::callback::event_manager::EventManager;
-use crate::callback::filter_manager::FilterManager;
-use crate::config::{Config, FilterConfig, ForceRetryConfig};
+use crate::config::Config;
 use crate::stage::Stage;
 use crate::storage::StorageTrait;
+use crate::test_utils::{
+    init_dummy_tracing_subscriber, make_s3_object, make_test_config, make_versioned_s3_object,
+};
 use crate::types::token::PipelineCancellationToken;
-use crate::types::{DeletionStatistics, S3Object, StoragePath};
+use crate::types::{DeletionStatistics, S3Object};
 
 // ---------------------------------------------------------------------------
 // Mock storage
@@ -219,75 +220,8 @@ impl StorageTrait for MockStorage {
 // Test helpers
 // ---------------------------------------------------------------------------
 
-fn init_dummy_tracing_subscriber() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter("dummy=trace")
-        .try_init();
-}
-
-fn make_test_config() -> Config {
-    Config {
-        target: StoragePath::S3 {
-            bucket: "test-bucket".to_string(),
-            prefix: "prefix/".to_string(),
-        },
-        show_no_progress: false,
-        log_deletion_summary: false,
-        target_client_config: None,
-        force_retry_config: ForceRetryConfig {
-            force_retry_count: 0,
-            force_retry_interval_milliseconds: 0,
-        },
-        tracing_config: None,
-        worker_size: 4,
-        warn_as_error: false,
-        dry_run: false,
-        rate_limit_objects: None,
-        max_parallel_listings: 1,
-        object_listing_queue_size: 1000,
-        max_parallel_listing_max_depth: 0,
-        allow_parallel_listings_in_express_one_zone: false,
-        filter_config: FilterConfig::default(),
-        max_keys: 1000,
-        auto_complete_shell: None,
-        event_callback_lua_script: None,
-        filter_callback_lua_script: None,
-        allow_lua_os_library: false,
-        allow_lua_unsafe_vm: false,
-        lua_vm_memory_limit: 0,
-        if_match: false,
-        max_delete: None,
-        filter_manager: FilterManager::new(),
-        event_manager: EventManager::new(),
-        batch_size: 1000,
-        delete_all_versions: false,
-        force: false,
-        test_user_defined_callback: false,
-    }
-}
-
-fn make_s3_object(key: &str, size: i64) -> S3Object {
-    S3Object::NotVersioning(
-        Object::builder()
-            .key(key)
-            .size(size)
-            .last_modified(DateTime::from_secs(1000))
-            .build(),
-    )
-}
-
-fn make_versioned_s3_object(key: &str, version_id: &str, size: i64) -> S3Object {
-    S3Object::Versioning(
-        ObjectVersion::builder()
-            .key(key)
-            .version_id(version_id)
-            .size(size)
-            .is_latest(true)
-            .storage_class(ObjectVersionStorageClass::Standard)
-            .last_modified(DateTime::from_secs(1000))
-            .build(),
-    )
-}
+// make_test_config, make_s3_object, and make_versioned_s3_object are
+// imported from crate::test_utils above.
 
 fn make_mock_storage_boxed(
     stats_sender: Sender<DeletionStatistics>,
@@ -304,6 +238,24 @@ fn make_stage_with_mock(
     sender: Option<Sender<S3Object>>,
 ) -> Stage {
     let cancellation_token: PipelineCancellationToken = CancellationToken::new();
+    let has_warning = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    Stage::new(
+        config,
+        mock_storage,
+        receiver,
+        sender,
+        cancellation_token,
+        has_warning,
+    )
+}
+
+fn make_stage_with_mock_and_token(
+    config: Config,
+    mock_storage: Box<dyn StorageTrait + Send + Sync>,
+    receiver: Option<async_channel::Receiver<S3Object>>,
+    sender: Option<Sender<S3Object>>,
+    cancellation_token: PipelineCancellationToken,
+) -> Stage {
     let has_warning = Arc::new(std::sync::atomic::AtomicBool::new(false));
     Stage::new(
         config,
@@ -801,7 +753,15 @@ async fn object_deleter_max_delete_threshold() {
 
     let mut config = make_test_config();
     config.max_delete = Some(2); // Allow only 2 deletions
-    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let cancellation_token: PipelineCancellationToken = CancellationToken::new();
+    let stage = make_stage_with_mock_and_token(
+        config,
+        boxed,
+        Some(input_receiver),
+        Some(output_sender),
+        cancellation_token.clone(),
+    );
 
     let stats_report = Arc::new(DeletionStatsReport::new());
     let delete_counter = Arc::new(AtomicU64::new(0));
@@ -827,6 +787,19 @@ async fn object_deleter_max_delete_threshold() {
 
     let single_calls = mock.delete_object_calls.lock().unwrap();
     assert_eq!(single_calls.len(), 0);
+
+    // Verify counter didn't exceed max_delete + 1 (the triggering object)
+    let counter_val = delete_counter.load(Ordering::SeqCst);
+    assert!(
+        counter_val <= 3,
+        "counter {counter_val} should not exceed max_delete(2) + 1"
+    );
+
+    // Pipeline must have been cancelled
+    assert!(
+        cancellation_token.is_cancelled(),
+        "cancellation token must be set when max_delete is exceeded"
+    );
 }
 
 // ===========================================================================
@@ -870,11 +843,13 @@ proptest! {
             let mut config = make_test_config();
             config.max_delete = Some(max_delete);
 
-            let stage = make_stage_with_mock(
+            let cancellation_token: PipelineCancellationToken = CancellationToken::new();
+            let stage = make_stage_with_mock_and_token(
                 config,
                 boxed,
                 Some(input_receiver),
                 Some(output_sender),
+                cancellation_token.clone(),
             );
 
             let stats_report = Arc::new(DeletionStatsReport::new());
@@ -899,24 +874,22 @@ proptest! {
             // Run deleter
             deleter.delete().await.unwrap();
 
-            // The delete counter should not exceed max_delete + batch_size
-            // (objects buffered before cancellation may still be counted).
             let counter_val = delete_counter.load(Ordering::SeqCst);
 
             if total_objects as u64 > max_delete {
-                // Pipeline should have cancelled — counter limited
+                // Counter must not exceed max_delete + 1 (the triggering object)
                 prop_assert!(
-                    counter_val <= total_objects as u64,
-                    "counter {} should not exceed total objects {}",
+                    counter_val <= max_delete + 1,
+                    "counter {} should not exceed max_delete({}) + 1",
                     counter_val,
-                    total_objects,
+                    max_delete,
+                );
+                // Pipeline must have been cancelled
+                prop_assert!(
+                    cancellation_token.is_cancelled(),
+                    "cancellation token must be set when max_delete is exceeded"
                 );
             }
-
-            // When max_delete is set, no actual API calls should be made
-            // because the threshold is checked before flushing the batch.
-            // (The objects are buffered and counter incremented, but when
-            // the threshold is exceeded the pipeline cancels before flush.)
 
             Ok(())
         })?;
@@ -2735,4 +2708,477 @@ async fn warn_as_error_true_mixed_failures_non_retryable_triggers_cancel() {
     assert_eq!(snapshot.stats_deleted_objects, 2);
     // key/2 failed with non-retryable error = 1 failed
     assert_eq!(snapshot.stats_failed_objects, 1);
+}
+
+// ---------------------------------------------------------------------------
+// Task 1A: Multi-tag filtering (3+ tags) — Validates Req 2.5
+// ---------------------------------------------------------------------------
+
+/// Verifies that include_tag_regex correctly matches against format_tags() output
+/// when an object has 3 or more tags. Tags are sorted alphabetically, producing
+/// `env=production&retain=false&team=backend`. The regex spans across sorted entries.
+#[tokio::test]
+async fn object_deleter_tag_include_filter_multiple_tags() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Set mock tags: 3 tags that sort to env=production&retain=false&team=backend
+    *mock.tagging_response_tags.lock().unwrap() = Some(vec![
+        Tag::builder().key("team").value("backend").build().unwrap(),
+        Tag::builder()
+            .key("env")
+            .value("production")
+            .build()
+            .unwrap(),
+        Tag::builder().key("retain").value("false").build().unwrap(),
+    ]);
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    // Regex matches sorted tag output using &-separated format per spec:
+    // "key1=(value1|value2)&key2=value2"
+    config.filter_config.include_tag_regex =
+        Some(Regex::new("env=production&retain=false&team=backend").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    input_sender
+        .send(make_s3_object("multi-tagged.txt", 256))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Tags match include filter → object should be deleted via BatchDeleter
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].identifiers.len(), 1);
+    assert_eq!(batch_calls[0].identifiers[0].key(), "multi-tagged.txt");
+
+    // Tag-only filter does not trigger head_object
+    let head_calls = mock.head_object_calls.lock().unwrap();
+    assert_eq!(head_calls.len(), 0);
+}
+
+/// Verifies that include_metadata_regex correctly matches against format_metadata() output
+/// when an object has 3 or more metadata entries. Metadata entries are sorted alphabetically
+/// and comma-separated: `env=staging,team=data,version=v2`.
+#[tokio::test]
+async fn object_deleter_metadata_include_filter_multiple_entries() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Set mock metadata: 3 entries that sort to env=staging,team=data,version=v2
+    let mut meta = HashMap::new();
+    meta.insert("version".to_string(), "v2".to_string());
+    meta.insert("env".to_string(), "staging".to_string());
+    meta.insert("team".to_string(), "data".to_string());
+    *mock.head_object_metadata.lock().unwrap() = Some(meta);
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    // Regex matches sorted metadata using comma-separated format per spec:
+    // "key1=(value1|value2),key2=value2"
+    config.filter_config.include_metadata_regex =
+        Some(Regex::new("env=staging,team=data,version=v2").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    input_sender
+        .send(make_s3_object("metadata-multi.json", 500))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Metadata matches include filter → object should be deleted via BatchDeleter
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].identifiers.len(), 1);
+    assert_eq!(batch_calls[0].identifiers[0].key(), "metadata-multi.json");
+}
+
+/// Verifies that exclude_tag_regex with the spec's alternation pattern
+/// "key1=(value1|value2)&key2=value2" correctly excludes matching objects.
+/// Tags sorted: env=production&retain=true&team=backend
+/// Regex "env=(production|staging)&retain=true" matches → object excluded from deletion.
+#[tokio::test]
+async fn object_deleter_tag_exclude_filter_alternation_pattern() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Tags sort to: env=production&retain=true&team=backend
+    *mock.tagging_response_tags.lock().unwrap() = Some(vec![
+        Tag::builder().key("team").value("backend").build().unwrap(),
+        Tag::builder()
+            .key("env")
+            .value("production")
+            .build()
+            .unwrap(),
+        Tag::builder().key("retain").value("true").build().unwrap(),
+    ]);
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    // Spec alternation pattern: "key1=(value1|value2)&key2=value2"
+    config.filter_config.exclude_tag_regex =
+        Some(Regex::new("env=(production|staging)&retain=true").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    input_sender
+        .send(make_s3_object("excluded-by-tag.txt", 256))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Tags match exclude filter → object should NOT be deleted
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(
+        batch_calls.len(),
+        0,
+        "Excluded object should not be deleted"
+    );
+}
+
+/// Verifies that exclude_metadata_regex with the spec's alternation pattern
+/// "key1=(value1|value2),key2=value2" correctly excludes matching objects.
+/// Metadata sorted: env=staging,team=backend,version=v2
+/// Regex "env=(staging|production),team=backend" matches → object excluded.
+#[tokio::test]
+async fn object_deleter_metadata_exclude_filter_alternation_pattern() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Metadata sorts to: env=staging,team=backend,version=v2
+    let mut meta = HashMap::new();
+    meta.insert("version".to_string(), "v2".to_string());
+    meta.insert("env".to_string(), "staging".to_string());
+    meta.insert("team".to_string(), "backend".to_string());
+    *mock.head_object_metadata.lock().unwrap() = Some(meta);
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    // Spec alternation pattern: "key1=(value1|value2),key2=value2"
+    config.filter_config.exclude_metadata_regex =
+        Some(Regex::new("env=(staging|production),team=backend").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    input_sender
+        .send(make_s3_object("excluded-by-meta.json", 500))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Metadata matches exclude filter → object should NOT be deleted
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(
+        batch_calls.len(),
+        0,
+        "Excluded object should not be deleted"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Task 1B: Batch retryable error with single-delete fallback (force_retry_count)
+// ---------------------------------------------------------------------------
+
+/// Verifies that when a batch delete returns a retryable error ("InternalError")
+/// for a specific key, the BatchDeleter falls back to single-delete for that key,
+/// using the configured force_retry_count to limit retry attempts.
+/// This covers the code path in batch.rs:122-186.
+#[tokio::test]
+async fn batch_deleter_retryable_error_falls_back_to_single_delete() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Configure "key/1" to fail in batch with retryable error
+    mock.batch_error_keys
+        .lock()
+        .unwrap()
+        .insert("key/1".to_string(), "InternalError".to_string());
+
+    let deleter = BatchDeleter::new(boxed);
+    let mut config = make_test_config();
+    config.force_retry_config.force_retry_count = 1;
+
+    let objects = vec![
+        make_s3_object("key/0", 100),
+        make_s3_object("key/1", 200),
+        make_s3_object("key/2", 300),
+    ];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    // All 3 should be deleted (2 via batch + 1 via single fallback)
+    assert_eq!(result.deleted.len(), 3);
+    assert_eq!(result.failed.len(), 0);
+
+    // Verify single delete was called for "key/1" (fallback was attempted)
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert!(
+        single_calls.iter().any(|c| c.key == "key/1"),
+        "single-delete fallback must be attempted for key/1"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Task 1C: All include filters pass-through (positive AND case)
+// ---------------------------------------------------------------------------
+
+/// Verifies that when all three include filters (content-type, metadata, tag) are
+/// configured and the object matches ALL of them, the object is deleted (positive
+/// AND case). Also verifies that head_object is called (for content-type/metadata)
+/// and get_object_tagging is called (for tags).
+#[tokio::test]
+async fn object_deleter_all_include_filters_pass_through() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Mock: content_type="application/json", metadata env=staging, tags team=data
+    *mock.head_object_content_type.lock().unwrap() = Some("application/json".to_string());
+    let mut meta = HashMap::new();
+    meta.insert("env".to_string(), "staging".to_string());
+    *mock.head_object_metadata.lock().unwrap() = Some(meta);
+    *mock.tagging_response_tags.lock().unwrap() = Some(vec![
+        Tag::builder().key("team").value("data").build().unwrap(),
+    ]);
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.filter_config.include_content_type_regex = Some(Regex::new("application/json").unwrap());
+    config.filter_config.include_metadata_regex = Some(Regex::new("env=staging").unwrap());
+    config.filter_config.include_tag_regex = Some(Regex::new("team=data").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    input_sender
+        .send(make_s3_object("match-all.json", 1024))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // All three filters matched → object IS deleted
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].identifiers.len(), 1);
+    assert_eq!(batch_calls[0].identifiers[0].key(), "match-all.json");
+
+    // head_object was called (content-type + metadata require it)
+    let head_calls = mock.head_object_calls.lock().unwrap();
+    assert_eq!(head_calls.len(), 1);
+}
+
+// ===========================================================================
+// Property tests: Content-type, metadata, tag filtering
+// **Validates: Requirements 2.3, 2.4, 2.5**
+// ===========================================================================
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(30))]
+
+    #[test]
+    fn prop_content_type_include_filter(
+        content_type in "(text|image|audio)/[a-z]{3,8}",
+        num_objects in 1usize..10,
+    ) {
+        // When include_content_type_regex doesn't match the actual content-type,
+        // no objects should be deleted.
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        rt.block_on(async {
+            init_dummy_tracing_subscriber();
+            let (stats_sender, _stats_receiver) = async_channel::unbounded();
+            let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+            *mock.head_object_content_type.lock().unwrap() = Some(content_type.clone());
+
+            let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(num_objects + 1);
+            let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(num_objects + 1);
+
+            let mut config = make_test_config();
+            // Use a regex that doesn't match any of the generated content types
+            config.filter_config.include_content_type_regex =
+                Some(Regex::new("application/octet-stream").unwrap());
+            let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+            let stats_report = Arc::new(DeletionStatsReport::new());
+            let delete_counter = Arc::new(AtomicU64::new(0));
+            let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+            for i in 0..num_objects {
+                input_sender
+                    .send(make_s3_object(&format!("ct-obj/{i}"), 100))
+                    .await
+                    .unwrap();
+            }
+            drop(input_sender);
+
+            deleter.delete().await.unwrap();
+
+            // None should be deleted since content-type doesn't match
+            let batch_calls = mock.delete_objects_calls.lock().unwrap();
+            prop_assert_eq!(batch_calls.len(), 0);
+            let single_calls = mock.delete_object_calls.lock().unwrap();
+            prop_assert_eq!(single_calls.len(), 0);
+
+            // HeadObject should have been called for each object
+            let head_calls = mock.head_object_calls.lock().unwrap();
+            prop_assert_eq!(head_calls.len(), num_objects);
+
+            Ok(())
+        })?;
+    }
+
+    #[test]
+    fn prop_metadata_include_filter(
+        meta_key in "[a-z]{3,8}",
+        meta_value in "[a-z0-9]{3,8}",
+        num_objects in 1usize..10,
+    ) {
+        // When include_metadata_regex doesn't match the actual metadata,
+        // no objects should be deleted.
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        rt.block_on(async {
+            init_dummy_tracing_subscriber();
+            let (stats_sender, _stats_receiver) = async_channel::unbounded();
+            let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+            let mut meta = HashMap::new();
+            meta.insert(meta_key.clone(), meta_value.clone());
+            *mock.head_object_metadata.lock().unwrap() = Some(meta);
+
+            let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(num_objects + 1);
+            let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(num_objects + 1);
+
+            let mut config = make_test_config();
+            // Use a regex that won't match any generated metadata
+            config.filter_config.include_metadata_regex =
+                Some(Regex::new("ZZZZZ_NO_MATCH_ZZZZZ").unwrap());
+            let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+            let stats_report = Arc::new(DeletionStatsReport::new());
+            let delete_counter = Arc::new(AtomicU64::new(0));
+            let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+            for i in 0..num_objects {
+                input_sender
+                    .send(make_s3_object(&format!("meta-obj/{i}"), 100))
+                    .await
+                    .unwrap();
+            }
+            drop(input_sender);
+
+            deleter.delete().await.unwrap();
+
+            let batch_calls = mock.delete_objects_calls.lock().unwrap();
+            prop_assert_eq!(batch_calls.len(), 0);
+            let single_calls = mock.delete_object_calls.lock().unwrap();
+            prop_assert_eq!(single_calls.len(), 0);
+
+            Ok(())
+        })?;
+    }
+
+    #[test]
+    fn prop_tag_include_filter(
+        tag_key in "[a-z]{3,8}",
+        tag_value in "[a-z0-9]{3,8}",
+        num_objects in 1usize..10,
+    ) {
+        // When include_tag_regex doesn't match the actual tags,
+        // no objects should be deleted.
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        rt.block_on(async {
+            init_dummy_tracing_subscriber();
+            let (stats_sender, _stats_receiver) = async_channel::unbounded();
+            let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+            let tag = Tag::builder()
+                .key(tag_key.clone())
+                .value(tag_value.clone())
+                .build()
+                .unwrap();
+            *mock.tagging_response_tags.lock().unwrap() = Some(vec![tag]);
+
+            let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(num_objects + 1);
+            let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(num_objects + 1);
+
+            let mut config = make_test_config();
+            config.filter_config.include_tag_regex =
+                Some(Regex::new("ZZZZZ_NO_MATCH_ZZZZZ").unwrap());
+            let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+            let stats_report = Arc::new(DeletionStatsReport::new());
+            let delete_counter = Arc::new(AtomicU64::new(0));
+            let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+            for i in 0..num_objects {
+                input_sender
+                    .send(make_s3_object(&format!("tag-obj/{i}"), 100))
+                    .await
+                    .unwrap();
+            }
+            drop(input_sender);
+
+            deleter.delete().await.unwrap();
+
+            let batch_calls = mock.delete_objects_calls.lock().unwrap();
+            prop_assert_eq!(batch_calls.len(), 0);
+            let single_calls = mock.delete_object_calls.lock().unwrap();
+            prop_assert_eq!(single_calls.len(), 0);
+
+            Ok(())
+        })?;
+    }
 }

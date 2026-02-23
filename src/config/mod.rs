@@ -186,12 +186,7 @@ pub struct FilterConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn init_dummy_tracing_subscriber() {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter("dummy=trace")
-            .try_init();
-    }
+    use crate::test_utils::init_dummy_tracing_subscriber;
 
     #[test]
     fn retry_config_creation() {

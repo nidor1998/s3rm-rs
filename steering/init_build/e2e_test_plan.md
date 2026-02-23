@@ -90,6 +90,20 @@ Each filtering test uploads ~20 objects with varying properties, runs the pipeli
   - **Assertions**: 10 `tier=hot` objects deleted; 10 `tier=archive` objects remain
   - _Requirements: 2.4_
 
+- [ ] 29.6a `e2e_filter_include_metadata_regex_multiple_entries`
+  - **Tests**: `--filter-include-metadata-regex` with 3+ metadata entries per object
+  - **Setup**: Upload 20 objects: 10 with metadata `{env=production, team=backend, version=v2}`, 10 with metadata `{env=staging, team=frontend, version=v1}`. Metadata is serialized sorted: `env=production,team=backend,version=v2`
+  - **Config**: `--filter-include-metadata-regex "env=production,team=backend,version=v2" --force`
+  - **Assertions**: 10 `env=production` objects deleted (regex matches full sorted entry); 10 `env=staging` objects remain
+  - _Requirements: 2.4_
+
+- [ ] 29.6b `e2e_filter_exclude_metadata_regex_multiple_entries_alternation`
+  - **Tests**: `--filter-exclude-metadata-regex` with spec alternation pattern `"key1=(value1|value2),key2=value2"`
+  - **Setup**: Upload 30 objects: 10 with `{env=production, team=backend, version=v2}`, 10 with `{env=staging, team=backend, version=v2}`, 10 with `{env=development, team=frontend, version=v1}`
+  - **Config**: `--filter-exclude-metadata-regex "env=(production|staging),team=backend" --force`
+  - **Assertions**: 10 `dev/` objects deleted; 10 `prod/` and 10 `staging/` remain (excluded by alternation regex)
+  - _Requirements: 2.4_
+
 - [ ] 29.7 `e2e_filter_include_tag_regex`
   - **Tests**: `--filter-include-tag-regex`
   - **Setup**: Upload 10 objects tagged `status=expired`, 10 tagged `status=active`
@@ -102,6 +116,20 @@ Each filtering test uploads ~20 objects with varying properties, runs the pipeli
   - **Setup**: Upload 10 objects tagged `retain=true`, 10 tagged `retain=false`
   - **Config**: `--filter-exclude-tag-regex "retain=true" --force`
   - **Assertions**: 10 `retain=false` objects deleted; 10 `retain=true` objects remain
+  - _Requirements: 2.5_
+
+- [ ] 29.8a `e2e_filter_include_tag_regex_multiple_tags`
+  - **Tests**: `--filter-include-tag-regex` with 3+ tags per object
+  - **Setup**: Upload 20 objects: 10 tagged `{env=production, retain=false, team=backend}`, 10 tagged `{env=staging, retain=true, team=frontend}`. Tags are serialized sorted and `&`-separated: `env=production&retain=false&team=backend`
+  - **Config**: `--filter-include-tag-regex "env=production&retain=false&team=backend" --force`
+  - **Assertions**: 10 `env=production` objects deleted (regex matches full sorted tag entry); 10 `env=staging` objects remain
+  - _Requirements: 2.5_
+
+- [ ] 29.8b `e2e_filter_exclude_tag_regex_multiple_tags_alternation`
+  - **Tests**: `--filter-exclude-tag-regex` with spec alternation pattern `"key1=(value1|value2)&key2=value2"`
+  - **Setup**: Upload 30 objects: 10 tagged `{env=production, retain=true, team=backend}`, 10 tagged `{env=staging, retain=true, team=backend}`, 10 tagged `{env=development, retain=false, team=frontend}`
+  - **Config**: `--filter-exclude-tag-regex "env=(production|staging)&retain=true" --force`
+  - **Assertions**: 10 `dev/` objects deleted; 10 `prod/` and 10 `staging/` remain (excluded by alternation regex)
   - _Requirements: 2.5_
 
 - [ ] 29.9 `e2e_filter_mtime_before`
@@ -283,6 +311,13 @@ Each filtering test uploads ~20 objects with varying properties, runs the pipeli
   - **Assertions**: All 20 objects deleted; ETags match for unmodified objects
   - _Requirements: 11.1, 11.4_
 
+- [ ] 29.32a `e2e_if_match_etag_mismatch_skips_modified_objects`
+  - **Tests**: `--if-match` flag correctly skips objects modified after listing (ETag mismatch)
+  - **Setup**: Upload 10 objects. Register a Rust filter callback that, during filtering, overwrites 3 specific objects with new content (changing their ETags) via the AWS SDK, then returns `true` for all objects
+  - **Config**: `--if-match --batch-size 1 --force` (single deletion mode for clearer per-object behavior)
+  - **Assertions**: 7 unmodified objects deleted; 3 modified objects remain (ETag mismatch causes skip); stats show 7 deleted; `has_warning` is true or error count reflects the 3 mismatches; objects that were modified still exist in the bucket
+  - _Requirements: 11.2_
+
 ## E2E Test Plan: Performance Option Tests
 
 - [ ] 29.33 `e2e_worker_size_configuration`
@@ -399,9 +434,9 @@ Each filtering test uploads ~20 objects with varying properties, runs the pipeli
 - [ ] 29.48 `e2e_access_denied_invalid_credentials`
   - **Tests**: Access denial with invalid AWS credentials
   - **Setup**: Create a standard bucket and upload 5 objects (using valid credentials for setup)
-  - **Config**: Build config with `--target-access-key INVALID --target-secret-access-key INVALID --target-region us-east-1 --force`
-  - **Assertions**: Pipeline reports error; `has_error()` returns true; error type is AWS SDK error (access denied or invalid credentials)
-  - _Requirements: 6.4, 10.5, 13.4_
+  - **Config**: Build config with `--target-access-key INVALID --target-secret-access-key INVALID --target-region us-east-1 --force -v`
+  - **Assertions**: Pipeline reports error; `has_error()` returns true; error type is AWS SDK error (access denied or invalid credentials); error message includes error code (validates that failures are logged with error message and code)
+  - _Requirements: 4.10, 6.4, 10.5, 13.4_
 
 - [ ] 29.49 `e2e_nonexistent_bucket_error`
   - **Tests**: Deleting from a bucket that does not exist
@@ -409,6 +444,14 @@ Each filtering test uploads ~20 objects with varying properties, runs the pipeli
   - **Config**: `s3://s3rm-e2e-nonexistent-{uuid}/ --force`
   - **Assertions**: Pipeline reports error (NoSuchBucket or similar); `has_error()` returns true
   - _Requirements: 6.4, 10.5_
+
+- [ ] 29.49a `e2e_batch_partial_failure_access_denied`
+  - **Tests**: Batch deletion partial failure when some objects are protected by a deny bucket policy
+  - **Setup**: Upload 20 objects: 10 under `deletable/`, 10 under `protected/`. Apply a bucket policy denying `s3:DeleteObject` on `protected/*`
+  - **Config**: `s3://{bucket}/ --force`
+  - **Assertions**: 10 `deletable/` objects deleted; 10 `protected/` objects remain (AccessDenied); stats show ~10 deleted, ~10 failed; pipeline reports warning or error
+  - **Cleanup**: Remove deny policy before assertion/cleanup so bucket can be fully cleaned up
+  - _Requirements: 1.9, 6.4, 6.5_
 
 - [ ] 29.50 `e2e_warn_as_error`
   - **Tests**: `--warn-as-error` promotes warnings to errors
@@ -501,6 +544,13 @@ The following CLI options are NOT tested in E2E because they require infrastruct
   - **Assertions**: All 1000 objects deleted; stats show 1000 deleted, 0 failed
   - _Requirements: 1.1, 1.8_
 
+- [ ] 29.59a `e2e_all_filters_combined`
+  - **Tests**: All filter types applied simultaneously with AND logic
+  - **Setup**: Upload 20 objects with diverse properties (varied keys, sizes, content-types, metadata, tags). Only 3 objects satisfy every filter; the other 17 are each excluded by at least one filter.
+  - **Filters**: prefix `data/`, `--filter-include-regex "\.json$"`, `--filter-exclude-regex "archive"`, `--filter-larger-size 500B`, `--filter-smaller-size 5KB`, `--filter-include-content-type-regex "application/json"`, `--filter-include-metadata-regex "env=production"`, `--filter-exclude-metadata-regex "retain=true"`, `--filter-include-tag-regex "deletable=yes"`, `--filter-exclude-tag-regex "protected=true"`, `--force`
+  - **Assertions**: Exactly 3 objects deleted; 17 remain; each excluded group verified individually
+  - _Requirements: 2.2, 2.3, 2.4, 2.5, 2.6, 2.11_
+
 ## E2E Test Plan: Statistics and Result Verification
 
 - [ ] 29.60 `e2e_deletion_stats_accuracy`
@@ -545,7 +595,7 @@ tests/
 +-- e2e_safety.rs          # Tests 29.18-29.20 (safety features)
 +-- e2e_versioning.rs      # Tests 29.21-29.23 (versioning)
 +-- e2e_callback.rs        # Tests 29.24-29.30 (Lua + Rust callbacks)
-+-- e2e_optimistic.rs      # Tests 29.31-29.32 (if-match)
++-- e2e_optimistic.rs      # Tests 29.31-29.32a (if-match)
 +-- e2e_performance.rs     # Tests 29.33-29.37 (performance options)
 +-- e2e_tracing.rs         # Tests 29.38-29.44 (logging/tracing)
 +-- e2e_retry.rs           # Tests 29.45-29.47 (retry/timeout options)

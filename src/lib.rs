@@ -142,6 +142,9 @@ pub mod storage;
 pub mod terminator;
 pub mod types;
 
+#[cfg(test)]
+pub(crate) mod test_utils;
+
 // ---------------------------------------------------------------------------
 // Root-level re-exports for convenient access
 // ---------------------------------------------------------------------------

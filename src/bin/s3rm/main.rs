@@ -127,9 +127,12 @@ async fn run(mut config: Config) -> Result<()> {
         );
 
         pipeline.run().await;
-        if let Err(e) = indicator_join_handle.await {
-            error!("indicator task panicked: {}", e);
-            std::process::exit(EXIT_CODE_ABNORMAL_TERMINATION);
+        match indicator_join_handle.await {
+            Ok(_summary) => {}
+            Err(e) => {
+                error!("indicator task panicked: {}", e);
+                std::process::exit(EXIT_CODE_ABNORMAL_TERMINATION);
+            }
         }
 
         let duration_sec = format!("{:.3}", start_time.elapsed().as_secs_f32());

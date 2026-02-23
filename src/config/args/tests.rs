@@ -1,12 +1,7 @@
 use super::*;
 use crate::config::Config;
+use crate::test_utils::init_dummy_tracing_subscriber;
 use proptest::prelude::*;
-
-fn init_dummy_tracing_subscriber() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter("dummy=trace")
-        .try_init();
-}
 
 // ---------------------------------------------------------------------------
 // Basic parsing tests
@@ -641,5 +636,58 @@ proptest! {
         use crate::types::error::S3rmError;
         let err = anyhow::anyhow!(S3rmError::PartialFailure { deleted, failed });
         prop_assert_eq!(crate::types::error::exit_code_from_error(&err), 3);
+    }
+}
+
+// Feature: s3rm-rs, Express One Zone Detection
+// **Validates: Requirements 1.11**
+//
+// WHERE the target is an Express One Zone directory bucket (detected by the
+// `--x-s3` bucket name suffix), THE S3rm_Tool SHALL automatically set
+// batch_size to 1 unless explicitly overridden.
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(50))]
+
+    #[test]
+    fn prop_express_onezone_detection(
+        bucket_base in "[a-z][a-z0-9]{2,10}",
+        prefix in "[a-z0-9/]{0,20}",
+    ) {
+        // Buckets ending with --x-s3 must get batch_size=1
+        let target = format!("s3://{bucket_base}--x-s3/{prefix}");
+        let args = vec!["s3rm".to_string(), target];
+        let cli = parse_from_args(args).unwrap();
+        let config = Config::try_from(cli).unwrap();
+        prop_assert_eq!(config.batch_size, 1, "Express One Zone must default batch_size to 1");
+    }
+
+    #[test]
+    fn prop_non_express_keeps_defaults(
+        bucket_base in "[a-z][a-z0-9]{2,10}",
+        prefix in "[a-z0-9/]{0,20}",
+    ) {
+        // Normal buckets (no --x-s3 suffix) keep default batch_size=200
+        let target = format!("s3://{bucket_base}/{prefix}");
+        let args = vec!["s3rm".to_string(), target];
+        let cli = parse_from_args(args).unwrap();
+        let config = Config::try_from(cli).unwrap();
+        prop_assert_eq!(config.batch_size, 200, "Non-Express bucket must keep default batch_size");
+    }
+
+    #[test]
+    fn prop_express_onezone_override(
+        bucket_base in "[a-z][a-z0-9]{2,10}",
+        prefix in "[a-z0-9/]{0,20}",
+    ) {
+        // With --allow-parallel-listings-in-express-one-zone, batch_size stays default
+        let target = format!("s3://{bucket_base}--x-s3/{prefix}");
+        let args = vec![
+            "s3rm".to_string(),
+            target,
+            "--allow-parallel-listings-in-express-one-zone".to_string(),
+        ];
+        let cli = parse_from_args(args).unwrap();
+        let config = Config::try_from(cli).unwrap();
+        prop_assert_eq!(config.batch_size, 200, "Express One Zone with override must keep default batch_size");
     }
 }

@@ -75,7 +75,6 @@ impl Deleter for SingleDeleter {
                     error_code: "DeleteObjectError".to_string(),
                     error_message: e.to_string(),
                 });
-                return Err(e);
             }
         }
 

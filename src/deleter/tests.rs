@@ -627,7 +627,14 @@ async fn single_deleter_returns_error_on_failure() {
 
     let objects = vec![make_s3_object("key/fail", 200)];
     let result = deleter.delete(&objects, &config).await;
-    assert!(result.is_err());
+    // SingleDeleter records failures in result.failed instead of returning Err,
+    // matching BatchDeleter's behavior. The caller (delete_buffered_objects)
+    // decides whether to cancel the pipeline based on warn_as_error.
+    assert!(result.is_ok());
+    let delete_result = result.unwrap();
+    assert_eq!(delete_result.failed.len(), 1);
+    assert_eq!(delete_result.failed[0].key, "key/fail");
+    assert!(delete_result.deleted.is_empty());
 
     let calls = mock.delete_object_calls.lock().unwrap();
     assert_eq!(calls.len(), 1);
@@ -2469,20 +2476,8 @@ async fn warn_as_error_true_single_deleter_failure_cancels() {
     let (boxed, mock) = make_mock_storage_boxed(stats_sender);
 
     // Configure "key/0" to fail in batch delete.
-    // With batch_size=1, each object goes through SingleDeleter.
-    // But we can trigger a failure differently: the mock's delete_object_error_keys.
-    // SingleDeleter returns Err when delete_object fails, which makes
-    // delete_buffered_objects cancel the pipeline entirely (different from batch
-    // partial failure). So for single-mode warn_as_error testing, we need to
-    // use batch_size > 1 but small enough to test the flow.
-    //
-    // Actually, with batch_size=1 the ObjectDeleter uses SingleDeleter, and if
-    // SingleDeleter returns Err, the entire batch call in delete_buffered_objects
-    // goes to the Err branch (line 407-416) which cancels unconditionally.
-    //
-    // The warn_as_error path is specifically for partial failures (some objects
-    // in a batch fail while others succeed), so it only applies to BatchDeleter.
-    // Let's test with batch_size=2 instead.
+    // Use batch_size=2 to test the warn_as_error path with BatchDeleter,
+    // which reports partial failures via delete_result.failed.
     mock.batch_error_keys
         .lock()
         .unwrap()

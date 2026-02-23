@@ -265,3 +265,185 @@ async fn e2e_empty_bucket_no_error() {
         guard.cleanup().await;
     });
 }
+
+// ---------------------------------------------------------------------------
+// Prefix-scoped deletion: verify only targeted objects are deleted
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_batch_deletion_respects_prefix_boundary() {
+    e2e_timeout!(async {
+        // Purpose: Verify that batch deletion (default mode) with a prefix only
+        //          deletes objects under that prefix and leaves objects outside
+        //          completely untouched — including objects with overlapping key
+        //          prefixes (e.g., "data/" vs "data-archive/").
+        // Setup:   Upload objects under three prefixes: data/, data-archive/, other/.
+        // Expected: Only data/ objects are deleted; data-archive/ and other/ remain.
+        //           Actual S3 state is verified, not just stats.
+        //
+        // Validates: Requirements 1.1, 2.1 (batch mode)
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        // Target prefix: 5 objects under data/
+        for i in 0..5 {
+            helper
+                .put_object(&bucket, &format!("data/item{i}.txt"), vec![b'd'; 256])
+                .await;
+        }
+        // Overlapping prefix name: 3 objects under data-archive/
+        for i in 0..3 {
+            helper
+                .put_object(
+                    &bucket,
+                    &format!("data-archive/item{i}.txt"),
+                    vec![b'a'; 256],
+                )
+                .await;
+        }
+        // Unrelated prefix: 4 objects under other/
+        for i in 0..4 {
+            helper
+                .put_object(&bucket, &format!("other/item{i}.txt"), vec![b'o'; 256])
+                .await;
+        }
+
+        let total_before = helper.count_objects(&bucket, "").await;
+        assert_eq!(total_before, 12, "Should start with 12 objects");
+
+        let config = TestHelper::build_config(vec![&format!("s3://{bucket}/data/"), "--force"]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error, "Pipeline should complete without errors");
+        assert_eq!(
+            result.stats.stats_deleted_objects, 5,
+            "Should delete all 5 data/ objects"
+        );
+        assert_eq!(
+            result.stats.stats_failed_objects, 0,
+            "No objects should fail"
+        );
+
+        // Verify data/ objects are actually gone
+        let data_remaining = helper.count_objects(&bucket, "data/").await;
+        assert_eq!(
+            data_remaining, 0,
+            "All data/ objects should be removed from S3"
+        );
+
+        // Verify data-archive/ objects are untouched
+        let archive_remaining = helper.count_objects(&bucket, "data-archive/").await;
+        assert_eq!(
+            archive_remaining, 3,
+            "data-archive/ objects must not be affected by data/ deletion"
+        );
+
+        // Verify other/ objects are untouched
+        let other_remaining = helper.count_objects(&bucket, "other/").await;
+        assert_eq!(other_remaining, 4, "other/ objects must remain");
+
+        // Total remaining = 3 + 4 = 7
+        let total_after = helper.count_objects(&bucket, "").await;
+        assert_eq!(
+            total_after, 7,
+            "Only 5 data/ objects should have been removed"
+        );
+
+        guard.cleanup().await;
+    });
+}
+
+#[tokio::test]
+async fn e2e_single_deletion_respects_prefix_boundary() {
+    e2e_timeout!(async {
+        // Purpose: Verify that single deletion mode (--batch-size 1) with a prefix
+        //          only deletes objects under that prefix. This exercises the
+        //          SingleDeleter code path with delete_object (not delete_objects).
+        // Setup:   Upload objects under three prefixes: logs/, logs-backup/, keep/.
+        // Expected: Only logs/ objects are deleted; logs-backup/ and keep/ remain.
+        //           Actual S3 state is verified, not just stats.
+        //
+        // Validates: Requirements 1.2, 2.1 (single mode)
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        // Target prefix: 5 objects under logs/
+        for i in 0..5 {
+            helper
+                .put_object(&bucket, &format!("logs/entry{i}.log"), vec![b'L'; 128])
+                .await;
+        }
+        // Overlapping prefix name: 3 objects under logs-backup/
+        for i in 0..3 {
+            helper
+                .put_object(
+                    &bucket,
+                    &format!("logs-backup/entry{i}.log"),
+                    vec![b'B'; 128],
+                )
+                .await;
+        }
+        // Unrelated prefix: 2 objects under keep/
+        for i in 0..2 {
+            helper
+                .put_object(&bucket, &format!("keep/file{i}.dat"), vec![b'K'; 128])
+                .await;
+        }
+
+        let total_before = helper.count_objects(&bucket, "").await;
+        assert_eq!(total_before, 10, "Should start with 10 objects");
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/logs/"),
+            "--batch-size",
+            "1",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error, "Pipeline should complete without errors");
+        assert_eq!(
+            result.stats.stats_deleted_objects, 5,
+            "Should delete all 5 logs/ objects"
+        );
+        assert_eq!(
+            result.stats.stats_failed_objects, 0,
+            "No objects should fail"
+        );
+
+        // Verify logs/ objects are actually gone
+        let logs_remaining = helper.count_objects(&bucket, "logs/").await;
+        assert_eq!(
+            logs_remaining, 0,
+            "All logs/ objects should be removed from S3"
+        );
+
+        // Verify logs-backup/ objects are untouched
+        let backup_remaining = helper.count_objects(&bucket, "logs-backup/").await;
+        assert_eq!(
+            backup_remaining, 3,
+            "logs-backup/ objects must not be affected by logs/ deletion"
+        );
+
+        // Verify keep/ objects are untouched
+        let keep_remaining = helper.count_objects(&bucket, "keep/").await;
+        assert_eq!(keep_remaining, 2, "keep/ objects must remain");
+
+        // Total remaining = 3 + 2 = 5
+        let total_after = helper.count_objects(&bucket, "").await;
+        assert_eq!(
+            total_after, 5,
+            "Only 5 logs/ objects should have been removed"
+        );
+
+        guard.cleanup().await;
+    });
+}

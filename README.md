@@ -815,9 +815,7 @@ For more information, see `s3rm -h`.
 | `--dry-run` | `-d` | `false` | Preview deletions without executing them |
 | `--force` | `-f` | `false` | Skip confirmation prompt |
 | `--show-no-progress` | | `false` | Hide the progress bar |
-| `--log-deletion-summary` | | `true` | Log deletion summary at completion |
 | `--delete-all-versions` | | `false` | Delete all versions including delete markers |
-| `--batch-size` | | `200` | Objects per batch deletion request (1–1000) |
 | `--max-delete` | | | Stop after deleting this many objects |
 
 ### Filtering
@@ -847,6 +845,7 @@ For more information, see `s3rm -h`.
 | `--aws-sdk-tracing` | `false` | Include AWS SDK internal traces |
 | `--span-events-tracing` | `false` | Include span open/close events |
 | `--disable-color-tracing` | `false` | Disable colored log output |
+| `--log-deletion-summary` | `true` | Log deletion summary at completion |
 
 ### AWS Configuration
 
@@ -870,6 +869,7 @@ For more information, see `s3rm -h`.
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--worker-size` | `24` | Concurrent deletion workers (1–65535) |
+| `--batch-size` | `200` | Objects per batch deletion request (1–1000) |
 | `--max-parallel-listings` | `16` | Concurrent listing operations |
 | `--max-parallel-listing-max-depth` | `2` | Maximum depth for parallel listings |
 | `--rate-limit-objects` | | Maximum objects/second (minimum: 10) |

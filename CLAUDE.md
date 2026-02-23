@@ -179,16 +179,20 @@ cargo fmt
 
 ### Source Code
 - `src/lib.rs` - Library entry point and public API
-- `src/cli/main.rs` - CLI binary entry point
-- `src/config.rs` - Configuration and argument parsing
+- `src/bin/s3rm/main.rs` - CLI binary entry point
+- `src/config/mod.rs` - Configuration and argument parsing
+- `src/config/args/mod.rs` - CLI argument definitions (clap)
+- `src/pipeline.rs` - DeletionPipeline orchestrator
 - `src/deleter/` - Deletion components (batch, single, worker)
 - `src/filters/` - Filter stages (regex, size, time, Lua)
 - `src/lister.rs` - Object listing with parallel pagination
+- `src/safety/` - Safety features (confirmation, dry-run)
+- `src/test_utils.rs` - Shared test utilities
 
 ### Tests
 - `src/**/*_properties.rs` - Property-based tests (proptest)
-- `src/**/*_unit_tests.rs` - Unit tests
-- `tests/e2e_*.rs` - End-to-end integration tests
+- `src/**/tests.rs` and `#[cfg(test)]` modules - Unit tests
+- `tests/e2e_*.rs` - End-to-end integration tests (14 files, 84 tests)
 
 ## Architecture Overview
 

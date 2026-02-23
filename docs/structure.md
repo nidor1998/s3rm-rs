@@ -29,11 +29,14 @@
 ├── CONTRIBUTING.md         # Contribution guidelines (AI-only project notice)
 ├── SECURITY.md             # Security policy
 ├── CLAUDE.md               # Claude Code integration guide
+├── CHANGELOG.md            # Release changelog
 ├── examples/               # Usage examples
 │   ├── filter.lua          # Example Lua filter callback script
 │   ├── event.lua           # Example Lua event callback script
 │   └── library_usage.rs    # Example Rust library usage
-├── docs/                   # Permanent documentation (requirements, design, product, tech, structure)
+├── test_data/              # Test data files
+│   └── test_config/        # Mock AWS config/credentials for testing
+├── docs/                   # Permanent documentation (requirements, design, product, tech, structure, e2e_test_cases)
 ├── steering/
 │   └── init_build/         # Active build phase (tasks, phase README)
 ├── tests/                  # E2E integration tests (gated behind #[cfg(e2e_test)], require AWS credentials with s3rm-e2e-test profile)
@@ -56,7 +59,10 @@
 ├── .github/
 │   ├── pull_request_template.md  # PR template (AI-only project notice)
 │   └── workflows/
-│       └── ci.yml          # CI pipeline for multi-platform builds
+│       ├── ci.yml          # CI pipeline for multi-platform builds
+│       ├── cd.yml          # CD pipeline for releases
+│       ├── cargo-deny.yml  # Dependency audit (license, advisory, ban checks)
+│       └── rust-clippy.yml # Clippy lint checks
 └── .git/                   # Git repository
 ```
 
@@ -132,6 +138,7 @@ src/
 ├── cross_platform_properties.rs # Property tests for cross-platform (Property 37)
 ├── cicd_properties.rs        # Property tests for CI/CD integration (Properties 48-49)
 ├── additional_properties.rs  # Property tests for Properties 4, 12, 13
+├── test_utils.rs             # Shared test utilities (make_test_config, make_s3_object, etc.)
 └── bin/s3rm/
     ├── main.rs             # CLI binary entry point
     ├── indicator.rs        # Progress reporter (indicatif)

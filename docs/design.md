@@ -1885,8 +1885,9 @@ E2E tests validate s3rm-rs functionality with real AWS S3 buckets. These tests r
 pub struct PipelineResult {
     pub stats: DeletionStats,
     pub has_error: bool,
+    pub has_panic: bool,
     pub has_warning: bool,
-    pub error_messages: Vec<String>,
+    pub errors: Vec<String>,
 }
 
 /// RAII guard that ensures bucket cleanup even on test panic.
@@ -1903,15 +1904,30 @@ pub struct TestHelper {
 
 impl TestHelper {
     pub async fn new() -> Self;
+    pub fn build_config(args: Vec<&str>) -> Config;
+    pub async fn run_pipeline(&self, args: Vec<&str>) -> PipelineResult;
+    pub fn bucket_guard(self: &Arc<Self>, bucket: &str) -> BucketGuard;
+    pub fn generate_bucket_name(&self) -> String;
+    pub fn region(&self) -> &str;
     pub async fn create_bucket(&self, name: &str) -> String;
+    pub async fn create_versioned_bucket(&self, name: &str) -> String;
     pub fn generate_directory_bucket_name(&self, az_id: &str) -> String;
     pub async fn create_directory_bucket(&self, bucket: &str, az_id: &str);
-    pub fn bucket_guard(self: &Arc<Self>, bucket: &str) -> BucketGuard;
-    pub async fn upload_objects(&self, bucket: &str, prefix: &str, count: usize);
-    pub async fn enable_versioning(&self, bucket: &str);
+    pub async fn delete_bucket_cascade(&self, bucket: &str);
+    pub async fn delete_all_versions(&self, bucket: &str);
+    pub async fn delete_all_objects(&self, bucket: &str);
+    pub async fn put_object(&self, bucket: &str, key: &str, body: &[u8]);
+    pub async fn put_object_with_content_type(&self, bucket: &str, key: &str, body: &[u8], content_type: &str);
+    pub async fn put_object_with_metadata(&self, bucket: &str, key: &str, body: &[u8], metadata: HashMap<String, String>);
+    pub async fn put_object_with_tags(&self, bucket: &str, key: &str, body: &[u8], tagging: &str);
+    pub async fn put_object_full(&self, ...);
+    pub async fn put_objects_parallel(&self, bucket: &str, prefix: &str, count: usize, body: &[u8]);
     pub async fn list_objects(&self, bucket: &str, prefix: &str) -> Vec<Object>;
-    pub async fn run_pipeline(&self, args: Vec<&str>) -> PipelineResult;
-    // ... additional helpers for versions, tags, metadata, etc.
+    pub async fn list_object_versions(&self, bucket: &str) -> (Vec<ObjectVersion>, Vec<DeleteMarkerEntry>);
+    pub async fn count_objects(&self, bucket: &str, prefix: &str) -> usize;
+    pub fn client(&self) -> &Client;
+    pub async fn deny_delete_on_prefix(&self, bucket: &str, prefix: &str);
+    pub async fn delete_bucket_policy(&self, bucket: &str);
 }
 
 /// Event callback that collects all events for assertion.

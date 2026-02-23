@@ -846,28 +846,6 @@ Phase 26: Automated E2E Integration Testing (Task 29)
   - Ask the user if questions arise or if ready to proceed to release
 
 
-- [ ] 31. Release Preparation
-  - [ ] 31.1 Build release binaries
-    - Set up cross-compilation toolchains
-    - Build for Linux x86_64 (glibc): `cargo build --release --target x86_64-unknown-linux-gnu`
-    - Build for Linux x86_64 (musl): `cargo build --release --target x86_64-unknown-linux-musl`
-    - Build for Linux ARM64: `cargo build --release --target aarch64-unknown-linux-gnu`
-    - Build for Windows x86_64: `cargo build --release --target x86_64-pc-windows-gnu`
-    - Build for Windows aarch64: `cargo build --release --target aarch64-pc-windows-msvc`
-    - Build for macOS x86_64: `cargo build --release --target x86_64-apple-darwin`
-    - Build for macOS aarch64: `cargo build --release --target aarch64-apple-darwin`
-    - Test each binary on target platform
-    - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.8_
-
-  - [ ] 31.2 Create release artifacts
-    - Package binaries with README, LICENSE, and CHANGELOG
-    - Create tar.gz archives for Unix platforms
-    - Create zip archives for Windows
-    - Generate SHA256 checksums for all binaries
-    - Create release notes with feature highlights
-    - Tag release in git: `git tag -a v0.1.0 -m "Initial release"`
-    - _Requirements: N/A (release process)_
-
 ## Notes
 
 - Tasks marked with `*` are optional test-related sub-tasks and can be skipped for faster MVP
@@ -939,4 +917,3 @@ Tasks 1-29 complete (including Task 23 checkpoint, Task 24 unit tests, Task 25 p
 
 **Remaining work**:
 - Task 30: Final Checkpoint / Pre-Release Validation (not yet started)
-- Task 31: Release Preparation (not yet started)

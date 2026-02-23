@@ -26,13 +26,13 @@ pub fn init_tracing(config: &TracingConfig) {
     let tracing_level = config.tracing_level;
     let event_filter = if config.aws_sdk_tracing {
         format!(
-            "s3rm_rs={tracing_level},aws_smithy_runtime={tracing_level},aws_config={tracing_level},aws_sigv4={tracing_level}"
+            "s3rm_rs={tracing_level},s3rm={tracing_level},aws_smithy_runtime={tracing_level},aws_config={tracing_level},aws_sigv4={tracing_level}"
         )
     } else if env::var(EVENT_FILTER_ENV_VAR).is_ok() {
         env::var(EVENT_FILTER_ENV_VAR).unwrap()
     } else {
         show_target = false;
-        format!("s3rm_rs={tracing_level}")
+        format!("s3rm_rs={tracing_level},s3rm={tracing_level}")
     };
 
     let subscriber_builder = subscriber_builder

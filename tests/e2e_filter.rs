@@ -374,6 +374,12 @@ async fn e2e_filter_exclude_metadata_regex() {
             10,
             "All tier=archive objects should remain"
         );
+
+        let deleted_remaining = helper.count_objects(&bucket, "hot/").await;
+        assert_eq!(
+            deleted_remaining, 0,
+            "All tier=hot objects should be removed from S3"
+        );
         guard.cleanup().await;
     });
 }
@@ -645,6 +651,12 @@ async fn e2e_filter_include_tag_regex() {
             10,
             "All status=active objects should remain"
         );
+
+        let deleted_remaining = helper.count_objects(&bucket, "expired/").await;
+        assert_eq!(
+            deleted_remaining, 0,
+            "All status=expired objects should be removed from S3"
+        );
         guard.cleanup().await;
     });
 }
@@ -710,6 +722,12 @@ async fn e2e_filter_exclude_tag_regex() {
 
         let remaining = helper.list_objects(&bucket, "retained/").await;
         assert_eq!(remaining.len(), 10, "All retain=true objects should remain");
+
+        let deleted_remaining = helper.count_objects(&bucket, "disposable/").await;
+        assert_eq!(
+            deleted_remaining, 0,
+            "All retain=false objects should be removed from S3"
+        );
         guard.cleanup().await;
     });
 }
@@ -1601,9 +1619,14 @@ async fn e2e_filter_exclude_metadata_regex_with_prefix() {
             "Should delete 5 env=production under data/"
         );
         assert_eq!(
-            helper.count_objects(&bucket, "data/").await,
+            helper.count_objects(&bucket, "data/stage").await,
             5,
-            "data/ staging objects remain"
+            "data/ staging objects remain (excluded)"
+        );
+        assert_eq!(
+            helper.count_objects(&bucket, "data/prod").await,
+            0,
+            "data/ production objects should be removed from S3"
         );
         assert_eq!(
             helper.count_objects(&bucket, "outside/").await,
@@ -1683,9 +1706,14 @@ async fn e2e_filter_include_tag_regex_with_prefix() {
             "Should delete 5 status=expired under data/"
         );
         assert_eq!(
-            helper.count_objects(&bucket, "data/").await,
+            helper.count_objects(&bucket, "data/current").await,
             5,
             "data/ active objects remain"
+        );
+        assert_eq!(
+            helper.count_objects(&bucket, "data/old").await,
+            0,
+            "data/ expired objects should be removed from S3"
         );
         assert_eq!(
             helper.count_objects(&bucket, "outside/").await,
@@ -1763,9 +1791,14 @@ async fn e2e_filter_exclude_tag_regex_with_prefix() {
             "Should delete 5 status=expired under data/"
         );
         assert_eq!(
-            helper.count_objects(&bucket, "data/").await,
+            helper.count_objects(&bucket, "data/current").await,
             5,
-            "data/ active objects remain"
+            "data/ active objects remain (excluded)"
+        );
+        assert_eq!(
+            helper.count_objects(&bucket, "data/old").await,
+            0,
+            "data/ expired objects should be removed from S3"
         );
         assert_eq!(
             helper.count_objects(&bucket, "outside/").await,

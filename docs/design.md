@@ -654,7 +654,7 @@ pub fn show_indicator(
     stats_receiver: Receiver<DeletionStatistics>,
     show_progress: bool,
     show_result: bool,
-    log_sync_summary: bool,
+    log_deletion_summary: bool,
     dry_run: bool,
 ) -> JoinHandle<()> {
     // Spawn task that reads from stats_receiver channel
@@ -828,10 +828,7 @@ pub struct CLIArgs {
     pub dry_run: bool,       // -d / --dry-run
     pub force: bool,         // -f / --force
     pub show_no_progress: bool,
-    pub report_deletion_status: bool,  // default true
     pub delete_all_versions: bool,
-    pub batch_size: u16,     // 1-1000 (default 200); value_parser range enforced
-                             // If Express One Zone and !allow_parallel_listings_in_express_one_zone, overridden to 1
     pub max_delete: Option<u64>,  // value_parser range(1..)
 
     // Filtering (same as s3sync)
@@ -848,15 +845,18 @@ pub struct CLIArgs {
     pub filter_smaller_size: Option<String>,   // human-readable (e.g. "64MiB")
     pub filter_larger_size: Option<String>,    // human-readable (e.g. "1GiB")
 
-    // Verbosity (clap-verbosity-flag)
+    // Verbosity / Tracing (clap-verbosity-flag)
     pub verbosity: Verbosity<WarnLevel>,  // -qq silent, -q error, default warn, -v info, -vv debug, -vvv trace
     pub json_tracing: bool,               // requires --force (incompatible with interactive prompts)
     pub aws_sdk_tracing: bool,
     pub span_events_tracing: bool,
     pub disable_color_tracing: bool,
+    pub report_deletion_status: bool,  // default true, help_heading = "Tracing/Logging"
 
     // Performance (same as s3sync)
     pub worker_size: u16,                  // value_parser range(1..)
+    pub batch_size: u16,                   // 1-1000 (default 200); value_parser range enforced
+                                           // If Express One Zone and !allow_parallel_listings_in_express_one_zone, overridden to 1
     pub max_parallel_listings: u16,        // value_parser range(1..)
     pub max_parallel_listing_max_depth: u16, // default 2, value_parser range(1..)
     pub rate_limit_objects: Option<u32>,    // value_parser range(10..)
@@ -968,15 +968,14 @@ async fn run(mut config: Config) -> Result<()> {
         return Err(e);
     }
 
-    // When reporting deletion status, a deletion summary log is not needed.
-    let log_sync_summary = !config.report_deletion_status;
+    let log_deletion_summary = config.report_deletion_status;
 
     // Start progress indicator after prerequisites pass
     let indicator_join_handle = indicator::show_indicator(
         pipeline.get_stats_receiver(),
         ui_config::is_progress_indicator_needed(&config),
         ui_config::is_show_result_needed(&config),
-        log_sync_summary, config.dry_run,
+        log_deletion_summary, config.dry_run,
     );
 
     pipeline.run().await;
@@ -1020,11 +1019,11 @@ s3rm s3://my-bucket/ --filter-mtime-before 2023-01-01 --worker-size 100
 **Help Text Organization** (using clap's `help_heading` attribute):
 
 Options are organized into clear categories matching s3sync's help structure:
-- **General**: dry-run, force, show-no-progress, delete-all-versions, batch-size, max-delete
+- **General**: dry-run, force, show-no-progress, delete-all-versions, max-delete
 - **Filtering**: Regex, size, time filters (identical to s3sync)
-- **Tracing/Logging**: Verbosity, JSON, color control, AWS SDK tracing, span events
+- **Tracing/Logging**: Verbosity, JSON, color control, AWS SDK tracing, span events, report-deletion-status
 - **AWS Configuration**: Credentials, region, endpoint (target-* only, no source-*)
-- **Performance**: Worker count, parallel listings, rate limiting (identical to s3sync)
+- **Performance**: Worker count, batch-size, parallel listings, rate limiting (identical to s3sync)
 - **Retry Options**: Max attempts, backoff configuration (identical to s3sync)
 - **Timeout Options**: Operation, connection, read timeouts (identical to s3sync)
 - **Lua scripting support**: Script paths, memory limits, security modes (feature-gated)

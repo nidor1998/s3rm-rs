@@ -1084,7 +1084,7 @@ Human engineers authored the requirements, design specifications, and s3sync ref
 |---|---|
 | Production code | 13,296 lines of Rust |
 | Test code | 16,866 lines (1.27x production code) |
-| Unit & property tests | 481 passing, 0 failing |
+| Unit & property tests | 486 passing, 0 failing |
 | Property test blocks (proptest) | 55 correctness properties |
 | E2E integration tests | 88 tests across 14 test files |
 | Clippy warnings | 0 |

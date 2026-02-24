@@ -739,7 +739,7 @@ use tracing::{trace, debug, info, warn, error};
 info!("Starting deletion of {} objects", object_count);
 debug!("Applying filters: {:?}", filter_config);
 trace!("Processing object: {}", object.key);
-error!("Failed to delete object {}: {}", object.key, error);
+warn!("S3 DeleteObjects partial failure for key '{}': {} ({})", key, code, message);
 
 // Tracing subscriber configuration (in bin/s3rm/tracing_init.rs, adapted from s3sync)
 // Uses TracingConfig from the library's config module
@@ -1714,10 +1714,12 @@ impl S3rmError {
 
 When batch deletions partially fail:
 1. Parse DeleteObjects response to identify successes and failures
-2. Log each failure with error code and message
-3. Track failed objects for retry
+2. Classify each failure by error code:
+   - **Retryable errors** (InternalError, SlowDown, ServiceUnavailable, RequestTimeout): Fall back to individual DeleteObject calls with retries. Log each retry attempt at `warn!` level.
+   - **Non-retryable errors** (AccessDenied, NoSuchKey, etc.): Log at `warn!` level (not `error!`) and add directly to failed list. The caller (ObjectDeleter) handles warn-as-error promotion if `--warn-as-error` is enabled.
+3. Track failed objects in DeleteResult
 4. Continue processing remaining objects
-5. Return PartialFailure error if any objects failed after all retries
+5. ObjectDeleter sets warning flag on any failures; if `--warn-as-error` is enabled, cancels the pipeline
 
 ### Error Logging
 

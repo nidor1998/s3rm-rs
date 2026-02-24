@@ -1078,13 +1078,13 @@ No human wrote a single line of source code in this project. Every line of sourc
 
 Human engineers authored the requirements, design specifications, and s3sync reference architecture. They thoroughly reviewed and verified the design, all source code, and all tests. The development followed a spec-driven process: requirements and design documents were written first, and the AI generated code to match those specifications under continuous human oversight.
 
-### Quality verification (by AI self-assessment, 2026-02-24, [`add27f0`](https://github.com/nidor1998/s3rm-rs/commit/add27f091341eaf91a1c74fb68c730a941bbaa65))
+### Quality verification (by AI self-assessment, 2026-02-24)
 
 | Metric | Value |
 |---|---|
 | Production code | 13,296 lines of Rust |
 | Test code | 16,866 lines (1.27x production code) |
-| Unit & property tests | 480 passing, 0 failing |
+| Unit & property tests | 481 passing, 0 failing |
 | Property test blocks (proptest) | 55 correctness properties |
 | E2E integration tests | 88 tests across 14 test files |
 | Clippy warnings | 0 |

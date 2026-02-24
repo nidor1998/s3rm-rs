@@ -15,10 +15,12 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
+use aws_sdk_s3::primitives::DateTimeFormat;
 use tracing::debug;
 
 use crate::config::FilterConfig;
 use crate::stage::{SendResult, Stage};
+use crate::types::event_callback::{EventData, EventType};
 use crate::types::{DeletionStatistics, S3Object};
 
 pub mod exclude_regex;
@@ -50,7 +52,6 @@ pub trait ObjectFilter {
 ///
 /// Adapted from s3sync's ObjectFilterBase. Simplified by removing:
 /// - `ObjectKeyMap` parameter (not needed for deletion, only for sync comparison)
-/// - Event callback integration (will be added in Task 7)
 /// - Test simulation code
 pub struct ObjectFilterBase<'a> {
     name: &'a str,
@@ -94,6 +95,26 @@ impl ObjectFilterBase<'_> {
                                 key: object.key().to_string(),
                             })
                             .await;
+
+                        if self.base.config.event_manager.is_callback_registered() {
+                            let mut event_data = EventData::new(EventType::DELETE_FILTERED);
+                            event_data.key = Some(object.key().to_string());
+                            event_data.version_id = object.version_id().map(|v| v.to_string());
+                            event_data.size = Some(object.size() as u64);
+                            event_data.last_modified = Some(
+                                object
+                                    .last_modified()
+                                    .fmt(DateTimeFormat::DateTime)
+                                    .unwrap_or_default(),
+                            );
+                            event_data.message = Some(format!("Object filtered by {}", self.name));
+                            self.base
+                                .config
+                                .event_manager
+                                .trigger_event(event_data)
+                                .await;
+                        }
+
                         continue;
                     }
 
@@ -205,6 +226,73 @@ pub(crate) mod tests {
         sender.send(object).await.unwrap();
 
         filter_base.filter(|_, _| true).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn filter_false_emits_delete_filtered_event() {
+        use crate::callback::event_manager::EventManager;
+        use crate::types::event_callback::{EventCallback, EventData, EventType};
+        use async_trait::async_trait;
+        use std::sync::Arc;
+        use tokio::sync::Mutex;
+
+        /// Collects events for test assertions.
+        struct CollectingCallback {
+            events: Arc<Mutex<Vec<EventData>>>,
+        }
+
+        #[async_trait]
+        impl EventCallback for CollectingCallback {
+            async fn on_event(&mut self, event_data: EventData) {
+                self.events.lock().await.push(event_data);
+            }
+        }
+
+        init_dummy_tracing_subscriber();
+
+        let (sender, receiver) = async_channel::bounded::<S3Object>(1000);
+        let cancellation_token = token::create_pipeline_cancellation_token();
+        let (mut base, _next_stage_receiver) =
+            create_base_helper(receiver, cancellation_token.clone()).await;
+
+        // Register a collecting event callback
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let callback = CollectingCallback {
+            events: events.clone(),
+        };
+        let mut event_manager = EventManager::new();
+        event_manager.register_callback(EventType::ALL_EVENTS, callback, false);
+        base.config.event_manager = event_manager;
+
+        let filter_base = ObjectFilterBase {
+            base,
+            name: "test_filter",
+        };
+        let object = S3Object::NotVersioning(
+            Object::builder()
+                .key("filtered-key")
+                .size(100)
+                .last_modified(aws_sdk_s3::primitives::DateTime::from_secs(1_700_000_000))
+                .build(),
+        );
+
+        sender.send(object).await.unwrap();
+        sender.close();
+
+        filter_base.filter(|_, _| false).await.unwrap();
+
+        let collected = events.lock().await;
+        assert_eq!(collected.len(), 1);
+        assert_eq!(collected[0].event_type, EventType::DELETE_FILTERED);
+        assert_eq!(collected[0].key.as_deref(), Some("filtered-key"));
+        assert!(collected[0].last_modified.is_some());
+        assert!(
+            collected[0]
+                .message
+                .as_ref()
+                .unwrap()
+                .contains("test_filter")
+        );
     }
 
     // --- Test helpers ---

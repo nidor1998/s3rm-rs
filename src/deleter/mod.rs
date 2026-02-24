@@ -253,20 +253,28 @@ impl ObjectDeleter {
                         key,
                         head_output.content_type(),
                     ) {
+                        self.emit_filter_skip(&object, INCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME)
+                            .await;
                         return Ok(());
                     }
                     if !self.decide_delete_by_exclude_content_type_regex(
                         key,
                         head_output.content_type(),
                     ) {
+                        self.emit_filter_skip(&object, EXCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME)
+                            .await;
                         return Ok(());
                     }
 
                     // Metadata filters
                     if !self.decide_delete_by_include_metadata_regex(key, head_output.metadata()) {
+                        self.emit_filter_skip(&object, INCLUDE_METADATA_REGEX_FILTER_NAME)
+                            .await;
                         return Ok(());
                     }
                     if !self.decide_delete_by_exclude_metadata_regex(key, head_output.metadata()) {
+                        self.emit_filter_skip(&object, EXCLUDE_METADATA_REGEX_FILTER_NAME)
+                            .await;
                         return Ok(());
                     }
                 }
@@ -312,9 +320,13 @@ impl ObjectDeleter {
                 Ok(tagging_output) => {
                     let tags = tagging_output.tag_set();
                     if !self.decide_delete_by_include_tag_regex(key, Some(tags)) {
+                        self.emit_filter_skip(&object, INCLUDE_TAG_REGEX_FILTER_NAME)
+                            .await;
                         return Ok(());
                     }
                     if !self.decide_delete_by_exclude_tag_regex(key, Some(tags)) {
+                        self.emit_filter_skip(&object, EXCLUDE_TAG_REGEX_FILTER_NAME)
+                            .await;
                         return Ok(());
                     }
                 }
@@ -470,6 +482,7 @@ impl ObjectDeleter {
             event_data.key = Some(dk.key.clone());
             event_data.version_id = dk.version_id.clone();
             event_data.size = Some(size);
+            event_data.last_modified = Some(last_modified_str.clone());
             self.base
                 .config
                 .event_manager
@@ -522,6 +535,35 @@ impl ObjectDeleter {
         }
 
         Ok(())
+    }
+
+    /// Emit a `DeleteSkip` stat and a `DELETE_FILTERED` event for an object
+    /// rejected by a content-type, metadata, or tag filter in the deleter.
+    async fn emit_filter_skip(&self, object: &S3Object, filter_name: &str) {
+        self.base
+            .send_stats(DeletionStatistics::DeleteSkip {
+                key: object.key().to_string(),
+            })
+            .await;
+
+        if self.base.config.event_manager.is_callback_registered() {
+            let mut event_data = EventData::new(EventType::DELETE_FILTERED);
+            event_data.key = Some(object.key().to_string());
+            event_data.version_id = object.version_id().map(|v| v.to_string());
+            event_data.size = Some(object.size() as u64);
+            event_data.last_modified = Some(
+                object
+                    .last_modified()
+                    .fmt(DateTimeFormat::DateTime)
+                    .unwrap_or_default(),
+            );
+            event_data.message = Some(format!("Object filtered by {filter_name}"));
+            self.base
+                .config
+                .event_manager
+                .trigger_event(event_data)
+                .await;
+        }
     }
 
     // -----------------------------------------------------------------------

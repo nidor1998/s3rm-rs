@@ -297,6 +297,12 @@ impl DeletionPipeline {
             self.config.event_manager.trigger_event(event_data).await;
         }
 
+        if self.cancellation_token.is_cancelled() {
+            let mut event_data = EventData::new(EventType::DELETE_CANCEL);
+            event_data.message = Some("Pipeline was cancelled".to_string());
+            self.config.event_manager.trigger_event(event_data).await;
+        }
+
         self.config
             .event_manager
             .trigger_event(EventData::new(EventType::PIPELINE_END))

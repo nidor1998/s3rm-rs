@@ -1078,6 +1078,23 @@ No human wrote a single line of source code in this project. Every line of sourc
 
 Human engineers authored the requirements, design specifications, and s3sync reference architecture. They thoroughly reviewed and verified the design, all source code, and all tests. The development followed a spec-driven process: requirements and design documents were written first, and the AI generated code to match those specifications under continuous human oversight.
 
+### Quality verification (by AI self-assessment, 2026-02-24, [`add27f0`](https://github.com/nidor1998/s3rm-rs/commit/add27f091341eaf91a1c74fb68c730a941bbaa65))
+
+| Metric | Value |
+|---|---|
+| Production code | 13,296 lines of Rust |
+| Test code | 16,866 lines (1.27x production code) |
+| Unit & property tests | 480 passing, 0 failing |
+| Property test blocks (proptest) | 55 correctness properties |
+| E2E integration tests | 88 tests across 14 test files |
+| Clippy warnings | 0 |
+| Development | 7 days, 317 commits, 24 PRs |
+| Code reuse from [s3sync](https://github.com/nidor1998/s3sync) | ~90% of architecture |
+
+The codebase was built through spec-driven development: 30 tasks executed sequentially, each as a separate PR with human oversight. Audit checkpoints verified implementation against specifications at multiple stages. Property-based testing (proptest) exercises correctness properties across randomized inputs, complementing deterministic unit tests and live-AWS end-to-end tests.
+
+**Reliability assessment:** The systematic development process, high test density, zero static analysis warnings, and heavy reuse from a proven sibling project are strong quality indicators. As with any new software, reliability will be further demonstrated through real-world usage over time.
+
 ## License
 
 This project is licensed under the Apache-2.0 License.

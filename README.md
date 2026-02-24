@@ -1091,7 +1091,7 @@ Human engineers authored the requirements, design specifications, and s3sync ref
 | Development | 7 days, 317 commits, 24 PRs |
 | Code reuse from [s3sync](https://github.com/nidor1998/s3sync) | ~90% of architecture |
 
-The codebase was built through spec-driven development: 30 tasks executed sequentially, each as a separate PR with human oversight. Audit checkpoints verified implementation against specifications at multiple stages. Property-based testing (proptest) exercises correctness properties across randomized inputs, complementing deterministic unit tests and live-AWS end-to-end tests.
+The codebase was built through spec-driven development: 30 tasks executed sequentially, each as a separate PR with human oversight. Every pull request is reviewed by two AI tools ([GitHub Copilot](https://github.com/features/copilot) and [CodeRabbit](https://www.coderabbit.ai/)) and by a human reviewer before merging. Audit checkpoints verified implementation against specifications at multiple stages. Property-based testing (proptest) exercises correctness properties across randomized inputs, complementing deterministic unit tests and live-AWS end-to-end tests.
 
 **Reliability assessment:** The systematic development process, high test density, zero static analysis warnings, and heavy reuse from a proven sibling project are strong quality indicators. As with any new software, reliability will be further demonstrated through real-world usage over time.
 

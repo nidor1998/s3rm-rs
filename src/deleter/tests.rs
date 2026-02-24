@@ -70,6 +70,10 @@ struct MockStorage {
     tagging_response_tags: Arc<Mutex<Option<Vec<Tag>>>>,
     /// Batch delete: keys that should appear in errors, mapped to error code.
     batch_error_keys: Arc<Mutex<HashMap<String, String>>>,
+    /// If set, head_object returns this error.
+    head_object_error: Arc<Mutex<Option<anyhow::Error>>>,
+    /// If set, get_object_tagging returns this error.
+    tagging_error: Arc<Mutex<Option<anyhow::Error>>>,
 }
 
 impl MockStorage {
@@ -84,6 +88,8 @@ impl MockStorage {
             head_object_metadata: Arc::new(Mutex::new(None)),
             tagging_response_tags: Arc::new(Mutex::new(None)),
             batch_error_keys: Arc::new(Mutex::new(HashMap::new())),
+            head_object_error: Arc::new(Mutex::new(None)),
+            tagging_error: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -112,6 +118,11 @@ impl StorageTrait for MockStorage {
             version_id,
         });
 
+        // Return configured error if set (take it so it fires once)
+        if let Some(err) = self.head_object_error.lock().unwrap().take() {
+            return Err(err);
+        }
+
         let mut builder = HeadObjectOutput::builder();
         if let Some(ct) = self.head_object_content_type.lock().unwrap().as_ref() {
             builder = builder.content_type(ct.clone());
@@ -129,10 +140,22 @@ impl StorageTrait for MockStorage {
         _relative_key: &str,
         _version_id: Option<String>,
     ) -> Result<GetObjectTaggingOutput> {
+        // Return configured error if set (take it so it fires once)
+        if let Some(err) = self.tagging_error.lock().unwrap().take() {
+            return Err(err);
+        }
+
         let mut builder = GetObjectTaggingOutput::builder();
-        if let Some(tags) = self.tagging_response_tags.lock().unwrap().as_ref() {
-            for tag in tags {
-                builder = builder.tag_set(tag.clone());
+        let tags_guard = self.tagging_response_tags.lock().unwrap();
+        match tags_guard.as_ref() {
+            Some(tags) if !tags.is_empty() => {
+                for tag in tags {
+                    builder = builder.tag_set(tag.clone());
+                }
+            }
+            _ => {
+                // No tags or empty tags: set_tag_set with empty vec (required field)
+                builder = builder.set_tag_set(Some(vec![]));
             }
         }
         Ok(builder.build().unwrap())
@@ -3176,4 +3199,907 @@ proptest! {
             Ok(())
         })?;
     }
+}
+
+// ===========================================================================
+// Coverage improvement tests: content-type/metadata/tag None paths
+// ===========================================================================
+
+/// When include_content_type_regex is set but head_object returns no content-type,
+/// the object should be filtered out (not deleted).
+#[tokio::test]
+async fn object_deleter_include_content_type_none_filters_object() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // head_object returns NO content_type (default None)
+    // Do not set mock.head_object_content_type
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.filter_config.include_content_type_regex = Some(Regex::new("application/json").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    input_sender
+        .send(make_s3_object("no-ct.bin", 100))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Object should be filtered out because content-type is None
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 0);
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(single_calls.len(), 0);
+}
+
+/// When exclude_content_type_regex is set but head_object returns no content-type,
+/// the object should pass through (not excluded).
+#[tokio::test]
+async fn object_deleter_exclude_content_type_none_passes_object() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // head_object returns NO content_type
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.filter_config.exclude_content_type_regex = Some(Regex::new("text/.*").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    input_sender
+        .send(make_s3_object("no-ct.bin", 100))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Object should pass through because content-type is None (nothing to exclude)
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].identifiers[0].key(), "no-ct.bin");
+}
+
+/// When include_metadata_regex is set but head_object returns no metadata,
+/// the object should be filtered out.
+#[tokio::test]
+async fn object_deleter_include_metadata_none_filters_object() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // head_object returns NO metadata (default None)
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.filter_config.include_metadata_regex = Some(Regex::new("env=prod").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    input_sender
+        .send(make_s3_object("no-meta.txt", 100))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Filtered out: no metadata to match against
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 0);
+}
+
+/// When exclude_metadata_regex is set but head_object returns no metadata,
+/// the object should pass through (nothing to exclude on).
+#[tokio::test]
+async fn object_deleter_exclude_metadata_none_passes_object() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // head_object returns NO metadata
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.filter_config.exclude_metadata_regex = Some(Regex::new("env=dev").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    input_sender
+        .send(make_s3_object("no-meta.txt", 100))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Should pass through: no metadata means nothing to exclude
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].identifiers[0].key(), "no-meta.txt");
+}
+
+/// When include_metadata_regex is set but head_object returns empty metadata map,
+/// the object should be filtered out.
+#[tokio::test]
+async fn object_deleter_include_metadata_empty_filters_object() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Set empty metadata map
+    *mock.head_object_metadata.lock().unwrap() = Some(HashMap::new());
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.filter_config.include_metadata_regex = Some(Regex::new("env=prod").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    input_sender
+        .send(make_s3_object("empty-meta.txt", 100))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Empty metadata map should be treated same as None -- filter out
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 0);
+}
+
+/// When exclude_metadata_regex is set but head_object returns empty metadata map,
+/// the object should pass through.
+#[tokio::test]
+async fn object_deleter_exclude_metadata_empty_passes_object() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Set empty metadata map
+    *mock.head_object_metadata.lock().unwrap() = Some(HashMap::new());
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.filter_config.exclude_metadata_regex = Some(Regex::new("env=dev").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    input_sender
+        .send(make_s3_object("empty-meta.txt", 100))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Empty metadata should pass (nothing to exclude)
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 1);
+}
+
+// ===========================================================================
+// Coverage: warn_as_error cancels pipeline on partial failure
+// ===========================================================================
+
+#[tokio::test]
+async fn object_deleter_warn_as_error_cancels_on_failure() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Configure batch to fail for one key
+    mock.batch_error_keys
+        .lock()
+        .unwrap()
+        .insert("key/fail".to_string(), "AccessDenied".to_string());
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.warn_as_error = true;
+    config.batch_size = 10; // Small batch to trigger flush
+    let cancellation_token: PipelineCancellationToken = CancellationToken::new();
+    let stage = make_stage_with_mock_and_token(
+        config,
+        boxed,
+        Some(input_receiver),
+        Some(output_sender),
+        cancellation_token.clone(),
+    );
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    input_sender
+        .send(make_s3_object("key/ok", 100))
+        .await
+        .unwrap();
+    input_sender
+        .send(make_s3_object("key/fail", 200))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Pipeline should have been cancelled due to warn_as_error
+    assert!(
+        cancellation_token.is_cancelled(),
+        "warn_as_error should cancel the pipeline on batch failure"
+    );
+}
+
+// ===========================================================================
+// Coverage: emit_filter_skip with registered event callback
+// ===========================================================================
+
+#[tokio::test]
+async fn object_deleter_emits_filter_skip_event_with_callback() {
+    use crate::callback::event_manager::EventManager;
+    use crate::types::event_callback::{EventCallback, EventData, EventType};
+
+    /// Collecting callback for verifying events.
+    struct CollectingCallback {
+        events: Arc<tokio::sync::Mutex<Vec<EventData>>>,
+    }
+
+    #[async_trait]
+    impl EventCallback for CollectingCallback {
+        async fn on_event(&mut self, event_data: EventData) {
+            self.events.lock().await.push(event_data);
+        }
+    }
+
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+
+    // head_object returns no content_type (filter will reject)
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let events = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+    let callback = CollectingCallback {
+        events: events.clone(),
+    };
+
+    let mut config = make_test_config();
+    config.filter_config.include_content_type_regex = Some(Regex::new("application/json").unwrap());
+    // Register an event callback
+    let mut event_manager = EventManager::new();
+    event_manager.register_callback(EventType::ALL_EVENTS, callback, false);
+    config.event_manager = event_manager;
+
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report, delete_counter);
+
+    input_sender
+        .send(make_s3_object("filtered.txt", 256))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Verify a DELETE_FILTERED event was emitted
+    let collected = events.lock().await;
+    assert_eq!(collected.len(), 1);
+    assert_eq!(collected[0].event_type, EventType::DELETE_FILTERED);
+    assert_eq!(collected[0].key.as_deref(), Some("filtered.txt"));
+    assert!(
+        collected[0]
+            .message
+            .as_ref()
+            .unwrap()
+            .contains("include_content_type_regex_filter")
+    );
+}
+
+// ===========================================================================
+// Coverage: include_tag with None tags (tag_regex set but tags=None on object)
+// ===========================================================================
+
+#[tokio::test]
+async fn object_deleter_include_tag_none_response_filters_object() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Set empty tags list (no tags on the object)
+    *mock.tagging_response_tags.lock().unwrap() = Some(vec![]);
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.filter_config.include_tag_regex = Some(Regex::new("NONEXISTENT_TAG_PATTERN").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report, delete_counter);
+
+    input_sender
+        .send(make_s3_object("no-tags.txt", 100))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Tags don't match the include pattern, so object should be filtered out
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 0);
+}
+
+/// When exclude_tag_regex is set and tags are empty (no matching tags to exclude),
+/// the object should pass through.
+#[tokio::test]
+async fn object_deleter_exclude_tag_empty_tags_passes_object() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Set empty tags list
+    *mock.tagging_response_tags.lock().unwrap() = Some(vec![]);
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.filter_config.exclude_tag_regex = Some(Regex::new("retain=true").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report, delete_counter);
+
+    input_sender
+        .send(make_s3_object("no-tags.txt", 100))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Empty tags formatted as "" won't match "retain=true",
+    // so exclude filter passes the object through
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 1);
+}
+
+// ===========================================================================
+// Coverage: head_object not-found skips object (lines 282-295)
+// ===========================================================================
+
+#[tokio::test]
+async fn object_deleter_head_object_not_found_skips_object() {
+    use aws_sdk_s3::operation::head_object::HeadObjectError;
+    use aws_smithy_runtime_api::http::StatusCode;
+
+    init_dummy_tracing_subscriber();
+    let (stats_sender, stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Configure head_object to return a NotFound SdkError
+    let service_err = HeadObjectError::NotFound(
+        aws_sdk_s3::types::error::NotFound::builder()
+            .message("Not Found")
+            .build(),
+    );
+    let raw_response = aws_smithy_runtime_api::http::Response::new(
+        StatusCode::try_from(404).unwrap(),
+        SdkBody::from(""),
+    );
+    let sdk_error: SdkError<HeadObjectError, Response<SdkBody>> =
+        SdkError::service_error(service_err, raw_response);
+    *mock.head_object_error.lock().unwrap() = Some(sdk_error.into());
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.filter_config.include_content_type_regex = Some(Regex::new("application/json").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report, delete_counter);
+
+    input_sender
+        .send(make_s3_object("missing.txt", 100))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Object should be skipped (not deleted)
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 0);
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(single_calls.len(), 0);
+
+    // A DeleteSkip stat should have been emitted
+    let mut found_skip = false;
+    while let Ok(stat) = stats_receiver.try_recv() {
+        if matches!(stat, DeletionStatistics::DeleteSkip { .. }) {
+            found_skip = true;
+        }
+    }
+    assert!(
+        found_skip,
+        "DeleteSkip stat should be emitted for not-found"
+    );
+}
+
+// ===========================================================================
+// Coverage: head_object non-404 error cancels pipeline (lines 296-305)
+// ===========================================================================
+
+#[tokio::test]
+async fn object_deleter_head_object_error_cancels_pipeline() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Configure head_object to return a generic (non-404) error
+    *mock.head_object_error.lock().unwrap() = Some(anyhow::anyhow!("connection refused"));
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.filter_config.include_content_type_regex = Some(Regex::new("application/json").unwrap());
+
+    let cancellation_token: PipelineCancellationToken = CancellationToken::new();
+    let stage = make_stage_with_mock_and_token(
+        config,
+        boxed,
+        Some(input_receiver),
+        Some(output_sender),
+        cancellation_token.clone(),
+    );
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report, delete_counter);
+
+    input_sender
+        .send(make_s3_object("fail.txt", 100))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    let result = deleter.delete().await;
+    assert!(
+        result.is_err(),
+        "head_object failure should propagate as error"
+    );
+    assert!(
+        cancellation_token.is_cancelled(),
+        "pipeline should be cancelled on head_object error"
+    );
+}
+
+// ===========================================================================
+// Coverage: get_object_tagging not-found skips object (lines 334-347)
+// ===========================================================================
+
+#[tokio::test]
+async fn object_deleter_tagging_not_found_skips_object() {
+    use aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingError;
+    use aws_smithy_runtime_api::http::StatusCode;
+
+    init_dummy_tracing_subscriber();
+    let (stats_sender, stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Build a GetObjectTaggingError 404 via SdkError
+    let service_err = GetObjectTaggingError::generic(
+        aws_smithy_types::error::ErrorMetadata::builder()
+            .code("NoSuchKey")
+            .message("The specified key does not exist.")
+            .build(),
+    );
+    let raw_response = aws_smithy_runtime_api::http::Response::new(
+        StatusCode::try_from(404).unwrap(),
+        SdkBody::from(""),
+    );
+    let sdk_error: SdkError<GetObjectTaggingError, Response<SdkBody>> =
+        SdkError::service_error(service_err, raw_response);
+    *mock.tagging_error.lock().unwrap() = Some(sdk_error.into());
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.filter_config.include_tag_regex = Some(Regex::new("env=prod").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report, delete_counter);
+
+    input_sender
+        .send(make_s3_object("vanished.txt", 100))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Object should be skipped
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 0);
+
+    // A DeleteSkip stat should have been emitted
+    let mut found_skip = false;
+    while let Ok(stat) = stats_receiver.try_recv() {
+        if matches!(stat, DeletionStatistics::DeleteSkip { .. }) {
+            found_skip = true;
+        }
+    }
+    assert!(
+        found_skip,
+        "DeleteSkip stat should be emitted for tagging not-found"
+    );
+}
+
+// ===========================================================================
+// Coverage: get_object_tagging non-404 error cancels pipeline (lines 348-357)
+// ===========================================================================
+
+#[tokio::test]
+async fn object_deleter_tagging_error_cancels_pipeline() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Configure get_object_tagging to return a generic error
+    *mock.tagging_error.lock().unwrap() = Some(anyhow::anyhow!("service unavailable"));
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.filter_config.include_tag_regex = Some(Regex::new("env=prod").unwrap());
+
+    let cancellation_token: PipelineCancellationToken = CancellationToken::new();
+    let stage = make_stage_with_mock_and_token(
+        config,
+        boxed,
+        Some(input_receiver),
+        Some(output_sender),
+        cancellation_token.clone(),
+    );
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report, delete_counter);
+
+    input_sender
+        .send(make_s3_object("fail-tag.txt", 100))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    let result = deleter.delete().await;
+    assert!(result.is_err(), "tagging failure should propagate as error");
+    assert!(
+        cancellation_token.is_cancelled(),
+        "pipeline should be cancelled on get_object_tagging error"
+    );
+}
+
+// ===========================================================================
+// Coverage: is_not_found_error with HeadObject NotFound (lines 912-923)
+// ===========================================================================
+
+#[test]
+fn is_not_found_error_head_object_not_found() {
+    use aws_sdk_s3::operation::head_object::HeadObjectError;
+    use aws_smithy_runtime_api::http::StatusCode;
+
+    let service_err = HeadObjectError::NotFound(
+        aws_sdk_s3::types::error::NotFound::builder()
+            .message("Not Found")
+            .build(),
+    );
+    let raw_response = aws_smithy_runtime_api::http::Response::new(
+        StatusCode::try_from(404).unwrap(),
+        SdkBody::from(""),
+    );
+    let sdk_error: SdkError<HeadObjectError, Response<SdkBody>> =
+        SdkError::service_error(service_err, raw_response);
+    let anyhow_err: anyhow::Error = sdk_error.into();
+
+    assert!(is_not_found_error(&anyhow_err));
+}
+
+#[test]
+fn is_not_found_error_head_object_other_error() {
+    // A non-404 anyhow error should NOT be classified as "not found"
+    let err = anyhow::anyhow!("connection refused");
+    assert!(!is_not_found_error(&err));
+}
+
+// ===========================================================================
+// Coverage: is_not_found_error with GetObjectTagging NoSuchKey (lines 925-938)
+// ===========================================================================
+
+#[test]
+fn is_not_found_error_tagging_no_such_key() {
+    use aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingError;
+    use aws_smithy_runtime_api::http::StatusCode;
+
+    let service_err = GetObjectTaggingError::generic(
+        aws_smithy_types::error::ErrorMetadata::builder()
+            .code("NoSuchKey")
+            .message("The specified key does not exist.")
+            .build(),
+    );
+    let raw_response = aws_smithy_runtime_api::http::Response::new(
+        StatusCode::try_from(404).unwrap(),
+        SdkBody::from(""),
+    );
+    let sdk_error: SdkError<GetObjectTaggingError, Response<SdkBody>> =
+        SdkError::service_error(service_err, raw_response);
+    let anyhow_err: anyhow::Error = sdk_error.into();
+
+    assert!(is_not_found_error(&anyhow_err));
+}
+
+#[test]
+fn is_not_found_error_tagging_404_status() {
+    use aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingError;
+    use aws_smithy_runtime_api::http::StatusCode;
+
+    // A 404 status code without a recognized error code should still be detected
+    let service_err = GetObjectTaggingError::generic(
+        aws_smithy_types::error::ErrorMetadata::builder()
+            .code("NotFound")
+            .message("Not Found")
+            .build(),
+    );
+    let raw_response = aws_smithy_runtime_api::http::Response::new(
+        StatusCode::try_from(404).unwrap(),
+        SdkBody::from(""),
+    );
+    let sdk_error: SdkError<GetObjectTaggingError, Response<SdkBody>> =
+        SdkError::service_error(service_err, raw_response);
+    let anyhow_err: anyhow::Error = sdk_error.into();
+
+    assert!(is_not_found_error(&anyhow_err));
+}
+
+// ===========================================================================
+// Coverage: emit_filter_skip event with tag filter + callback (lines 550-567)
+// ===========================================================================
+
+#[tokio::test]
+async fn object_deleter_emits_filter_skip_event_for_tag_filter() {
+    use crate::callback::event_manager::EventManager;
+    use crate::types::event_callback::{EventCallback, EventData, EventType};
+
+    struct CollectingCallback {
+        events: Arc<tokio::sync::Mutex<Vec<EventData>>>,
+    }
+
+    #[async_trait]
+    impl EventCallback for CollectingCallback {
+        async fn on_event(&mut self, event_data: EventData) {
+            self.events.lock().await.push(event_data);
+        }
+    }
+
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Set tags that don't match the include regex
+    *mock.tagging_response_tags.lock().unwrap() = Some(vec![
+        Tag::builder().key("env").value("staging").build().unwrap(),
+    ]);
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let events = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+    let callback = CollectingCallback {
+        events: events.clone(),
+    };
+
+    let mut config = make_test_config();
+    config.filter_config.include_tag_regex = Some(Regex::new("env=production").unwrap());
+    let mut event_manager = EventManager::new();
+    event_manager.register_callback(EventType::ALL_EVENTS, callback, false);
+    config.event_manager = event_manager;
+
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report, delete_counter);
+
+    input_sender
+        .send(make_s3_object("tagged-wrong.txt", 512))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Verify a DELETE_FILTERED event was emitted for tag filter
+    let collected = events.lock().await;
+    assert_eq!(collected.len(), 1);
+    assert_eq!(collected[0].event_type, EventType::DELETE_FILTERED);
+    assert_eq!(collected[0].key.as_deref(), Some("tagged-wrong.txt"));
+    assert_eq!(collected[0].size, Some(512));
+    assert!(
+        collected[0]
+            .message
+            .as_ref()
+            .unwrap()
+            .contains("include_tag_regex_filter")
+    );
+}
+
+// ===========================================================================
+// Coverage: content-type include filter passes matching objects (lines 250-260)
+// ===========================================================================
+
+#[tokio::test]
+async fn object_deleter_content_type_include_passes_matching() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Mock returns matching content type
+    *mock.head_object_content_type.lock().unwrap() = Some("application/json".to_string());
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.filter_config.include_content_type_regex = Some(Regex::new("application/json").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    input_sender
+        .send(make_s3_object("data.json", 100))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Content type matches → object should be deleted
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].identifiers[0].key(), "data.json");
+}
+
+// ===========================================================================
+// Coverage: exclude_content_type passes when content type doesn't match (line 263)
+// ===========================================================================
+
+#[tokio::test]
+async fn object_deleter_content_type_exclude_passes_non_matching() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Mock returns "application/json" which should NOT be excluded by "text/.*"
+    *mock.head_object_content_type.lock().unwrap() = Some("application/json".to_string());
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.filter_config.exclude_content_type_regex = Some(Regex::new("text/.*").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    input_sender
+        .send(make_s3_object("data.json", 100))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // "application/json" doesn't match "text/.*" exclude → object passes through
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].identifiers[0].key(), "data.json");
+}
+
+// ===========================================================================
+// Coverage: metadata exclude filter skips matching objects (line 276-280)
+// ===========================================================================
+
+#[tokio::test]
+async fn object_deleter_metadata_exclude_filter_skips_matching() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    let mut meta = HashMap::new();
+    meta.insert("env".to_string(), "staging".to_string());
+    *mock.head_object_metadata.lock().unwrap() = Some(meta);
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.filter_config.exclude_metadata_regex = Some(Regex::new("env=staging").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report, delete_counter);
+
+    input_sender
+        .send(make_s3_object("staging-data.txt", 100))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Metadata matches exclude → object should be filtered out
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 0);
 }

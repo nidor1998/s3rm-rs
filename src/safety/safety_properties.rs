@@ -494,4 +494,48 @@ mod tests {
         let result = checker.check_before_deletion();
         assert!(result.is_ok());
     }
+
+    // ------------------------------------------------------------------
+    // SafetyChecker::new() tests (exercises the production constructor)
+    // ------------------------------------------------------------------
+
+    /// SafetyChecker::new() with dry_run=true should succeed (skips stdin).
+    /// This exercises the production constructor path without blocking on stdin.
+    #[test]
+    fn safety_checker_new_dry_run_succeeds() {
+        let config = make_config(true, false, false);
+        let checker = SafetyChecker::new(&config);
+        let result = checker.check_before_deletion();
+        assert!(result.is_ok(), "dry-run via new() should succeed");
+    }
+
+    /// SafetyChecker::new() with force=true should succeed (skips stdin).
+    #[test]
+    fn safety_checker_new_force_succeeds() {
+        let config = make_config(false, true, false);
+        let checker = SafetyChecker::new(&config);
+        let result = checker.check_before_deletion();
+        assert!(result.is_ok(), "force via new() should succeed");
+    }
+
+    /// SafetyChecker::new() extracts json_logging from tracing_config.
+    /// With json_logging=true and force=false, it should error.
+    #[test]
+    fn safety_checker_new_json_no_force_errors() {
+        let config = make_config(false, false, true);
+        let checker = SafetyChecker::new(&config);
+        let result = checker.check_before_deletion();
+        assert!(result.is_err());
+    }
+
+    /// SafetyChecker::new() with no tracing_config defaults to json=false, color=false.
+    /// Force=true should still succeed.
+    #[test]
+    fn safety_checker_new_no_tracing_config() {
+        let mut config = make_config(false, true, false);
+        config.tracing_config = None;
+        let checker = SafetyChecker::new(&config);
+        let result = checker.check_before_deletion();
+        assert!(result.is_ok());
+    }
 }

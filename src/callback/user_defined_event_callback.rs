@@ -64,3 +64,22 @@ impl EventCallback for UserDefinedEventCallback {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_creates_disabled_callback() {
+        let callback = UserDefinedEventCallback::new();
+        assert!(!callback.enable);
+        assert!(!callback.is_enabled());
+    }
+
+    #[test]
+    fn enable_field_controls_is_enabled() {
+        let mut callback = UserDefinedEventCallback::new();
+        callback.enable = true;
+        assert!(callback.is_enabled());
+    }
+}

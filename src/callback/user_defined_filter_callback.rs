@@ -42,3 +42,22 @@ impl FilterCallback for UserDefinedFilterCallback {
         Ok(true)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_creates_disabled_callback() {
+        let callback = UserDefinedFilterCallback::new();
+        assert!(!callback.enable);
+        assert!(!callback.is_enabled());
+    }
+
+    #[test]
+    fn enable_field_controls_is_enabled() {
+        let mut callback = UserDefinedFilterCallback::new();
+        callback.enable = true;
+        assert!(callback.is_enabled());
+    }
+}

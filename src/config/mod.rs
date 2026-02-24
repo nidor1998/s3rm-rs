@@ -343,4 +343,93 @@ mod tests {
         assert!(filter_config.larger_size.is_none());
         assert!(filter_config.smaller_size.is_none());
     }
+
+    // ------------------------------------------------------------------
+    // Config::for_target and Config::default tests
+    // (Covers uncovered constructors — lines 113-166)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn config_for_target_sets_bucket_and_prefix() {
+        init_dummy_tracing_subscriber();
+
+        let config = Config::for_target("my-bucket", "logs/2024/");
+        let StoragePath::S3 { bucket, prefix } = &config.target;
+        assert_eq!(bucket, "my-bucket");
+        assert_eq!(prefix, "logs/2024/");
+    }
+
+    #[test]
+    fn config_for_target_sets_force_true() {
+        // Library usage should skip interactive prompts by default.
+        let config = Config::for_target("bucket", "prefix/");
+        assert!(config.force);
+    }
+
+    #[test]
+    fn config_for_target_uses_default_worker_and_batch_size() {
+        let config = Config::for_target("bucket", "");
+        assert_eq!(config.worker_size, 24);
+        assert_eq!(config.batch_size, 200);
+    }
+
+    #[test]
+    fn config_for_target_has_sensible_defaults() {
+        let config = Config::for_target("bucket", "prefix/");
+        assert!(!config.dry_run);
+        assert!(!config.delete_all_versions);
+        assert!(!config.if_match);
+        assert!(config.max_delete.is_none());
+        assert!(config.tracing_config.is_none());
+        assert!(config.target_client_config.is_none());
+        assert!(config.rate_limit_objects.is_none());
+        assert!(!config.warn_as_error);
+        assert!(!config.test_user_defined_callback);
+    }
+
+    #[test]
+    fn config_default_has_empty_target() {
+        let config = Config::default();
+        let StoragePath::S3 { bucket, prefix } = &config.target;
+        assert!(bucket.is_empty());
+        assert!(prefix.is_empty());
+    }
+
+    #[test]
+    fn config_default_does_not_set_force() {
+        // Default config (not library convenience) should NOT skip prompts.
+        let config = Config::default();
+        assert!(!config.force);
+    }
+
+    #[test]
+    fn config_default_field_values() {
+        let config = Config::default();
+        assert_eq!(config.worker_size, 24);
+        assert_eq!(config.batch_size, 200);
+        assert!(!config.show_no_progress);
+        assert!(config.log_deletion_summary);
+        assert!(!config.dry_run);
+        assert!(!config.warn_as_error);
+        assert_eq!(config.max_parallel_listings, 16);
+        assert_eq!(config.object_listing_queue_size, 200_000);
+        assert_eq!(config.max_parallel_listing_max_depth, 2);
+        assert!(!config.allow_parallel_listings_in_express_one_zone);
+        assert_eq!(config.max_keys, 1000);
+        assert!(config.auto_complete_shell.is_none());
+        assert!(config.event_callback_lua_script.is_none());
+        assert!(config.filter_callback_lua_script.is_none());
+        assert!(!config.allow_lua_os_library);
+        assert!(!config.allow_lua_unsafe_vm);
+        assert_eq!(config.lua_vm_memory_limit, 64 * 1024 * 1024);
+        assert!(!config.if_match);
+        assert!(!config.delete_all_versions);
+    }
+
+    #[test]
+    fn force_retry_config_default_values() {
+        let frc = ForceRetryConfig::default();
+        assert_eq!(frc.force_retry_count, 0);
+        assert_eq!(frc.force_retry_interval_milliseconds, 1000);
+    }
 }

@@ -39,31 +39,89 @@ local function has_flag(value, flag)
     return (value & flag) ~= 0
 end
 
+-- Helper: format an object's common fields into a detail string
+local function object_details(event)
+    local parts = {}
+    if event.key then
+        table.insert(parts, "key=" .. event.key)
+    end
+    if event.version_id then
+        table.insert(parts, "version_id=" .. event.version_id)
+    end
+    if event.size then
+        table.insert(parts, "size=" .. tostring(event.size))
+    end
+    if event.last_modified then
+        table.insert(parts, "last_modified=" .. event.last_modified)
+    end
+    if event.e_tag then
+        table.insert(parts, "e_tag=" .. event.e_tag)
+    end
+    if event.error_message then
+        table.insert(parts, "error=" .. event.error_message)
+    end
+    if event.message then
+        table.insert(parts, "message=" .. event.message)
+    end
+    return table.concat(parts, ", ")
+end
+
 function on_event(event)
     local et = event.event_type
 
     if has_flag(et, PIPELINE_START) then
-        print("[s3rm] Pipeline started" .. (event.dry_run and " (dry-run)" or ""))
+        print(string.format("[s3rm] Pipeline started (dry_run=%s, event_type=%d)",
+            tostring(event.dry_run), et))
+        local details = object_details(event)
+        if #details > 0 then
+            print("        " .. details)
+        end
     end
 
     if has_flag(et, DELETE_COMPLETE) then
-        print(string.format("[s3rm] Deleted: %s (%d bytes)",
-            event.key or "?", event.size or 0))
+        print(string.format("[s3rm] Deleted: %s", object_details(event)))
     end
 
     if has_flag(et, DELETE_FAILED) then
-        print(string.format("[s3rm] FAILED: %s - %s",
-            event.key or "?", event.error_message or "unknown error"))
+        print(string.format("[s3rm] FAILED: %s", object_details(event)))
+    end
+
+    if has_flag(et, DELETE_FILTERED) then
+        print(string.format("[s3rm] Filtered: %s", object_details(event)))
+    end
+
+    if has_flag(et, DELETE_WARNING) then
+        print(string.format("[s3rm] WARNING: %s", object_details(event)))
+    end
+
+    if has_flag(et, PIPELINE_ERROR) then
+        print(string.format("[s3rm] ERROR: %s", object_details(event)))
+    end
+
+    if has_flag(et, DELETE_CANCEL) then
+        print(string.format("[s3rm] Cancelled: %s", object_details(event)))
     end
 
     if has_flag(et, STATS_REPORT) then
-        print(string.format("[s3rm] Progress: %d deleted, %d failed, %.1f obj/s",
+        print(string.format(
+            "[s3rm] Stats: deleted_objects=%d, deleted_bytes=%d, failed=%d, skipped=%d, "
+            .. "warnings=%d, errors=%d, duration=%.1fs, throughput=%.1f obj/s",
             event.stats_deleted_objects or 0,
+            event.stats_deleted_bytes or 0,
             event.stats_failed_objects or 0,
+            event.stats_skipped_objects or 0,
+            event.stats_warning_count or 0,
+            event.stats_error_count or 0,
+            event.stats_duration_sec or 0,
             event.stats_objects_per_sec or 0))
     end
 
     if has_flag(et, PIPELINE_END) then
-        print("[s3rm] Pipeline finished")
+        print(string.format("[s3rm] Pipeline finished (dry_run=%s)",
+            tostring(event.dry_run)))
+        local details = object_details(event)
+        if #details > 0 then
+            print("        " .. details)
+        end
     end
 end

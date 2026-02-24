@@ -475,6 +475,12 @@ impl StorageTrait for S3Storage {
     }
 
     async fn is_versioning_enabled(&self) -> Result<bool> {
+        // Express One Zone directory buckets don't support versioning and the
+        // GetBucketVersioning API returns MethodNotAllowed for them.
+        if self.is_express_onezone_storage() {
+            return Ok(false);
+        }
+
         let response = self
             .client
             .as_ref()

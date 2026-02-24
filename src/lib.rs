@@ -129,16 +129,16 @@ as s3rm-rs shares the same Lua integration.
 
 pub mod callback;
 pub mod config;
-pub mod deleter;
-pub mod filters;
-pub mod lister;
+pub(crate) mod deleter;
+pub(crate) mod filters;
+pub(crate) mod lister;
 #[cfg(feature = "lua_support")]
-pub mod lua;
-pub mod pipeline;
-pub mod safety;
-pub mod stage;
-pub mod storage;
-pub mod terminator;
+pub(crate) mod lua;
+pub(crate) mod pipeline;
+pub(crate) mod safety;
+pub(crate) mod stage;
+pub(crate) mod storage;
+pub(crate) mod terminator;
 pub mod types;
 
 #[cfg(test)]

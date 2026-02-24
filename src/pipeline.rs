@@ -50,9 +50,7 @@ use crate::types::{DeletionStatistics, DeletionStats, DeletionStatsReport, S3Obj
 /// ```no_run
 /// # // Example (will not actually run without AWS credentials)
 /// # async fn example() {
-/// # use s3rm_rs::config::Config;
-/// # use s3rm_rs::types::token::create_pipeline_cancellation_token;
-/// # use s3rm_rs::pipeline::DeletionPipeline;
+/// # use s3rm_rs::{Config, DeletionPipeline, create_pipeline_cancellation_token};
 /// # let config: Config = todo!();
 /// let cancellation_token = create_pipeline_cancellation_token();
 /// let mut pipeline = DeletionPipeline::new(config, cancellation_token).await;

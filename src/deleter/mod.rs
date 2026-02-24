@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
+#[cfg(test)]
 use aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput;
 use aws_sdk_s3::primitives::DateTimeFormat;
 use aws_sdk_s3::types::Tag;
@@ -884,6 +885,7 @@ pub fn format_tags(tags: &[Tag]) -> String {
 /// Generate a tagging string from GetObjectTaggingOutput for display/logging.
 ///
 /// Reused from s3sync's `generate_tagging_string` function in `src/pipeline/syncer.rs`.
+#[cfg(test)]
 pub fn generate_tagging_string(
     get_object_tagging_output: &Option<GetObjectTaggingOutput>,
 ) -> Option<String> {

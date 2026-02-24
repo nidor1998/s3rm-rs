@@ -40,6 +40,7 @@ impl LuaEventCallback {
     }
 
     /// Load and compile a Lua event script from a string.
+    #[cfg(test)]
     pub fn load_and_compile_from_string(&mut self, script: &str) -> Result<()> {
         self.lua.load_and_compile(script)
     }

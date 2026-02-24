@@ -23,14 +23,92 @@ pub mod token;
 ///
 /// Adapted from s3sync's S3syncObject enum, representing the different
 /// kinds of objects that can be listed from S3.
+///
+/// # Variants
+///
+/// - [`NotVersioning`](S3Object::NotVersioning) — An object from a non-versioned bucket
+///   (or current version from a versioned bucket listed without version info).
+/// - [`Versioning`](S3Object::Versioning) — A specific version of an object in a versioned bucket.
+/// - [`DeleteMarker`](S3Object::DeleteMarker) — A delete marker in a versioned bucket (size is always 0).
+///
+/// # Constructors
+///
+/// Use [`S3Object::new`] and [`S3Object::new_versioned`] to create instances
+/// without importing AWS SDK types directly:
+///
+/// ```
+/// use s3rm_rs::S3Object;
+///
+/// let obj = S3Object::new("my-key", 1024);
+/// assert_eq!(obj.key(), "my-key");
+/// assert_eq!(obj.size(), 1024);
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub enum S3Object {
+    /// An object from a non-versioned bucket.
     NotVersioning(Object),
+    /// A specific version of an object in a versioned bucket.
     Versioning(ObjectVersion),
+    /// A delete marker in a versioned bucket (size is always 0).
     DeleteMarker(DeleteMarkerEntry),
 }
 
 impl S3Object {
+    /// Create a non-versioned S3 object with the given key and size in bytes.
+    ///
+    /// The `last_modified` timestamp defaults to the Unix epoch. This constructor
+    /// is useful for testing filter callbacks without importing AWS SDK types.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use s3rm_rs::S3Object;
+    ///
+    /// let obj = S3Object::new("photos/cat.jpg", 2048);
+    /// assert_eq!(obj.key(), "photos/cat.jpg");
+    /// assert_eq!(obj.size(), 2048);
+    /// assert!(obj.version_id().is_none());
+    /// ```
+    pub fn new(key: &str, size: i64) -> Self {
+        S3Object::NotVersioning(
+            Object::builder()
+                .key(key)
+                .size(size)
+                .last_modified(DateTime::from_secs(0))
+                .build(),
+        )
+    }
+
+    /// Create a versioned S3 object with the given key, version ID, and size in bytes.
+    ///
+    /// The `last_modified` timestamp defaults to the Unix epoch, and `is_latest`
+    /// is set to `true`. This constructor is useful for testing filter callbacks
+    /// on versioned objects without importing AWS SDK types.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use s3rm_rs::S3Object;
+    ///
+    /// let obj = S3Object::new_versioned("logs/app.log", "v1", 512);
+    /// assert_eq!(obj.key(), "logs/app.log");
+    /// assert_eq!(obj.version_id(), Some("v1"));
+    /// assert_eq!(obj.size(), 512);
+    /// ```
+    pub fn new_versioned(key: &str, version_id: &str, size: i64) -> Self {
+        use aws_sdk_s3::types::ObjectVersionStorageClass;
+        S3Object::Versioning(
+            ObjectVersion::builder()
+                .key(key)
+                .version_id(version_id)
+                .size(size)
+                .is_latest(true)
+                .storage_class(ObjectVersionStorageClass::Standard)
+                .last_modified(DateTime::from_secs(0))
+                .build(),
+        )
+    }
+
     pub fn key(&self) -> &str {
         match &self {
             Self::Versioning(object) => object.key().unwrap(),

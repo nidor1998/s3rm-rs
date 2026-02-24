@@ -142,6 +142,7 @@ impl SafetyChecker {
     }
 
     /// Create a SafetyChecker with a custom prompt handler (for testing).
+    #[cfg(test)]
     pub fn with_prompt_handler(config: &Config, prompt_handler: Box<dyn PromptHandler>) -> Self {
         let json_logging = config
             .tracing_config

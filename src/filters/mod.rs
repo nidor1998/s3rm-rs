@@ -38,7 +38,6 @@ pub use larger_size::LargerSizeFilter;
 pub use mtime_after::MtimeAfterFilter;
 pub use mtime_before::MtimeBeforeFilter;
 pub use smaller_size::SmallerSizeFilter;
-pub use user_defined::UserDefinedFilter;
 
 /// Trait implemented by all filter stages in the deletion pipeline.
 ///

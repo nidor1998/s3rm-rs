@@ -178,9 +178,7 @@ impl Deleter for BatchDeleter {
                             message,
                         );
                         self.target
-                            .send_stats(DeletionStatistics::DeleteError {
-                                key: key.clone(),
-                            })
+                            .send_stats(DeletionStatistics::DeleteError { key: key.clone() })
                             .await;
                         result.failed.push(FailedKey {
                             key,
@@ -203,9 +201,7 @@ impl Deleter for BatchDeleter {
                         message,
                     );
                     self.target
-                        .send_stats(DeletionStatistics::DeleteError {
-                            key: key.clone(),
-                        })
+                        .send_stats(DeletionStatistics::DeleteError { key: key.clone() })
                         .await;
 
                     result.failed.push(FailedKey {

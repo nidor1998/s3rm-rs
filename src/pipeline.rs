@@ -616,6 +616,7 @@ impl DeletionPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::TracingConfig;
     use crate::filters::tests::{create_mock_storage, create_test_config};
     use crate::storage::StorageTrait;
     use crate::test_utils::init_dummy_tracing_subscriber;
@@ -2770,9 +2771,18 @@ mod tests {
         });
 
         let mut config = create_test_config();
-        // No force, no dry_run → non-interactive check fails
+        // No force, no dry_run, json_tracing → guaranteed non-interactive
+        // (json_tracing forces is_non_interactive()=true regardless of TTY,
+        // preventing the test from hanging on stdin in TTY environments)
         config.force = false;
         config.dry_run = false;
+        config.tracing_config = Some(TracingConfig {
+            tracing_level: log::Level::Info,
+            json_tracing: true,
+            aws_sdk_tracing: false,
+            span_events_tracing: false,
+            disable_color_tracing: false,
+        });
 
         let cancellation_token = create_pipeline_cancellation_token();
 

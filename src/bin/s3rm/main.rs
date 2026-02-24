@@ -23,7 +23,6 @@ const EXIT_CODE_ABNORMAL_TERMINATION: i32 = 101;
 ///
 /// This binary is a thin wrapper over the s3rm-rs library.
 /// All core functionality is implemented in the library crate.
-#[cfg_attr(coverage_nightly, coverage(off))]
 #[tokio::main]
 async fn main() -> Result<()> {
     let config = load_config_exit_if_err();
@@ -46,7 +45,6 @@ async fn main() -> Result<()> {
     run(config).await
 }
 
-#[cfg_attr(coverage_nightly, coverage(off))]
 fn load_config_exit_if_err() -> Config {
     let config = Config::try_from(CLIArgs::parse());
     if let Err(error_message) = config {

@@ -612,11 +612,10 @@ pub trait StorageTrait: DynClone {
 
     async fn list_objects(&self, sender: &Sender<S3Object>, max_keys: i32) -> Result<()>;
     async fn list_object_versions(&self, sender: &Sender<S3Object>, max_keys: i32) -> Result<()>;
+    async fn head_object(&self, key: &str, version_id: Option<String>) -> Result<HeadObjectOutput>;
+    async fn get_object_tagging(&self, key: &str, version_id: Option<String>) -> Result<GetObjectTaggingOutput>;
 
-    async fn head_object(&self, relative_key: &str, version_id: Option<String>) -> Result<HeadObjectOutput>;
-    async fn get_object_tagging(&self, relative_key: &str, version_id: Option<String>) -> Result<GetObjectTaggingOutput>;
-
-    async fn delete_object(&self, relative_key: &str, version_id: Option<String>, if_match: Option<String>) -> Result<DeleteObjectOutput>;
+    async fn delete_object(&self, key: &str, version_id: Option<String>, if_match: Option<String>) -> Result<DeleteObjectOutput>;
     async fn delete_objects(&self, objects: Vec<ObjectIdentifier>) -> Result<DeleteObjectsOutput>;
 
     async fn is_versioning_enabled(&self) -> Result<bool>;

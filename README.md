@@ -1085,7 +1085,7 @@ Human engineers authored the requirements, design specifications, and s3sync ref
 | Unit & property tests | 548 passing, 0 failing |
 | Property test blocks (proptest) | 49 correctness properties |
 | E2E integration tests | 84 tests across 14 test files |
-| Code coverage | 94.58% regions, 87.94% functions, 94.45% lines |
+| Code coverage | 94.57% regions, 88.02% functions, 94.43% lines |
 | Clippy warnings | 0 |
 | Development | 7 days (2026-02-18 to 2026-02-24), 350 commits, 25 PRs |
 | Code reuse from [s3sync](https://github.com/nidor1998/s3sync) | ~90% of architecture |

@@ -279,7 +279,7 @@ impl DeletionPipeline {
     pub fn has_error(&self) -> bool;
     pub fn has_panic(&self) -> bool;
     pub fn get_errors_and_consume(&self) -> Option<Vec<anyhow::Error>>;
-    fn get_error_messages(&self) -> Option<Vec<String>>; // private helper for event dispatch
+    pub fn get_error_messages(&self) -> Option<Vec<String>>;
     pub fn has_warning(&self) -> bool;
 
     // Stats receiver for progress reporting

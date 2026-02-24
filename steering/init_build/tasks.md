@@ -8,7 +8,7 @@
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-29 complete (including Tasks 24-25: comprehensive unit tests and property testing infrastructure). Task 23 checkpoint complete (CLI polish, spec audit, docs, infrastructure). Task 27 complete (27.1-27.5 all done). Task 28 complete (28.1 clippy, 28.2 rustfmt, 28.4 cargo-deny all pass). Task 29 complete (88 E2E test functions across 14 test files + shared infrastructure, all pass verified 2026-02-24). All 49 correctness properties have property-based tests (522 lib tests, 26 binary tests, 88 E2E tests -- all pass). Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, CI/CD integration, additional property tests, comprehensive unit tests, property testing infrastructure, and automated E2E integration testing all established. Rustdoc documentation, examples, CONTRIBUTING.md, SECURITY.md, Dockerfile, build info (shadow-rs), and PR template added. Code quality checks (clippy, rustfmt, cargo-deny) all pass.
+**Current Achievement**: Tasks 1-29 complete (including Tasks 24-25: comprehensive unit tests and property testing infrastructure). Task 23 checkpoint complete (CLI polish, spec audit, docs, infrastructure). Task 27 complete (27.1-27.5 all done). Task 28 complete (28.1 clippy, 28.2 rustfmt, 28.4 cargo-deny all pass). Task 29 complete (84 E2E test functions across 14 test files + shared infrastructure, all pass verified 2026-02-24). All 49 correctness properties have property-based tests (522 lib tests, 26 binary tests, 84 E2E tests -- all pass). Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, CI/CD integration, additional property tests, comprehensive unit tests, property testing infrastructure, and automated E2E integration testing all established. Rustdoc documentation, examples, CONTRIBUTING.md, SECURITY.md, Dockerfile, build info (shadow-rs), and PR template added. Code quality checks (clippy, rustfmt, cargo-deny) all pass.
 
 ## Current Status
 
@@ -763,7 +763,7 @@ Phase 26: Automated E2E Integration Testing (Task 29)
   - _Requirements: All requirements (comprehensive coverage)_
 
 
-**Implemented Property Tests**: Properties 1-49 (49 of 49). All correctness properties have property-based tests. Test totals: 522 lib tests (all pass), 26 binary tests (all pass), 88 E2E tests (14 test files, all pass). All tests verified passing 2026-02-24.
+**Implemented Property Tests**: Properties 1-49 (49 of 49). All correctness properties have property-based tests. Test totals: 522 lib tests (all pass), 26 binary tests (all pass), 84 E2E tests (14 test files, all pass). All tests verified passing 2026-02-24.
 
 - [x] 27. Documentation and Examples
   - [x] 27.1 Write README.md (completed in commit 4082dbe on build/init/task23)
@@ -827,7 +827,7 @@ Phase 26: Automated E2E Integration Testing (Task 29)
 - [x] 29. Automated E2E Integration Testing
   - **Executor**: This task was performed by the `test-architect` agent.
   - **Full test plan**: See [`steering/init_build/e2e_test_plan.md`](e2e_test_plan.md)
-  - 88 test functions (29.0–29.64) across 14 test files + shared infrastructure (`tests/common/mod.rs`)
+  - 84 test functions (29.0–29.64) across 14 test files + shared infrastructure (`tests/common/mod.rs`)
   - Uses `#![cfg(e2e_test)]`, AWS profile `s3rm-e2e-test`, parallel-safe unique buckets
   - Covers: filtering (24), deletion modes (7), safety (3), versioning (3), callbacks (7), optimistic locking (3), performance (5), tracing (7), retry (3), error/access denial (6), AWS config (4), combined (7), statistics (2), Express One Zone (3)
   - _Requirements: 1.1-1.11, 2.1-2.14, 3.1-3.6, 4.1-4.10, 5.1-5.5, 6.1-6.6, 7.1-7.7, 8.1-8.8, 10.1-10.7, 11.1-11.4, 12.1-12.9, 13.1-13.7_
@@ -836,11 +836,11 @@ Phase 26: Automated E2E Integration Testing (Task 29)
   - Run all unit tests: `cargo test --lib` (verify 100% pass rate)
   - Run all property-based tests: `cargo test --lib` (verify 100% pass rate)
   - Run all integration tests: `cargo test --test '*'`
-  - Verify code coverage meets target (>95% line coverage) -- `cargo llvm-cov report` (combined lib+bin+E2E): 93.94% regions, 87.59% functions, 93.74% lines (2026-02-23)
+  - Verify code coverage meets target (>95% line coverage) -- `cargo llvm-cov report` (combined lib+bin+E2E): 94.58% regions, 87.94% functions, 94.44% lines (2026-02-23)
   - Verify clippy has no warnings: `cargo clippy --all-targets --all-features`
   - Verify rustfmt is applied: `cargo fmt --all -- --check`
   - Verify security audit passes: `cargo audit && cargo deny check`
-  - Verify manual integration tests pass (E2E with real S3) -- 88/88 E2E tests pass as of 2026-02-24
+  - Verify manual integration tests pass (E2E with real S3) -- 84/84 E2E tests pass as of 2026-02-24
   - Verify documentation builds: `cargo doc --no-deps`
   - Review all completed tasks and mark any remaining work
   - Ask the user if questions arise or if ready to proceed to release
@@ -860,7 +860,7 @@ Phase 26: Automated E2E Integration Testing (Task 29)
 
 ## Implementation Status Summary
 
-Tasks 1-29 complete (including Task 23 checkpoint, Task 24 unit tests, Task 25 property testing infrastructure, Task 27 documentation, Task 28 code quality: clippy, rustfmt, cargo-deny all pass, Task 29 automated E2E integration testing). All merged to init_build. Test totals: 522 lib tests (all pass), 26 binary tests (all pass), 88 E2E tests (14 test files, all pass). All tests verified passing 2026-02-24. Combined coverage (`cargo llvm-cov report`): 93.94% regions, 87.59% functions, 93.74% lines.
+Tasks 1-29 complete (including Task 23 checkpoint, Task 24 unit tests, Task 25 property testing infrastructure, Task 27 documentation, Task 28 code quality: clippy, rustfmt, cargo-deny all pass, Task 29 automated E2E integration testing). All merged to init_build. Test totals: 522 lib tests (all pass), 26 binary tests (all pass), 84 E2E tests (14 test files, all pass). All tests verified passing 2026-02-24. Combined coverage (`cargo llvm-cov report`): 94.58% regions, 87.94% functions, 94.44% lines.
 
 **Already implemented across Tasks 1-25** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)

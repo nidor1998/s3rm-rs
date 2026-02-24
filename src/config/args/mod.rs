@@ -604,23 +604,14 @@ impl CLIArgs {
             disable_color_tracing: self.disable_color_tracing,
         });
 
+        // In dry-run mode, boost the default level (Warn) to Info so dry-run
+        // output is visible without requiring -v. But respect explicit -q flags —
+        // if the user asked for quieter output, don't override their choice.
         if dry_run {
-            if tracing_config.is_none() {
-                tracing_config = Some(TracingConfig {
-                    tracing_level: log::Level::Info,
-                    json_tracing: DEFAULT_JSON_TRACING,
-                    aws_sdk_tracing: DEFAULT_AWS_SDK_TRACING,
-                    span_events_tracing: DEFAULT_SPAN_EVENTS_TRACING,
-                    disable_color_tracing: DEFAULT_DISABLE_COLOR_TRACING,
-                });
-            } else if tracing_config.unwrap().tracing_level < log::Level::Info {
-                tracing_config = Some(TracingConfig {
-                    tracing_level: log::Level::Info,
-                    json_tracing: tracing_config.unwrap().json_tracing,
-                    aws_sdk_tracing: tracing_config.unwrap().aws_sdk_tracing,
-                    span_events_tracing: tracing_config.unwrap().span_events_tracing,
-                    disable_color_tracing: tracing_config.unwrap().disable_color_tracing,
-                });
+            if let Some(ref mut config) = tracing_config {
+                if config.tracing_level == log::Level::Warn {
+                    config.tracing_level = log::Level::Info;
+                }
             }
         }
 

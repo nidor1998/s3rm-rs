@@ -2,6 +2,7 @@
 // Initializes the tracing subscriber for the CLI binary.
 
 use std::env;
+use std::io::IsTerminal;
 
 use tracing_subscriber::fmt::format::FmtSpan;
 
@@ -19,7 +20,7 @@ pub fn init_tracing(config: &TracingConfig) {
     let subscriber_builder = tracing_subscriber::fmt()
         .compact()
         .with_target(false)
-        .with_ansi(!config.disable_color_tracing)
+        .with_ansi(!config.disable_color_tracing && std::io::stdout().is_terminal())
         .with_span_events(fmt_span);
 
     let mut show_target = true;

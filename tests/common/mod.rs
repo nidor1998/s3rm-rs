@@ -456,10 +456,10 @@ impl TestHelper {
 
     /// Upload multiple objects in parallel for faster test setup.
     ///
-    /// Each entry is a `(key, body)` pair. Uploads run concurrently using a
-    /// `JoinSet`, significantly reducing wall-clock time compared to sequential
-    /// uploads.
+    /// Each entry is a `(key, body)` pair. Up to 16 uploads run concurrently,
+    /// significantly reducing wall-clock time compared to sequential uploads.
     pub async fn put_objects_parallel(&self, bucket: &str, objects: Vec<(String, Vec<u8>)>) {
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(16));
         let mut set = tokio::task::JoinSet::new();
         let client = self.client.clone();
         let bucket = bucket.to_string();
@@ -467,6 +467,7 @@ impl TestHelper {
         for (key, body) in objects {
             let client = client.clone();
             let bucket = bucket.clone();
+            let permit = semaphore.clone().acquire_owned().await.unwrap();
             set.spawn(async move {
                 client
                     .put_object()
@@ -476,6 +477,7 @@ impl TestHelper {
                     .send()
                     .await
                     .unwrap_or_else(|e| panic!("Failed to put object {key} in {bucket}: {e}"));
+                drop(permit);
             });
         }
 

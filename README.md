@@ -1076,7 +1076,7 @@ No human wrote a single line of source code in this project. Every line of sourc
 
 Human engineers authored the requirements, design specifications, and s3sync reference architecture. They thoroughly reviewed and verified the design, all source code, and all tests. All features of the initial build binary have been manually tested and verified by humans. All E2E test scenarios have been thoroughly verified by humans against live AWS S3. The development followed a spec-driven process: requirements and design documents were written first, and the AI generated code to match those specifications under continuous human oversight.
 
-### Quality verification (by AI self-assessment, initial build)
+### Quality verification (by AI self-assessment, pre-beta)
 
 | Metric | Value |
 |---|---|

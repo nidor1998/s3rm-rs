@@ -88,10 +88,12 @@ impl TestHelper {
         Arc::new(Self { client, region })
     }
 
-    /// Create a RAII guard that cleans up the bucket on drop.
+    /// Create a guard for test bucket cleanup.
     ///
-    /// The guard deletes all objects (including versions and delete markers)
-    /// and then deletes the bucket itself. This runs even if the test panics.
+    /// Call [`BucketGuard::cleanup`] at the end of the test to delete all
+    /// objects (including versions and delete markers) and the bucket itself.
+    /// Cleanup is explicit — if the test panics before `cleanup()`, the
+    /// bucket is left behind (see [`BucketGuard`] doc for rationale).
     pub fn bucket_guard(self: &Arc<Self>, bucket: &str) -> BucketGuard {
         BucketGuard {
             helper: Arc::clone(self),

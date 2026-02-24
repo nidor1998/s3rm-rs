@@ -1177,9 +1177,12 @@ impl SafetyChecker {
             return Ok(());
         }
 
-        // 3. Non-interactive environment (non-TTY or JSON logging): skip prompts
+        // 3. Non-interactive environment (non-TTY or JSON logging): error
+        //    (unsafe to proceed without confirmation and without --force)
         if self.json_logging || !self.prompt_handler.is_interactive() {
-            return Ok(());
+            return Err(S3rmError::InvalidConfig(
+                "Cannot run destructive operation without --force (-f) in a non-interactive environment".into()
+            ));
         }
 
         // 4. Prompt for confirmation (require exact "yes" input)
@@ -1595,7 +1598,7 @@ pub struct FilterConfig {
 **Validates: Requirements 12.8**
 
 ### Property 48: Non-Interactive Environment Detection
-*For any* execution in a non-interactive environment (no TTY), the tool should detect the absence of a TTY and disable interactive prompts.
+*For any* execution in a non-interactive environment (no TTY) without the --force flag, the tool should return an error (exit code 2) to prevent unsafe unconfirmed deletions. With --force or --dry-run, the tool proceeds without prompting.
 **Validates: Requirements 13.1**
 
 ### Property 49: Output Stream Separation

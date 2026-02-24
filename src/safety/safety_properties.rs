@@ -405,8 +405,21 @@ mod tests {
     }
 
     #[test]
-    fn json_logging_skips_prompt() {
+    fn json_logging_without_force_errors() {
         let config = make_config(false, false, true);
+        let handler = MockPromptHandler::new("no");
+        let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));
+
+        let result = checker.check_before_deletion();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let s3rm_err = err.downcast_ref::<S3rmError>().unwrap();
+        assert!(matches!(s3rm_err, S3rmError::InvalidConfig(_)));
+    }
+
+    #[test]
+    fn json_logging_with_force_succeeds() {
+        let config = make_config(false, true, true);
         let handler = MockPromptHandler::new("no");
         let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));
 
@@ -415,8 +428,21 @@ mod tests {
     }
 
     #[test]
-    fn non_interactive_environment_skips_prompt() {
+    fn non_interactive_environment_without_force_errors() {
         let config = make_config(false, false, false);
+        let checker =
+            SafetyChecker::with_prompt_handler(&config, Box::new(NonInteractivePromptHandler));
+
+        let result = checker.check_before_deletion();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let s3rm_err = err.downcast_ref::<S3rmError>().unwrap();
+        assert!(matches!(s3rm_err, S3rmError::InvalidConfig(_)));
+    }
+
+    #[test]
+    fn non_interactive_environment_with_force_succeeds() {
+        let config = make_config(false, true, false);
         let checker =
             SafetyChecker::with_prompt_handler(&config, Box::new(NonInteractivePromptHandler));
 

@@ -221,7 +221,7 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 
 #### Acceptance Criteria
 
-1. WHEN running in non-interactive environments, THE S3rm_Tool SHALL detect the absence of a TTY and disable interactive prompts. WHERE JSON logging is enabled, THE S3rm_Tool SHALL also skip interactive prompts to prevent corrupting structured output
+1. WHEN running in non-interactive environments (no TTY) without the --force flag, THE S3rm_Tool SHALL return an error (exit code 2) to prevent unsafe unconfirmed deletions. WHERE the --force flag or --dry-run flag is provided, THE S3rm_Tool SHALL proceed without prompting. WHERE JSON logging is enabled without --force, THE S3rm_Tool SHALL also return an error since interactive prompts would corrupt structured output
 2. WHERE the force flag is provided, THE S3rm_Tool SHALL execute deletions without requiring user confirmation
 3. WHERE JSON logging is enabled, THE S3rm_Tool SHALL output machine-readable JSON logs for integration with log aggregation systems
 4. THE S3rm_Tool SHALL return distinct exit codes for different failure scenarios (authentication, network, partial failure)

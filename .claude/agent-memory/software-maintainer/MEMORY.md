@@ -4,7 +4,8 @@
 - Rust 2024 edition, Tokio async runtime, library-first design
 - Pipeline architecture: ObjectLister -> Filters -> ObjectDeleter -> Terminator
 - ~90% code reuse from s3sync sibling project
-- 431 lib tests (422 pass, 9 pre-existing pipeline failures) + 26 binary tests + 8 doc-tests
+- 454 lib tests + 26 binary tests + 1 doc-test + 84 E2E tests (14 files)
+- Coverage: 93.94% regions, 87.59% functions, 93.74% lines
 - Cargo clippy: zero warnings; cargo fmt: clean; cargo deny: clean
 
 ## Key Architecture Patterns

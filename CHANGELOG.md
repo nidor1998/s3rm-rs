@@ -45,7 +45,7 @@ Initial release. s3rm-rs is a fast Amazon S3 object deletion tool built as a sib
 - Shell completion generation (`--auto-complete-shell`)
 - Cross-platform CI: Linux (glibc/musl/ARM64), Windows (x86_64/aarch64), macOS (x86_64/aarch64)
 - Docker image based on debian:trixie-slim
-- 47 property-based correctness properties (proptest)
+- 49 property-based correctness properties (proptest)
 
 ### Differences from s3sync
 

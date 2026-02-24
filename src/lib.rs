@@ -122,7 +122,6 @@ as s3rm-rs shares the same Lua integration.
 
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::assertions_on_constants)]
-#![allow(clippy::unnecessary_unwrap)]
 
 // ---------------------------------------------------------------------------
 // Module declarations

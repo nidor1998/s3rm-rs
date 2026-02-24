@@ -2584,4 +2584,640 @@ mod tests {
             })?;
         }
     }
+
+    // -------------------------------------------------------------------
+    // Accessor tests (has_panic, get_stats_receiver, get_error_messages)
+    // -------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn pipeline_has_panic_initially_false() {
+        init_dummy_tracing_subscriber();
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage = create_mock_storage(stats_sender, has_warning.clone());
+        let config = create_test_config();
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token,
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        assert!(!pipeline.has_panic());
+    }
+
+    #[tokio::test]
+    async fn pipeline_has_panic_reflects_atomic_flag() {
+        init_dummy_tracing_subscriber();
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage = create_mock_storage(stats_sender, has_warning.clone());
+        let config = create_test_config();
+        let cancellation_token = create_pipeline_cancellation_token();
+        let has_panic = Arc::new(AtomicBool::new(false));
+
+        let pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token,
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: has_panic.clone(),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        assert!(!pipeline.has_panic());
+        has_panic.store(true, Ordering::SeqCst);
+        assert!(pipeline.has_panic());
+    }
+
+    #[tokio::test]
+    async fn pipeline_get_stats_receiver_returns_working_channel() {
+        init_dummy_tracing_subscriber();
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage = create_mock_storage(stats_sender.clone(), has_warning.clone());
+        let config = create_test_config();
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token,
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        let receiver = pipeline.get_stats_receiver();
+        // Send through the sender and verify we can read from the cloned receiver
+        let stats = DeletionStatistics::DeleteComplete {
+            key: "test-key".to_string(),
+        };
+        stats_sender.send(stats).await.unwrap();
+        let received = receiver.recv().await.unwrap();
+        match received {
+            DeletionStatistics::DeleteComplete { key } => assert_eq!(key, "test-key"),
+            other => panic!("Expected DeleteComplete, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn pipeline_get_error_messages_none_when_no_errors() {
+        init_dummy_tracing_subscriber();
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage = create_mock_storage(stats_sender, has_warning.clone());
+        let config = create_test_config();
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token,
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        assert!(pipeline.get_error_messages().is_none());
+    }
+
+    #[tokio::test]
+    async fn pipeline_get_error_messages_returns_messages() {
+        init_dummy_tracing_subscriber();
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage = create_mock_storage(stats_sender, has_warning.clone());
+        let config = create_test_config();
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token,
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        pipeline.record_error(anyhow::anyhow!("first error"));
+        pipeline.record_error(anyhow::anyhow!("second error"));
+
+        let messages = pipeline.get_error_messages().unwrap();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0], "first error");
+        assert_eq!(messages[1], "second error");
+    }
+
+    // -------------------------------------------------------------------
+    // Prerequisites failure path (lines 131-138)
+    // In test environment (no TTY), force=false & dry_run=false triggers
+    // the non-interactive safety check which returns an error.
+    // -------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn pipeline_prerequisites_failure_records_error_and_stops() {
+        init_dummy_tracing_subscriber();
+
+        let objects = vec![S3Object::NotVersioning(
+            Object::builder()
+                .key("should-not-be-deleted.txt")
+                .size(100)
+                .last_modified(DateTime::from_secs(0))
+                .build(),
+        )];
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage: Storage = Box::new(ListingMockStorage {
+            objects,
+            stats_sender,
+            has_warning: has_warning.clone(),
+        });
+
+        let mut config = create_test_config();
+        // No force, no dry_run → non-interactive check fails
+        config.force = false;
+        config.dry_run = false;
+
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let mut pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token,
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false, // Force prerequisites check
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        pipeline.run().await;
+
+        // Pipeline must have recorded an error
+        assert!(
+            pipeline.has_error(),
+            "Pipeline must set error when prerequisites fail"
+        );
+
+        let errors = pipeline.get_errors_and_consume().unwrap();
+        assert!(
+            errors.iter().any(|e| e
+                .to_string()
+                .contains("Cannot run destructive operation without --force")),
+            "Error should mention --force requirement, got: {:?}",
+            errors.iter().map(|e| e.to_string()).collect::<Vec<_>>()
+        );
+
+        // No objects should have been deleted
+        let stats = pipeline.get_deletion_stats();
+        assert_eq!(stats.stats_deleted_objects, 0);
+    }
+
+    // -------------------------------------------------------------------
+    // Filter branch coverage tests (lines 450-494)
+    // Each test enables one filter in FilterConfig and verifies the
+    // pipeline filters objects accordingly.
+    // -------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn pipeline_mtime_before_filter_applied() {
+        init_dummy_tracing_subscriber();
+
+        // Object at t=2000s, filter before_time=t=1500s → object is AFTER threshold → filtered out
+        let objects = vec![
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("old.txt")
+                    .size(10)
+                    .last_modified(DateTime::from_secs(1000))
+                    .build(),
+            ),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("new.txt")
+                    .size(20)
+                    .last_modified(DateTime::from_secs(2000))
+                    .build(),
+            ),
+        ];
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage: Storage = Box::new(ListingMockStorage {
+            objects,
+            stats_sender,
+            has_warning: has_warning.clone(),
+        });
+
+        let mut config = create_test_config();
+        config.force = true;
+        config.batch_size = 1;
+        config.worker_size = 1;
+        // before_time = 1500s → only objects BEFORE this time pass
+        config.filter_config.before_time = Some(chrono::DateTime::from_timestamp(1500, 0).unwrap());
+
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let mut pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token,
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        pipeline.run().await;
+        assert!(!pipeline.has_error());
+
+        let stats = pipeline.get_deletion_stats();
+        // Only "old.txt" (t=1000s) is before 1500s
+        assert_eq!(
+            stats.stats_deleted_objects, 1,
+            "Only one object should pass mtime_before filter, got {}",
+            stats.stats_deleted_objects
+        );
+        assert_eq!(stats.stats_deleted_bytes, 10);
+    }
+
+    #[tokio::test]
+    async fn pipeline_mtime_after_filter_applied() {
+        init_dummy_tracing_subscriber();
+
+        let objects = vec![
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("old.txt")
+                    .size(10)
+                    .last_modified(DateTime::from_secs(1000))
+                    .build(),
+            ),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("new.txt")
+                    .size(20)
+                    .last_modified(DateTime::from_secs(2000))
+                    .build(),
+            ),
+        ];
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage: Storage = Box::new(ListingMockStorage {
+            objects,
+            stats_sender,
+            has_warning: has_warning.clone(),
+        });
+
+        let mut config = create_test_config();
+        config.force = true;
+        config.batch_size = 1;
+        config.worker_size = 1;
+        // after_time = 1500s → only objects AFTER this time pass
+        config.filter_config.after_time = Some(chrono::DateTime::from_timestamp(1500, 0).unwrap());
+
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let mut pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token,
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        pipeline.run().await;
+        assert!(!pipeline.has_error());
+
+        let stats = pipeline.get_deletion_stats();
+        // Only "new.txt" (t=2000s) is after 1500s
+        assert_eq!(
+            stats.stats_deleted_objects, 1,
+            "Only one object should pass mtime_after filter, got {}",
+            stats.stats_deleted_objects
+        );
+        assert_eq!(stats.stats_deleted_bytes, 20);
+    }
+
+    #[tokio::test]
+    async fn pipeline_smaller_size_filter_applied() {
+        init_dummy_tracing_subscriber();
+
+        let objects = vec![
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("small.txt")
+                    .size(50)
+                    .last_modified(DateTime::from_secs(1000))
+                    .build(),
+            ),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("large.txt")
+                    .size(500)
+                    .last_modified(DateTime::from_secs(1000))
+                    .build(),
+            ),
+        ];
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage: Storage = Box::new(ListingMockStorage {
+            objects,
+            stats_sender,
+            has_warning: has_warning.clone(),
+        });
+
+        let mut config = create_test_config();
+        config.force = true;
+        config.batch_size = 1;
+        config.worker_size = 1;
+        // smaller_size = 100 → only objects SMALLER than 100 bytes pass
+        config.filter_config.smaller_size = Some(100);
+
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let mut pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token,
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        pipeline.run().await;
+        assert!(!pipeline.has_error());
+
+        let stats = pipeline.get_deletion_stats();
+        assert_eq!(
+            stats.stats_deleted_objects, 1,
+            "Only small.txt should pass smaller_size filter, got {}",
+            stats.stats_deleted_objects
+        );
+        assert_eq!(stats.stats_deleted_bytes, 50);
+    }
+
+    #[tokio::test]
+    async fn pipeline_larger_size_filter_applied() {
+        init_dummy_tracing_subscriber();
+
+        let objects = vec![
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("small.txt")
+                    .size(50)
+                    .last_modified(DateTime::from_secs(1000))
+                    .build(),
+            ),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("large.txt")
+                    .size(500)
+                    .last_modified(DateTime::from_secs(1000))
+                    .build(),
+            ),
+        ];
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage: Storage = Box::new(ListingMockStorage {
+            objects,
+            stats_sender,
+            has_warning: has_warning.clone(),
+        });
+
+        let mut config = create_test_config();
+        config.force = true;
+        config.batch_size = 1;
+        config.worker_size = 1;
+        // larger_size = 100 → only objects LARGER than 100 bytes pass
+        config.filter_config.larger_size = Some(100);
+
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let mut pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token,
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        pipeline.run().await;
+        assert!(!pipeline.has_error());
+
+        let stats = pipeline.get_deletion_stats();
+        assert_eq!(
+            stats.stats_deleted_objects, 1,
+            "Only large.txt should pass larger_size filter, got {}",
+            stats.stats_deleted_objects
+        );
+        assert_eq!(stats.stats_deleted_bytes, 500);
+    }
+
+    #[tokio::test]
+    async fn pipeline_exclude_regex_filter_applied() {
+        init_dummy_tracing_subscriber();
+
+        let objects = vec![
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("keep.txt")
+                    .size(10)
+                    .last_modified(DateTime::from_secs(1000))
+                    .build(),
+            ),
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("remove.log")
+                    .size(20)
+                    .last_modified(DateTime::from_secs(1000))
+                    .build(),
+            ),
+        ];
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage: Storage = Box::new(ListingMockStorage {
+            objects,
+            stats_sender,
+            has_warning: has_warning.clone(),
+        });
+
+        let mut config = create_test_config();
+        config.force = true;
+        config.batch_size = 1;
+        config.worker_size = 1;
+        // exclude_regex = ".*\\.log$" → objects matching are filtered OUT
+        config.filter_config.exclude_regex = Some(fancy_regex::Regex::new(r".*\.log$").unwrap());
+
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let mut pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token,
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        pipeline.run().await;
+        assert!(!pipeline.has_error());
+
+        let stats = pipeline.get_deletion_stats();
+        assert_eq!(
+            stats.stats_deleted_objects, 1,
+            "Only keep.txt should remain after exclude_regex, got {}",
+            stats.stats_deleted_objects
+        );
+        assert_eq!(stats.stats_deleted_bytes, 10);
+    }
+
+    // -------------------------------------------------------------------
+    // Combined filter test — multiple filters at once
+    // -------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn pipeline_multiple_filters_combined() {
+        init_dummy_tracing_subscriber();
+
+        let objects = vec![
+            // small + old → passes smaller_size + mtime_before
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("small-old.txt")
+                    .size(50)
+                    .last_modified(DateTime::from_secs(1000))
+                    .build(),
+            ),
+            // small + new → passes smaller_size but NOT mtime_before
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("small-new.txt")
+                    .size(50)
+                    .last_modified(DateTime::from_secs(3000))
+                    .build(),
+            ),
+            // large + old → passes mtime_before but NOT smaller_size
+            S3Object::NotVersioning(
+                Object::builder()
+                    .key("large-old.txt")
+                    .size(500)
+                    .last_modified(DateTime::from_secs(1000))
+                    .build(),
+            ),
+        ];
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage: Storage = Box::new(ListingMockStorage {
+            objects,
+            stats_sender,
+            has_warning: has_warning.clone(),
+        });
+
+        let mut config = create_test_config();
+        config.force = true;
+        config.batch_size = 1;
+        config.worker_size = 1;
+        // Both filters: smaller_size=100 AND before_time=2000s
+        config.filter_config.smaller_size = Some(100);
+        config.filter_config.before_time = Some(chrono::DateTime::from_timestamp(2000, 0).unwrap());
+
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let mut pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token,
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        pipeline.run().await;
+        assert!(!pipeline.has_error());
+
+        let stats = pipeline.get_deletion_stats();
+        // Only "small-old.txt" passes both filters
+        assert_eq!(
+            stats.stats_deleted_objects, 1,
+            "Only small-old.txt should pass both filters, got {}",
+            stats.stats_deleted_objects
+        );
+        assert_eq!(stats.stats_deleted_bytes, 50);
+    }
 }

@@ -114,13 +114,10 @@ async fn run(mut config: Config) -> Result<()> {
             return Err(e);
         }
 
-        let log_deletion_summary = config.log_deletion_summary;
-
         let indicator_join_handle = indicator::show_indicator(
             pipeline.get_stats_receiver(),
             ui_config::is_progress_indicator_needed(&config),
             ui_config::is_show_result_needed(&config),
-            log_deletion_summary,
             config.dry_run,
         );
 

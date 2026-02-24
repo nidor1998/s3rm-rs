@@ -845,7 +845,6 @@ For more information, see `s3rm -h`.
 | `--aws-sdk-tracing` | `false` | Include AWS SDK internal traces |
 | `--span-events-tracing` | `false` | Include span open/close events |
 | `--disable-color-tracing` | `false` | Disable colored log output |
-| `--log-deletion-summary` | `true` | Log deletion summary at completion |
 
 ### AWS Configuration
 

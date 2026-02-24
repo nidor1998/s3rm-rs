@@ -60,7 +60,6 @@ use fancy_regex::Regex;
 pub struct Config {
     pub target: StoragePath,
     pub show_no_progress: bool,
-    pub log_deletion_summary: bool,
     pub target_client_config: Option<ClientConfig>,
     pub force_retry_config: ForceRetryConfig,
     pub tracing_config: Option<TracingConfig>,
@@ -134,7 +133,6 @@ impl Default for Config {
                 prefix: String::new(),
             },
             show_no_progress: false,
-            log_deletion_summary: true,
             target_client_config: None,
             force_retry_config: ForceRetryConfig::default(),
             tracing_config: None,
@@ -408,7 +406,6 @@ mod tests {
         assert_eq!(config.worker_size, 24);
         assert_eq!(config.batch_size, 200);
         assert!(!config.show_no_progress);
-        assert!(config.log_deletion_summary);
         assert!(!config.dry_run);
         assert!(!config.warn_as_error);
         assert_eq!(config.max_parallel_listings, 16);

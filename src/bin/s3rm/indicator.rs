@@ -37,7 +37,6 @@ const REFRESH_INTERVAL: f32 = 1.0;
 /// - `stats_receiver` - Channel receiver for `DeletionStatistics` events
 /// - `show_progress` - Whether to display the live-updating progress line
 /// - `show_result` - Whether to display the final summary line
-/// - `log_deletion_summary` - Whether to emit a structured `info!` log at completion
 /// - `dry_run` - Whether we're in dry-run mode (suppresses throughput in display)
 ///
 /// The task runs until `stats_receiver` is closed (all senders dropped).
@@ -46,7 +45,6 @@ pub fn show_indicator(
     stats_receiver: Receiver<DeletionStatistics>,
     show_progress: bool,
     show_result: bool,
-    log_deletion_summary: bool,
     dry_run: bool,
 ) -> JoinHandle<IndicatorSummary> {
     let progress_style = ProgressStyle::with_template("{wide_msg}").unwrap();
@@ -108,18 +106,16 @@ pub fn show_indicator(
                         objects_per_sec = 0;
                     }
 
-                    if log_deletion_summary {
-                        info!(
-                            message = "deletion summary",
-                            deleted_bytes = total_delete_bytes,
-                            deleted_objects = total_delete_count,
-                            deleted_objects_per_sec = objects_per_sec,
-                            skipped = total_skip_count,
-                            error = total_error_count,
-                            warning = total_warning_count,
-                            duration_sec = elapsed_secs_f64,
-                        );
-                    }
+                    info!(
+                        message = "deletion summary",
+                        deleted_bytes = total_delete_bytes,
+                        deleted_objects = total_delete_count,
+                        deleted_objects_per_sec = objects_per_sec,
+                        skipped = total_skip_count,
+                        error = total_error_count,
+                        warning = total_warning_count,
+                        duration_sec = elapsed_secs_f64,
+                    );
 
                     if show_result {
                         progress_text.set_style(ProgressStyle::with_template("{msg}").unwrap());
@@ -179,7 +175,7 @@ mod tests {
         let (sender, receiver) = async_channel::unbounded();
         drop(sender); // Close channel immediately
 
-        let handle = show_indicator(receiver, false, false, false, false);
+        let handle = show_indicator(receiver, false, false, false);
         let summary = tokio::time::timeout(std::time::Duration::from_secs(5), handle)
             .await
             .expect("indicator should complete within timeout")
@@ -228,7 +224,7 @@ mod tests {
 
         drop(sender); // Close channel
 
-        let handle = show_indicator(receiver, false, false, false, false);
+        let handle = show_indicator(receiver, false, false, false);
         let summary = tokio::time::timeout(std::time::Duration::from_secs(5), handle)
             .await
             .expect("indicator should complete within timeout")
@@ -258,7 +254,7 @@ mod tests {
 
         drop(sender);
 
-        let handle = show_indicator(receiver, false, false, false, true);
+        let handle = show_indicator(receiver, false, false, true);
         let summary = tokio::time::timeout(std::time::Duration::from_secs(5), handle)
             .await
             .expect("indicator should complete within timeout")
@@ -285,8 +281,7 @@ mod tests {
 
         drop(sender);
 
-        // log_deletion_summary=true triggers the info! log (but no subscriber in test)
-        let handle = show_indicator(receiver, false, false, true, false);
+        let handle = show_indicator(receiver, false, false, false);
         tokio::time::timeout(std::time::Duration::from_secs(5), handle)
             .await
             .expect("indicator should complete within timeout")

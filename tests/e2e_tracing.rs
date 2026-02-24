@@ -267,8 +267,8 @@ async fn e2e_disable_color_tracing() {
 #[tokio::test]
 async fn e2e_log_deletion_summary() {
     e2e_timeout!(async {
-        // Purpose: Verify --log-deletion-summary outputs a summary of deletion
-        //          statistics at the end of the pipeline run.
+        // Purpose: Verify the deletion summary is always logged at the end
+        //          of the pipeline run.
         // Setup:   Upload 10 objects.
         // Expected: Pipeline completes; all 10 objects deleted; stats are logged.
         //
@@ -286,11 +286,7 @@ async fn e2e_log_deletion_summary() {
                 .await;
         }
 
-        let config = TestHelper::build_config(vec![
-            &format!("s3://{bucket}/summary/"),
-            "--log-deletion-summary",
-            "--force",
-        ]);
+        let config = TestHelper::build_config(vec![&format!("s3://{bucket}/summary/"), "--force"]);
         let result = TestHelper::run_pipeline(config).await;
 
         assert!(!result.has_error, "Pipeline should complete without errors");

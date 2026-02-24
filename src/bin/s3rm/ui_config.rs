@@ -56,7 +56,6 @@ mod tests {
                 prefix: "".to_string(),
             },
             show_no_progress,
-            log_deletion_summary: false,
             target_client_config: None,
             force_retry_config: s3rm_rs::config::ForceRetryConfig {
                 force_retry_count: 3,

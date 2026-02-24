@@ -32,7 +32,6 @@ pub(crate) fn make_test_config() -> Config {
             prefix: "prefix/".to_string(),
         },
         show_no_progress: false,
-        log_deletion_summary: false,
         target_client_config: None,
         force_retry_config: ForceRetryConfig {
             force_retry_count: 0,

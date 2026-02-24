@@ -117,7 +117,6 @@ mod tests {
                     receiver,
                     show_progress,
                     show_result,
-                    false, // log_deletion_summary
                     false, // dry_run
                 );
 
@@ -181,7 +180,7 @@ mod tests {
 
                 drop(sender);
 
-                let handle = show_indicator(receiver, false, false, false, false);
+                let handle = show_indicator(receiver, false, false, false);
 
                 let summary = tokio::time::timeout(Duration::from_secs(5), handle)
                     .await
@@ -245,7 +244,6 @@ mod tests {
 
                 let handle = show_indicator(
                     receiver,
-                    false,
                     false,
                     false,
                     true, // dry_run = true

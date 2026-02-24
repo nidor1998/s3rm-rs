@@ -53,7 +53,6 @@ Initial release. s3rm-rs is a fast Amazon S3 object deletion tool built as a sib
 - Structured logging with configurable verbosity (`-v`, `-vv`, `-vvv`) and optional JSON output
 - Colored terminal output with `--disable-color-tracing` and `NO_COLOR` environment variable support
 - `--warn-as-error` flag to promote deletion warnings to fatal pipeline errors
-- `--log-deletion-summary` flag to log per-object deletion results
 - AWS credential support: environment variables, credentials file, IAM roles, SSO
 - Custom S3-compatible endpoint support (`--target-endpoint-url`)
 - S3 Transfer Acceleration support (`--target-accelerate`)

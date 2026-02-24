@@ -104,7 +104,6 @@ mod tests {
                 prefix: prefix.to_string(),
             },
             show_no_progress: false,
-            log_deletion_summary: false,
             target_client_config: None,
             force_retry_config: ForceRetryConfig {
                 force_retry_count: 0,
@@ -151,7 +150,6 @@ mod tests {
                 prefix: String::new(),
             },
             show_no_progress: false,
-            log_deletion_summary: false,
             target_client_config: None,
             force_retry_config: ForceRetryConfig {
                 force_retry_count: 0,

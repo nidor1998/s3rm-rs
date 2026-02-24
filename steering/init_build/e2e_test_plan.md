@@ -1,7 +1,7 @@
 # Task 29: Automated E2E Integration Testing
 
 > **Referenced from**: `steering/init_build/tasks.md` (Task 29)
-> **Status**: Complete — all test cases implemented and passing (84 test functions across 14 test files + shared infrastructure, 84/84 pass verified 2026-02-23)
+> **Status**: Complete — all test cases implemented and passing (85 test functions across 14 test files + shared infrastructure, 85/85 pass verified 2026-02-24)
 
 ## E2E Test Requirements Checklist
 
@@ -624,7 +624,7 @@ tests/
 +-- e2e_performance.rs     # Tests 29.33-29.37 (5 tests)
 +-- e2e_tracing.rs         # Tests 29.38-29.44 (7 tests)
 +-- e2e_retry.rs           # Tests 29.45-29.47 (3 tests)
-+-- e2e_error.rs           # Tests 29.48-29.50 + exit codes, rate-limit validation (6 tests)
++-- e2e_error.rs           # Tests 29.48-29.50 + exit codes, rate-limit validation, non-TTY safety (7 tests)
 +-- e2e_aws_config.rs      # Tests 29.51-29.53a (4 tests)
 +-- e2e_combined.rs        # Tests 29.54-29.59a (7 tests)
 +-- e2e_stats.rs           # Tests 29.60-29.61 (2 tests)

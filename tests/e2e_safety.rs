@@ -8,11 +8,10 @@ mod common;
 
 use common::TestHelper;
 
-// TODO: Test R-1 (Req 13.1): Non-TTY detection without --force.
-// E2E tests always run in non-TTY environments. Verifying that the tool
-// auto-detects non-TTY and skips prompts (without --force) would require
-// a dedicated integration test that spawns the binary without --force
-// in a non-TTY context and verifies it proceeds without hanging.
+// Test for Req 13.1 (Non-TTY detection without --force) is implemented in
+// e2e_error.rs::e2e_non_tty_without_force_returns_error. The tool returns
+// exit code 2 with an InvalidConfig error in non-interactive environments
+// when neither --force nor --dry-run is specified.
 
 // ---------------------------------------------------------------------------
 // 29.18 Dry Run No Deletion

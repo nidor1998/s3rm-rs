@@ -1,7 +1,7 @@
 //! E2E tests for error handling and access denial (Tests 29.48 - 29.50).
 //!
 //! Tests access denied with invalid credentials, nonexistent bucket,
-//! --warn-as-error behavior, CLI exit codes, non-TTY safety, and config validation.
+//! --warn-as-error behavior, CLI exit codes, and config validation.
 
 #![cfg(e2e_test)]
 
@@ -381,56 +381,6 @@ async fn e2e_rate_limit_less_than_batch_size_rejected() {
         assert!(
             error_msg.contains("--batch-size"),
             "Error message should mention --batch-size; got: {error_msg}"
-        );
-        guard.cleanup().await;
-    });
-}
-
-// ---------------------------------------------------------------------------
-// R-6: Non-TTY Without --force Returns Error
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn e2e_non_tty_without_force_returns_error() {
-    e2e_timeout!(async {
-        // Purpose: Verify that running the pipeline without --force or --dry-run
-        //          in a non-interactive environment (no TTY, as E2E tests are)
-        //          produces an error and leaves objects untouched.
-        //
-        // Validates: Requirement 13.1
-
-        let helper = TestHelper::new().await;
-        let bucket = helper.generate_bucket_name();
-        helper.create_bucket(&bucket).await;
-
-        let guard = helper.bucket_guard(&bucket);
-
-        helper
-            .put_object(&bucket, "nontty/file0.dat", vec![b'n'; 100])
-            .await;
-
-        // Intentionally omit --force and --dry-run
-        let config = TestHelper::build_config(vec![&format!("s3://{bucket}/nontty/")]);
-        let result = TestHelper::run_pipeline(config).await;
-
-        assert!(
-            result.has_error,
-            "Pipeline without --force in non-TTY should report an error"
-        );
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| e.contains("non-interactive") || e.contains("--force")),
-            "Error should mention non-interactive environment or --force; errors: {:?}",
-            result.errors
-        );
-
-        // Objects must remain (no deletion occurred)
-        let remaining = helper.count_objects(&bucket, "nontty/").await;
-        assert_eq!(
-            remaining, 1,
-            "Object should remain since deletion was blocked"
         );
         guard.cleanup().await;
     });

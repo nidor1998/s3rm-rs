@@ -8,10 +8,11 @@ mod common;
 
 use common::TestHelper;
 
-// Test for Req 13.1 (Non-TTY detection without --force) is implemented in
-// e2e_error.rs::e2e_non_tty_without_force_returns_error. The tool returns
-// exit code 2 with an InvalidConfig error in non-interactive environments
-// when neither --force nor --dry-run is specified.
+// Note on Req 13.1 (Non-TTY detection without --force):
+// The tool returns exit code 2 with an InvalidConfig error in non-interactive
+// environments when neither --force nor --dry-run is specified. This is covered
+// by unit tests (safety_properties, cicd_properties) rather than E2E because
+// cargo test inherits the terminal, making is_terminal() return true.
 
 // ---------------------------------------------------------------------------
 // 29.18 Dry Run No Deletion

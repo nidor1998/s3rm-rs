@@ -326,7 +326,7 @@ graph LR
 ```
 
 **Workflow**:
-1. **Check Prerequisites** (via `check_prerequisites()`): Validate configuration, check versioning, handle confirmation prompt (dry-run skips confirmation but pipeline still runs fully). Called separately before `run()` so the progress bar doesn't interfere with prompts.
+1. **Check Prerequisites** (via `check_prerequisites()`): Validate configuration, handle confirmation prompt (dry-run skips confirmation but pipeline still runs fully). If `delete_all_versions` is set but the bucket is not versioned, the flag is silently cleared so the pipeline proceeds with normal deletion. Called separately before `run()` so the progress bar doesn't interfere with prompts.
 2. **List Stage**: Spawn ObjectLister to list target objects into channel
 3. **Filter Stages**: Chain filter stages (each reads from previous, writes to next)
    - MtimeBeforeFilter (if configured)

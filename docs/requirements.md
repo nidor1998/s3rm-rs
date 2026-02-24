@@ -116,6 +116,7 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 3. THE Object_Lister SHALL retrieve version information when operating on versioned buckets
 4. WHEN displaying dry-run results for versioned buckets, THE S3rm_Tool SHALL count each version as a separate object in progress and summary statistics
 5. THE Batch_Deleter SHALL handle version IDs correctly in DeleteObjects API requests
+6. WHERE the delete-all-versions flag is provided but the target bucket does not have versioning enabled, THE S3rm_Tool SHALL silently ignore the flag and proceed with normal deletion of all matching objects
 
 ### Requirement 6: Robust Error Handling and Retry Logic
 

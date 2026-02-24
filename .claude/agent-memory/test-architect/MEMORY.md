@@ -10,17 +10,27 @@
 - All 84 E2E tests (14 test files) pass as of 2026-02-23 (verified with live AWS)
 
 ## Test Suite Health (v0.1.0 Pre-Release Review, 2026-02-24)
-- 454 lib + 26 bin + 8 doc = 488 tests, 0 failed, 1 ignored (doctest `ignore` tag, expected)
-- Test wall time: 1.43s (lib) + 0.11s (bin) + 8.10s (doctests) = ~10s total
+- 460 lib + 26 bin + 14 doc = 500 tests, 0 failed, 1 ignored (doctest `ignore` tag, expected)
+- Test wall time: ~1.5s (lib) + ~0.1s (bin) + ~10s (doctests) = ~12s total
 - Clippy: zero warnings
 - Rustfmt: clean
 - cargo-deny: advisories ok, bans ok, licenses ok, sources ok
 - cargo doc: builds cleanly
-- Coverage: 93.94% regions, 87.59% functions, 93.74% lines (below 97% target, above 90% min)
+- Coverage: 93.45% regions, 87.06% functions, 92.83% lines
 - All 49 properties (1-49) referenced in test code
 - 167 "Validates:" requirement tags across property tests
 - proptest case counts: 10-100 per block (most 50-100)
 - No sleep in tests, no stdin in tests (properly abstracted via PromptHandler trait)
+
+## Coverage Gap Analysis (2026-02-24)
+- config/args/mod.rs: 53.51% -- Lua cfg_if blocks untested; dry_run tracing upgrade paths
+- config/args/value_parser/url.rs: 75% -- missing invalid-scheme test
+- bin/s3rm/main.rs: 65.17% -- main() and load_config_exit_if_err() marked #[coverage(off)]
+- safety/mod.rs: 78% -- StdioPromptHandler untestable (real stdin); SafetyChecker::new() uncovered
+- storage/s3/mod.rs: 80.40% -- all methods make real AWS calls; 99 missed lines in error paths
+- deleter/mod.rs: 83.07% -- tag/metadata/content-type filter paths, is_not_found_error()
+- optimistic_locking_properties.rs: 76.89% -- mock boilerplate counted but only partially hit
+- filters/mod.rs: 85.48% -- event emission path partially covered
 
 ## Mock Storage Locations (6 separate implementations)
 - `src/filters/mod.rs` lines 294-375: Minimal stub (filters only)

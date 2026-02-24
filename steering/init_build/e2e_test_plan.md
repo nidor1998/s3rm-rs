@@ -240,12 +240,12 @@ Each filtering test uploads ~20 objects with varying properties, runs the pipeli
   - **Assertions**: No object versions or delete markers remain; bucket is completely clean; stats count each version/marker as a separate deletion
   - _Requirements: 5.2, 5.4_
 
-- [x] 29.23 `e2e_delete_all_versions_unversioned_bucket_error`
-  - **Tests**: `--delete-all-versions` on a non-versioned bucket produces an error
+- [x] 29.23 `e2e_delete_all_versions_unversioned_bucket_succeeds`
+  - **Tests**: `--delete-all-versions` on a non-versioned bucket silently ignores the flag and deletes objects normally
   - **Setup**: Create standard (non-versioned) bucket; upload 5 objects
   - **Config**: `--delete-all-versions --force`
-  - **Assertions**: Pipeline reports error about versioning requirement; no objects deleted
-  - _Requirements: 5.2_
+  - **Assertions**: Pipeline succeeds without error; all objects are deleted
+  - _Requirements: 5.6_
 
 ## E2E Test Plan: Callback Tests
 

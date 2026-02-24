@@ -194,16 +194,14 @@ async fn e2e_delete_all_versions() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn e2e_delete_all_versions_unversioned_bucket_error() {
+async fn e2e_delete_all_versions_unversioned_bucket_succeeds() {
     e2e_timeout!(async {
         // Purpose: Verify that --delete-all-versions on a non-versioned bucket
-        //          produces an error. The pipeline should detect the mismatch
-        //          and report it.
+        //          silently ignores the flag and deletes objects normally.
         // Setup:   Create standard (non-versioned) bucket; upload 5 objects.
-        // Expected: Pipeline reports error about versioning requirement;
-        //           objects should remain (no deletion attempted).
+        // Expected: Pipeline succeeds; all objects are deleted.
         //
-        // Validates: Requirement 5.2
+        // Validates: Requirement 5.6
 
         let helper = TestHelper::new().await;
         let bucket = helper.generate_bucket_name();
@@ -225,13 +223,13 @@ async fn e2e_delete_all_versions_unversioned_bucket_error() {
         let result = TestHelper::run_pipeline(config).await;
 
         assert!(
-            result.has_error,
-            "Pipeline should report error for --delete-all-versions on non-versioned bucket"
+            !result.has_error,
+            "Pipeline should succeed with --delete-all-versions on non-versioned bucket"
         );
 
-        // Objects should still exist
+        // All objects should be deleted
         let remaining = helper.count_objects(&bucket, "data/").await;
-        assert_eq!(remaining, 5, "All objects should remain after the error");
+        assert_eq!(remaining, 0, "All objects should be deleted");
         guard.cleanup().await;
     });
 }

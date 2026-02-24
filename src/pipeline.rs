@@ -226,13 +226,12 @@ impl DeletionPipeline {
         let checker = SafetyChecker::new(&self.config);
         checker.check_before_deletion()?;
 
-        // Validate versioning prerequisite
+        // If delete_all_versions is set but the bucket is not versioned,
+        // silently clear the flag and proceed with normal deletion (Requirement 5.6).
         if self.config.delete_all_versions {
             let versioning_enabled = self.target.is_versioning_enabled().await?;
             if !versioning_enabled {
-                return Err(anyhow::anyhow!(
-                    "--delete-all-versions option requires versioning enabled on the target bucket."
-                ));
+                self.config.delete_all_versions = false;
             }
         }
 
@@ -1445,7 +1444,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pipeline_delete_all_versions_requires_versioning() {
+    async fn pipeline_delete_all_versions_on_unversioned_bucket_clears_flag() {
         init_dummy_tracing_subscriber();
 
         let (stats_sender, stats_receiver) = async_channel::unbounded();
@@ -1476,14 +1475,10 @@ mod tests {
             deletion_stats_report: Arc::new(DeletionStatsReport::new()),
         };
 
+        // Pipeline should succeed — the flag is silently cleared (Requirement 5.6)
         pipeline.run().await;
-        assert!(pipeline.has_error());
-        let errors = pipeline.get_errors_and_consume().unwrap();
-        assert!(
-            errors[0]
-                .to_string()
-                .contains("--delete-all-versions option requires versioning enabled")
-        );
+        assert!(!pipeline.has_error());
+        assert!(!pipeline.config.delete_all_versions);
     }
 
     // -----------------------------------------------------------------------

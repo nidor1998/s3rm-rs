@@ -394,7 +394,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-s3rm-rs = "0.1"
+s3rm-rs = "0.2"
 ```
 
 See [Library API](#library-api) for usage examples.

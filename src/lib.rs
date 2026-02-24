@@ -31,7 +31,7 @@ wrapper that parses arguments, builds a [`Config`], and runs a [`DeletionPipelin
 
 ```toml
 [dependencies]
-s3rm-rs = "0.1"
+s3rm-rs = "0.2"
 tokio = { version = "1", features = ["full"] }
 ```
 

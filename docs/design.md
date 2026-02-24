@@ -2072,7 +2072,7 @@ async fn test_batch_deletion_with_partial_failure() {
 ```toml
 [dependencies]
 # Error handling (same as s3sync)
-anyhow = "1.0.101"
+anyhow = "1.0.102"
 thiserror = "2.0.18"
 
 # Async runtime (same as s3sync)
@@ -2082,25 +2082,24 @@ tokio = { version = "1.49.0", features = ["full"] }
 tokio-util = "0.7.18"
 
 # AWS SDK (same versions as s3sync)
-aws-config = { version = "1.8.13", features = ["behavior-version-latest"] }
-aws-runtime = "1.6.0"
-aws-sdk-s3 = "1.122.0"
-aws-smithy-runtime-api = "1.11.3"
-aws-smithy-types = "1.4.3"
-aws-smithy-types-convert = { version = "0.60.12", features = ["convert-chrono"] }
-aws-types = "1.3.11"
+aws-config = { version = "1.8.14", features = ["behavior-version-latest"] }
+aws-runtime = "1.7.1"
+aws-sdk-s3 = "1.124.0"
+aws-smithy-runtime-api = "1.11.5"
+aws-smithy-types = "1.4.5"
+aws-smithy-types-convert = { version = "0.60.13", features = ["convert-chrono"] }
+aws-types = "1.3.13"
 
 # CLI (same as s3sync)
-clap = { version = "4.5.57", features = ["derive", "env", "cargo", "string"] }
-clap_complete = "4.5.65"
+clap = { version = "4.5.60", features = ["derive", "env", "cargo", "string"] }
+clap_complete = "4.5.66"
 clap-verbosity-flag = "3.0.4"
 
 # Date/time
-chrono = "0.4.43"
+chrono = "0.4.44"
 
 # Regex (same as s3sync)
 fancy-regex = "0.17.0"
-regex = "1.12.3"
 
 # Rate limiter (same as s3sync)
 leaky-bucket = "1.1.2"
@@ -2114,7 +2113,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json", "local-time"] }
 
 # Progress bar (same as s3sync)
-indicatif = "0.18.3"
+indicatif = "0.18.4"
 simple_moving_average = "1.0.2"
 
 # Terminal
@@ -2137,20 +2136,19 @@ shadow-rs = { version = "1.7.0", optional = true }
 
 # Misc (same as s3sync)
 cfg-if = "1.0.4"
-bitflags = "2.10.0"
+bitflags = "2.11.0"
 log = "0.4.29"
-rusty-fork = "0.3.1"
 
 [build-dependencies]
 shadow-rs = { version = "1.7.0", optional = true }
 
 [dev-dependencies]
-proptest = "1.6"
-tokio-test = "0.4"
+proptest = "1.10"
 once_cell = "1.21.3"
-uuid = { version = "1.20.0", features = ["v4"] }
+uuid = { version = "1.21.0", features = ["v4"] }
 nix = { version = "0.31.1", features = ["process", "signal"] }
 tempfile = "3.25.0"
+rusty-fork = "0.3.1"
 ```
 
 ### File Structure

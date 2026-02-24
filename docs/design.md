@@ -135,9 +135,8 @@ impl DeletionPipeline {
 }
 
 // Configuration (similar to s3sync's Config)
-pub struct Config {
-    // Internal configuration state
-}
+// All fields are public for programmatic access — see Section 15 for full listing.
+pub struct Config { /* ... */ }
 
 impl TryFrom<CLIArgs> for Config {
     type Error = String;
@@ -203,8 +202,8 @@ pub trait FilterCallback: Send {
 #[async_trait]
 pub trait EventCallback: Send {
     async fn on_event(&mut self, event_data: EventData);
-    // EventData is a flat struct with event_type, key, version_id, size,
-    // error_message, and stats fields (not the DeletionEvent enum)
+    // EventData is a flat struct with event_type, dry_run, key, version_id,
+    // size, last_modified, e_tag, error_message, message, and stats fields
 }
 
 // Callback management (registration and execution)
@@ -261,7 +260,7 @@ impl DeletionPipeline {
     }
 
     pub async fn run(&mut self) {
-        // Note: check_prerequisites() must be called before run().
+        // Automatically calls check_prerequisites() if not already called.
         // 1. Fire PIPELINE_START event
         // 2. List objects (using s3sync's parallel lister)
         // 3. Filter objects (using s3sync's filter stages)
@@ -271,7 +270,10 @@ impl DeletionPipeline {
         // Note: All stages connected by async channels
     }
 
-    // Safety checks (run before pipeline execution)
+    // Safety checks (confirmation prompt, versioning).
+    // Called automatically by run() if not already called.
+    // Can be called explicitly before run() to separate the prompt from
+    // the progress bar.
     pub async fn check_prerequisites(&mut self) -> Result<()>;
 
     // Error handling (from s3sync)

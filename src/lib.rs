@@ -60,7 +60,18 @@ async fn main() {
 
     pipeline.run().await;
 
+    // --- Error checking ---
+    if pipeline.has_error() {
+        if let Some(messages) = pipeline.get_error_messages() {
+            for msg in &messages {
+                eprintln!("Error: {msg}");
+            }
+        }
+        std::process::exit(1);
+    }
+
     let stats = pipeline.get_deletion_stats();
+
     println!("Deleted {} objects ({} bytes)",
         stats.stats_deleted_objects, stats.stats_deleted_bytes);
 }

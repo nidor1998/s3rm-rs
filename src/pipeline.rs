@@ -180,7 +180,7 @@ impl DeletionPipeline {
     /// Get error messages without consuming them.
     ///
     /// Returns `None` if no errors occurred.
-    fn get_error_messages(&self) -> Option<Vec<String>> {
+    pub fn get_error_messages(&self) -> Option<Vec<String>> {
         if !self.has_error() {
             return None;
         }

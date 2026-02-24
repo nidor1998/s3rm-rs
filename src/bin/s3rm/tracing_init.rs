@@ -18,6 +18,7 @@ pub fn init_tracing(config: &TracingConfig) {
     };
 
     let subscriber_builder = tracing_subscriber::fmt()
+        .with_writer(std::io::stdout)
         .compact()
         .with_target(false)
         .with_ansi(!config.disable_color_tracing && std::io::stdout().is_terminal())

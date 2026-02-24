@@ -282,7 +282,13 @@ async fn e2e_lua_event_callback() {
 
         // Create output file for Lua to write to
         let output_file = tempfile::NamedTempFile::new().unwrap();
-        let output_path = output_file.path().to_str().unwrap().to_string();
+        // Use forward slashes for cross-platform Lua compatibility (Windows
+        // backslashes like C:\Users are interpreted as escape sequences in Lua strings).
+        let output_path = output_file
+            .path()
+            .to_str()
+            .unwrap()
+            .replace('\\', "/");
 
         // Write a Lua event script that writes event count to the output file.
         // The Lua event callback API uses `on_event(event_data)`, not `complete()`.

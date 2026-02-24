@@ -697,17 +697,29 @@ proptest! {
 // (Covers cfg_if blocks in build_tracing_config for dry-run)
 // ---------------------------------------------------------------------------
 
-/// When dry-run is enabled with `-qq` (silent), tracing should be upgraded to Info.
+/// When dry-run is enabled with `-qq` (silent), the user's explicit quiet flags
+/// should be respected — tracing stays silent even in dry-run mode.
 #[test]
-fn config_dry_run_upgrades_silent_to_info() {
+fn config_dry_run_respects_silent_mode() {
     let args = vec!["s3rm", "s3://bucket/", "--dry-run", "-qq"];
     let cli = parse_from_args(args).unwrap();
     let config = Config::try_from(cli).unwrap();
-    // Even though -qq normally suppresses all output, dry-run must ensure Info level
+    // -qq means silent; dry-run should not override explicit quiet flags
+    assert!(config.tracing_config.is_none());
+}
+
+/// When dry-run is enabled with `-q` (Error only), the user's explicit quiet flag
+/// should be respected — tracing stays at Error level even in dry-run mode.
+#[test]
+fn config_dry_run_respects_quiet_mode() {
+    let args = vec!["s3rm", "s3://bucket/", "--dry-run", "-q"];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    // -q means Error only; dry-run should not override explicit quiet flags
     assert!(config.tracing_config.is_some());
     assert_eq!(
         config.tracing_config.unwrap().tracing_level,
-        log::Level::Info
+        log::Level::Error
     );
 }
 

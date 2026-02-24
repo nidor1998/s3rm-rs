@@ -176,13 +176,12 @@ pub type ObjectKeyMap = Arc<Mutex<HashMap<String, S3Object>>>;
 ///
 /// Each variant represents a single event that is sent from workers to the
 /// progress reporter via an async channel. Adapted from s3sync's SyncStatistics.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DeletionStatistics {
     DeleteBytes(u64),
     DeleteComplete { key: String },
     DeleteSkip { key: String },
     DeleteError { key: String },
-    DeleteWarning { key: String },
 }
 
 /// Aggregate deletion statistics report with atomic counters.

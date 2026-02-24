@@ -19,10 +19,9 @@ bitflags! {
         const DELETE_COMPLETE = 1u64 << 3;
         const DELETE_FAILED = 1u64 << 4;
         const DELETE_FILTERED = 1u64 << 5;
-        const DELETE_WARNING = 1u64 << 6;
-        const PIPELINE_ERROR = 1u64 << 7;
-        const DELETE_CANCEL = 1u64 << 8;
-        const STATS_REPORT = 1u64 << 9;
+        const PIPELINE_ERROR = 1u64 << 6;
+        const DELETE_CANCEL = 1u64 << 7;
+        const STATS_REPORT = 1u64 << 8;
         const ALL_EVENTS = !0;
     }
 }
@@ -49,7 +48,6 @@ pub struct EventData {
     pub stats_deleted_bytes: Option<u64>,
     pub stats_failed_objects: Option<u64>,
     pub stats_skipped_objects: Option<u64>,
-    pub stats_warning_count: Option<u64>,
     pub stats_error_count: Option<u64>,
     pub stats_duration_sec: Option<f64>,
     pub stats_objects_per_sec: Option<f64>,

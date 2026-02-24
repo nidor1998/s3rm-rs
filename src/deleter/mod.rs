@@ -189,7 +189,7 @@ impl ObjectDeleter {
         if let Some(max_delete) = self.base.config.max_delete {
             if deleted_count > max_delete {
                 self.base
-                    .send_stats(DeletionStatistics::DeleteWarning {
+                    .send_stats(DeletionStatistics::DeleteError {
                         key: object.key().to_string(),
                     })
                     .await;
@@ -198,7 +198,7 @@ impl ObjectDeleter {
                 let message = "--max-delete has been reached. delete operation has been cancelled.";
                 warn!(key = object.key(), message);
 
-                let mut event_data = EventData::new(EventType::DELETE_WARNING);
+                let mut event_data = EventData::new(EventType::DELETE_FAILED);
                 event_data.key = Some(object.key().to_string());
                 event_data.message = Some(message.to_string());
                 self.base
@@ -492,14 +492,9 @@ impl ObjectDeleter {
         }
 
         // Emit per-object stats and events for failures.
+        // Note: DeleteError stats are emitted by the Deleter (BatchDeleter/SingleDeleter).
         for fk in &delete_result.failed {
             self.deletion_stats_report.increment_failed();
-
-            self.base
-                .send_stats(DeletionStatistics::DeleteWarning {
-                    key: fk.key.clone(),
-                })
-                .await;
 
             let mut event_data = EventData::new(EventType::DELETE_FAILED);
             event_data.dry_run = is_dry_run;

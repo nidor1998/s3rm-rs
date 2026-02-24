@@ -43,9 +43,6 @@ impl EventCallback for UserDefinedEventCallback {
             EventType::DELETE_FILTERED => {
                 println!("Delete filtered: {event_data:?}");
             }
-            EventType::DELETE_WARNING => {
-                println!("Delete warning: {event_data:?}");
-            }
             EventType::PIPELINE_ERROR => {
                 println!("Pipeline error: {event_data:?}");
             }

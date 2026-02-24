@@ -219,7 +219,6 @@ pub struct PipelineStats {
     pub stats_deleted_bytes: u64,
     pub stats_failed_objects: u64,
     pub stats_skipped_objects: u64,
-    pub stats_warning_count: u64,
     pub stats_error_count: u64,
     pub stats_duration_sec: f64,
     pub stats_objects_per_sec: f64,
@@ -706,7 +705,6 @@ pub struct IndicatorSummary {
     pub total_delete_bytes: u64,
     pub total_error_count: u64,
     pub total_skip_count: u64,
-    pub total_warning_count: u64,
 }
 
 pub fn show_indicator(
@@ -1231,7 +1229,6 @@ pub enum DeletionStatistics {
     DeleteComplete { key: String },
     DeleteSkip { key: String },
     DeleteError { key: String },
-    DeleteWarning { key: String },
 }
 
 // Aggregate deletion statistics report with atomic counters (adapted from s3sync's SyncStatsReport)

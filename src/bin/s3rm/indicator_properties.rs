@@ -32,33 +32,26 @@ mod tests {
                         key: "skip".to_string(),
                     }
                 }),
-                any::<u16>().prop_map(|_| {
-                    DeletionStatistics::DeleteWarning {
-                        key: "warn".to_string(),
-                    }
-                }),
             ],
             0..50,
         )
     }
 
     /// Compute expected indicator summary counts from a stats sequence.
-    fn expected_counts(stats: &[DeletionStatistics]) -> (u64, u64, u64, u64, u64) {
+    fn expected_counts(stats: &[DeletionStatistics]) -> (u64, u64, u64, u64) {
         let mut deletes = 0u64;
         let mut bytes = 0u64;
         let mut errors = 0u64;
         let mut skips = 0u64;
-        let mut warnings = 0u64;
         for s in stats {
             match s {
                 DeletionStatistics::DeleteComplete { .. } => deletes += 1,
                 DeletionStatistics::DeleteBytes(b) => bytes += *b,
                 DeletionStatistics::DeleteError { .. } => errors += 1,
                 DeletionStatistics::DeleteSkip { .. } => skips += 1,
-                DeletionStatistics::DeleteWarning { .. } => warnings += 1,
             }
         }
-        (deletes, bytes, errors, skips, warnings)
+        (deletes, bytes, errors, skips)
     }
 
     // -- Property 31: Progress Reporting --
@@ -78,7 +71,7 @@ mod tests {
             show_progress in proptest::bool::ANY,
             show_result in proptest::bool::ANY,
         ) {
-            let (exp_del, exp_bytes, exp_err, exp_skip, exp_warn) = expected_counts(&stats);
+            let (exp_del, exp_bytes, exp_err, exp_skip) = expected_counts(&stats);
 
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -89,26 +82,7 @@ mod tests {
                 let (sender, receiver) = async_channel::unbounded();
 
                 for s in &stats {
-                    let stat = match s {
-                        DeletionStatistics::DeleteComplete { key } => {
-                            DeletionStatistics::DeleteComplete {
-                                key: key.clone(),
-                            }
-                        }
-                        DeletionStatistics::DeleteBytes(b) => {
-                            DeletionStatistics::DeleteBytes(*b)
-                        }
-                        DeletionStatistics::DeleteError { key } => {
-                            DeletionStatistics::DeleteError { key: key.clone() }
-                        }
-                        DeletionStatistics::DeleteSkip { key } => {
-                            DeletionStatistics::DeleteSkip { key: key.clone() }
-                        }
-                        DeletionStatistics::DeleteWarning { key } => {
-                            DeletionStatistics::DeleteWarning { key: key.clone() }
-                        }
-                    };
-                    sender.send(stat).await.unwrap();
+                    sender.send(s.clone()).await.unwrap();
                 }
 
                 drop(sender); // Close channel to trigger summary
@@ -130,7 +104,6 @@ mod tests {
                 prop_assert_eq!(summary.total_delete_bytes, exp_bytes);
                 prop_assert_eq!(summary.total_error_count, exp_err);
                 prop_assert_eq!(summary.total_skip_count, exp_skip);
-                prop_assert_eq!(summary.total_warning_count, exp_warn);
 
                 Ok(())
             })?;
@@ -145,7 +118,7 @@ mod tests {
         fn prop_indicator_quiet_mode_completes(
             stats in arb_stats_sequence(),
         ) {
-            let (exp_del, exp_bytes, exp_err, exp_skip, exp_warn) = expected_counts(&stats);
+            let (exp_del, exp_bytes, exp_err, exp_skip) = expected_counts(&stats);
 
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -156,26 +129,7 @@ mod tests {
                 let (sender, receiver) = async_channel::unbounded();
 
                 for s in &stats {
-                    let stat = match s {
-                        DeletionStatistics::DeleteComplete { key } => {
-                            DeletionStatistics::DeleteComplete {
-                                key: key.clone(),
-                            }
-                        }
-                        DeletionStatistics::DeleteBytes(b) => {
-                            DeletionStatistics::DeleteBytes(*b)
-                        }
-                        DeletionStatistics::DeleteError { key } => {
-                            DeletionStatistics::DeleteError { key: key.clone() }
-                        }
-                        DeletionStatistics::DeleteSkip { key } => {
-                            DeletionStatistics::DeleteSkip { key: key.clone() }
-                        }
-                        DeletionStatistics::DeleteWarning { key } => {
-                            DeletionStatistics::DeleteWarning { key: key.clone() }
-                        }
-                    };
-                    sender.send(stat).await.unwrap();
+                    sender.send(s.clone()).await.unwrap();
                 }
 
                 drop(sender);
@@ -191,7 +145,6 @@ mod tests {
                 prop_assert_eq!(summary.total_delete_bytes, exp_bytes);
                 prop_assert_eq!(summary.total_error_count, exp_err);
                 prop_assert_eq!(summary.total_skip_count, exp_skip);
-                prop_assert_eq!(summary.total_warning_count, exp_warn);
 
                 Ok(())
             })?;
@@ -207,7 +160,7 @@ mod tests {
         fn prop_indicator_dry_run_completes(
             stats in arb_stats_sequence(),
         ) {
-            let (exp_del, exp_bytes, exp_err, exp_skip, exp_warn) = expected_counts(&stats);
+            let (exp_del, exp_bytes, exp_err, exp_skip) = expected_counts(&stats);
 
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -218,26 +171,7 @@ mod tests {
                 let (sender, receiver) = async_channel::unbounded();
 
                 for s in &stats {
-                    let stat = match s {
-                        DeletionStatistics::DeleteComplete { key } => {
-                            DeletionStatistics::DeleteComplete {
-                                key: key.clone(),
-                            }
-                        }
-                        DeletionStatistics::DeleteBytes(b) => {
-                            DeletionStatistics::DeleteBytes(*b)
-                        }
-                        DeletionStatistics::DeleteError { key } => {
-                            DeletionStatistics::DeleteError { key: key.clone() }
-                        }
-                        DeletionStatistics::DeleteSkip { key } => {
-                            DeletionStatistics::DeleteSkip { key: key.clone() }
-                        }
-                        DeletionStatistics::DeleteWarning { key } => {
-                            DeletionStatistics::DeleteWarning { key: key.clone() }
-                        }
-                    };
-                    sender.send(stat).await.unwrap();
+                    sender.send(s.clone()).await.unwrap();
                 }
 
                 drop(sender);
@@ -258,7 +192,6 @@ mod tests {
                 prop_assert_eq!(summary.total_delete_bytes, exp_bytes);
                 prop_assert_eq!(summary.total_error_count, exp_err);
                 prop_assert_eq!(summary.total_skip_count, exp_skip);
-                prop_assert_eq!(summary.total_warning_count, exp_warn);
 
                 Ok(())
             })?;

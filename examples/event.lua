@@ -17,7 +17,6 @@
 --   event.stats_deleted_bytes   (number)  - Total deleted bytes (STATS_REPORT only)
 --   event.stats_failed_objects  (number)  - Total failed deletions (STATS_REPORT only)
 --   event.stats_skipped_objects (number)  - Total skipped objects (STATS_REPORT only)
---   event.stats_warning_count   (number)  - Warning count (STATS_REPORT only)
 --   event.stats_error_count     (number)  - Error count (STATS_REPORT only)
 --   event.stats_duration_sec    (number)  - Elapsed seconds (STATS_REPORT only)
 --   event.stats_objects_per_sec (number)  - Throughput (STATS_REPORT only)
@@ -28,10 +27,9 @@ PIPELINE_END    = 4     -- 1 << 2
 DELETE_COMPLETE = 8     -- 1 << 3
 DELETE_FAILED   = 16    -- 1 << 4
 DELETE_FILTERED = 32    -- 1 << 5
-DELETE_WARNING  = 64    -- 1 << 6
-PIPELINE_ERROR  = 128   -- 1 << 7
-DELETE_CANCEL   = 256   -- 1 << 8
-STATS_REPORT    = 512   -- 1 << 9
+PIPELINE_ERROR  = 64    -- 1 << 6
+DELETE_CANCEL   = 128   -- 1 << 7
+STATS_REPORT    = 256   -- 1 << 8
 
 -- Helper: check if a bitflag is set
 local function has_flag(value, flag)
@@ -90,10 +88,6 @@ function on_event(event)
         print(string.format("[s3rm] Filtered: %s", object_details(event)))
     end
 
-    if has_flag(et, DELETE_WARNING) then
-        print(string.format("[s3rm] WARNING: %s", object_details(event)))
-    end
-
     if has_flag(et, PIPELINE_ERROR) then
         print(string.format("[s3rm] ERROR: %s", object_details(event)))
     end
@@ -105,12 +99,11 @@ function on_event(event)
     if has_flag(et, STATS_REPORT) then
         print(string.format(
             "[s3rm] Stats: deleted_objects=%d, deleted_bytes=%d, failed=%d, skipped=%d, "
-            .. "warnings=%d, errors=%d, duration=%.1fs, throughput=%.1f obj/s",
+            .. "errors=%d, duration=%.1fs, throughput=%.1f obj/s",
             event.stats_deleted_objects or 0,
             event.stats_deleted_bytes or 0,
             event.stats_failed_objects or 0,
             event.stats_skipped_objects or 0,
-            event.stats_warning_count or 0,
             event.stats_error_count or 0,
             event.stats_duration_sec or 0,
             event.stats_objects_per_sec or 0))

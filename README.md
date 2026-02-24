@@ -1031,7 +1031,6 @@ async fn main() {
 | `DELETE_COMPLETE` | An object was successfully deleted |
 | `DELETE_FAILED` | An object deletion failed |
 | `DELETE_FILTERED` | An object was filtered out (not deleted) |
-| `DELETE_WARNING` | A non-fatal warning occurred |
 | `PIPELINE_ERROR` | A pipeline-level error occurred |
 | `DELETE_CANCEL` | A deletion was cancelled (e.g., max-delete reached) |
 | `STATS_REPORT` | Periodic statistics update |

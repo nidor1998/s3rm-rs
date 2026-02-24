@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use tracing::{debug, warn};
 
 use crate::config::Config;
-use crate::types::S3Object;
+use crate::types::{DeletionStatistics, S3Object};
 
 use super::{DeleteResult, DeletedKey, Deleter, FailedKey};
 
@@ -69,6 +69,11 @@ impl Deleter for SingleDeleter {
                     "S3 DeleteObject API call failed for key '{}'.",
                     key,
                 );
+                self.target
+                    .send_stats(DeletionStatistics::DeleteError {
+                        key: key.to_string(),
+                    })
+                    .await;
                 result.failed.push(FailedKey {
                     key: key.to_string(),
                     version_id,

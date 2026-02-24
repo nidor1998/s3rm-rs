@@ -2541,13 +2541,13 @@ async fn warn_as_error_true_single_deleter_failure_cancels() {
     assert_eq!(snapshot.stats_failed_objects, 1); // key/0 failed
 }
 
-/// Scenario: DeletionStatistics::DeleteWarning is emitted for each failed key
+/// Scenario: DeletionStatistics::DeleteError is emitted for each failed key
 /// regardless of the warn_as_error setting.
 ///
-/// Both warn_as_error=true and warn_as_error=false should emit DeleteWarning
+/// Both warn_as_error=true and warn_as_error=false should emit DeleteError
 /// stats messages for every failed key in the batch.
 #[tokio::test]
-async fn delete_warning_stats_emitted_for_each_failed_key() {
+async fn delete_error_stats_emitted_for_each_failed_key() {
     init_dummy_tracing_subscriber();
 
     for warn_as_error in [false, true] {
@@ -2588,21 +2588,21 @@ async fn delete_warning_stats_emitted_for_each_failed_key() {
 
         // Close the stats sender so try_recv will drain remaining messages
         stats_sender.close();
-        let mut warning_keys = Vec::new();
+        let mut error_keys = Vec::new();
         while let Ok(stat) = stats_receiver.try_recv() {
-            if let DeletionStatistics::DeleteWarning { key } = stat {
-                warning_keys.push(key);
+            if let DeletionStatistics::DeleteError { key } = stat {
+                error_keys.push(key);
             }
         }
 
-        // Both failed keys should have DeleteWarning stats emitted
+        // Both failed keys should have DeleteError stats emitted
         assert!(
-            warning_keys.contains(&"key/1".to_string()),
-            "warn_as_error={warn_as_error}: DeleteWarning should be emitted for key/1"
+            error_keys.contains(&"key/1".to_string()),
+            "warn_as_error={warn_as_error}: DeleteError should be emitted for key/1"
         );
         assert!(
-            warning_keys.contains(&"key/3".to_string()),
-            "warn_as_error={warn_as_error}: DeleteWarning should be emitted for key/3"
+            error_keys.contains(&"key/3".to_string()),
+            "warn_as_error={warn_as_error}: DeleteError should be emitted for key/3"
         );
     }
 }

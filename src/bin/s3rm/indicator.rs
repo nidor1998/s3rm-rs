@@ -21,7 +21,6 @@ pub struct IndicatorSummary {
     pub total_delete_bytes: u64,
     pub total_error_count: u64,
     pub total_skip_count: u64,
-    pub total_warning_count: u64,
 }
 
 /// Moving average window in seconds (samples).
@@ -60,7 +59,6 @@ pub fn show_indicator(
         let mut total_delete_bytes: u64 = 0;
         let mut total_error_count: u64 = 0;
         let mut total_skip_count: u64 = 0;
-        let mut total_warning_count: u64 = 0;
 
         loop {
             let mut period_count: u64 = 0;
@@ -81,9 +79,6 @@ pub fn show_indicator(
                         }
                         DeletionStatistics::DeleteSkip { .. } => {
                             total_skip_count += 1;
-                        }
-                        DeletionStatistics::DeleteWarning { .. } => {
-                            total_warning_count += 1;
                         }
                     }
                 }
@@ -113,7 +108,6 @@ pub fn show_indicator(
                         deleted_objects_per_sec = objects_per_sec,
                         skipped = total_skip_count,
                         error = total_error_count,
-                        warning = total_warning_count,
                         duration_sec = elapsed_secs_f64,
                     );
 
@@ -121,12 +115,11 @@ pub fn show_indicator(
                         progress_text.set_style(ProgressStyle::with_template("{msg}").unwrap());
 
                         progress_text.finish_with_message(format!(
-                            "deleted {:>3} objects | {:>3} objects/sec,  skipped {} objects,  error {} objects, warning {} objects,  deleted {:>3},  duration {}",
+                            "deleted {:>3} objects | {:>3} objects/sec,  skipped {} objects,  error {} objects,  deleted {:>3},  duration {}",
                             total_delete_count,
                             HumanCount(objects_per_sec),
                             total_skip_count,
                             total_error_count,
-                            total_warning_count,
                             HumanBytes(total_delete_bytes),
                             HumanDuration(elapsed),
                         ));
@@ -140,7 +133,6 @@ pub fn show_indicator(
                         total_delete_bytes,
                         total_error_count,
                         total_skip_count,
-                        total_warning_count,
                     };
                 }
 
@@ -153,12 +145,11 @@ pub fn show_indicator(
 
             if show_progress {
                 progress_text.set_message(format!(
-                    "deleted {:>3} objects | {:>3} objects/sec,  skipped {} objects,  error {} objects, warning {} objects,  deleted {:>3}",
+                    "deleted {:>3} objects | {:>3} objects/sec,  skipped {} objects,  error {} objects,  deleted {:>3}",
                     total_delete_count,
                     HumanCount(ma_deleted_count.get_average()),
                     total_skip_count,
                     total_error_count,
-                    total_warning_count,
                     HumanBytes(total_delete_bytes),
                 ));
             }
@@ -185,7 +176,6 @@ mod tests {
         assert_eq!(summary.total_delete_bytes, 0);
         assert_eq!(summary.total_error_count, 0);
         assert_eq!(summary.total_skip_count, 0);
-        assert_eq!(summary.total_warning_count, 0);
     }
 
     #[tokio::test]
@@ -215,12 +205,6 @@ mod tests {
             })
             .await
             .unwrap();
-        sender
-            .send(DeletionStatistics::DeleteWarning {
-                key: "test/obj4".to_string(),
-            })
-            .await
-            .unwrap();
 
         drop(sender); // Close channel
 
@@ -234,7 +218,6 @@ mod tests {
         assert_eq!(summary.total_delete_bytes, 1024);
         assert_eq!(summary.total_error_count, 1);
         assert_eq!(summary.total_skip_count, 1);
-        assert_eq!(summary.total_warning_count, 1);
     }
 
     #[tokio::test]

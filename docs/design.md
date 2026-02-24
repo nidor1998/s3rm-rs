@@ -1953,6 +1953,7 @@ macro_rules! e2e_timeout {
 | `tests/common/mod.rs` | — | Shared test infrastructure (`TestHelper`, `PipelineResult`, `BucketGuard`, `CollectingEventCallback`, `e2e_timeout!` macro) |
 | `tests/e2e_deletion.rs` | 7 | Basic deletion, batch mode, single mode, dry-run, force flag |
 | `tests/e2e_filter.rs` | 24 | Regex, size, time, content-type, metadata, tag, and combined filters |
+| `tests/e2e_safety.rs` | 3 | Safety feature tests - dry-run, max-delete |
 | `tests/e2e_versioning.rs` | 3 | Delete markers, all-versions deletion, versioned dry-run |
 | `tests/e2e_callback.rs` | 7 | Lua filter/event callbacks, Rust event callbacks, event data validation |
 | `tests/e2e_optimistic.rs` | 3 | If-Match conditional deletion, ETag mismatch handling |
@@ -1987,22 +1988,17 @@ Express One Zone tests use the `S3RM_E2E_AZ_ID` environment variable to select a
 #### 4. Mock Testing Strategy
 
 **AWS Client Mocking**:
-- Use `aws-smithy-mocks` for mocking AWS SDK calls
-- Mock successful deletions
-- Mock partial failures
-- Mock throttling and retries
-- Mock network errors
+- Use a custom `MockStorage` struct (in `deleter/tests.rs`) implementing `StorageTrait`
+- Mock successful deletions, partial failures, throttling, and network errors
+- `MockStorage` uses configurable closures to simulate various S3 API responses
 
 **Example Mock Test**:
 ```rust
 #[tokio::test]
 async fn test_batch_deletion_with_partial_failure() {
-    let mock_client = S3Client::from_conf(
-        aws_sdk_s3::Config::builder()
-            .with_test_defaults()
-            .build()
-    );
-    
+    let mock_storage = MockStorage::new()
+        .with_delete_objects_response(/* partial failure response */);
+
     // Configure mock to return partial failure
     // Test that failed objects are retried
 }

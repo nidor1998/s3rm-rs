@@ -1041,7 +1041,7 @@ async fn main() {
 **Supported target: Amazon S3 only.**
 
 Support for S3-compatible storage is on a best-effort basis and may behave differently.
-s3rm has been tested with Amazon S3. s3rm has comprehensive unit tests, property-based tests (proptest) covering 49 correctness properties, and 84 end-to-end integration tests across 14 test files.
+s3rm has been tested with Amazon S3. s3rm has comprehensive unit tests, property-based tests (proptest) covering 49 correctness properties, and 88 end-to-end integration tests across 14 test files. All E2E test scenarios have been thoroughly verified by humans against live AWS S3.
 
 ### Running unit and property tests
 

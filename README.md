@@ -1081,13 +1081,14 @@ Human engineers authored the requirements, design specifications, and s3sync ref
 
 | Metric | Value |
 |---|---|
-| Production code | 13,296 lines of Rust |
-| Test code | 16,866 lines (1.27x production code) |
+| Production code | 14,286 lines of Rust |
+| Test code | 18,105 lines (1.27x production code) |
 | Unit & property tests | 548 passing, 0 failing |
 | Property test blocks (proptest) | 55 correctness properties |
 | E2E integration tests | 84 tests across 14 test files |
+| Code coverage | 94.58% regions, 87.94% functions, 94.44% lines |
 | Clippy warnings | 0 |
-| Development | 7 days, 317 commits, 24 PRs |
+| Development | 344 commits, 25 PRs |
 | Code reuse from [s3sync](https://github.com/nidor1998/s3sync) | ~90% of architecture |
 
 The codebase was built through spec-driven development: 30 tasks executed sequentially, each as a separate PR with human oversight. Every pull request is reviewed by two AI tools ([GitHub Copilot](https://github.com/features/copilot) and [CodeRabbit](https://www.coderabbit.ai/)) and by a human reviewer before merging. Audit checkpoints verified implementation against specifications at multiple stages. Property-based testing (proptest) exercises correctness properties across randomized inputs, complementing deterministic unit tests and live-AWS end-to-end tests.

@@ -76,30 +76,33 @@ function on_event(event)
         end
     end
 
+    local dry = event.dry_run and "[dry-run] " or ""
+
     if has_flag(et, DELETE_COMPLETE) then
-        print(string.format("[s3rm] Deleted: %s", object_details(event)))
+        print(string.format("[s3rm] %sDeleted: %s", dry, object_details(event)))
     end
 
     if has_flag(et, DELETE_FAILED) then
-        print(string.format("[s3rm] FAILED: %s", object_details(event)))
+        print(string.format("[s3rm] %sFAILED: %s", dry, object_details(event)))
     end
 
     if has_flag(et, DELETE_FILTERED) then
-        print(string.format("[s3rm] Filtered: %s", object_details(event)))
+        print(string.format("[s3rm] %sFiltered: %s", dry, object_details(event)))
     end
 
     if has_flag(et, PIPELINE_ERROR) then
-        print(string.format("[s3rm] ERROR: %s", object_details(event)))
+        print(string.format("[s3rm] %sERROR: %s", dry, object_details(event)))
     end
 
     if has_flag(et, DELETE_CANCEL) then
-        print(string.format("[s3rm] Cancelled: %s", object_details(event)))
+        print(string.format("[s3rm] %sCancelled: %s", dry, object_details(event)))
     end
 
     if has_flag(et, STATS_REPORT) then
         print(string.format(
-            "[s3rm] Stats: deleted_objects=%d, deleted_bytes=%d, failed=%d, skipped=%d, "
+            "[s3rm] %sStats: deleted_objects=%d, deleted_bytes=%d, failed=%d, skipped=%d, "
             .. "errors=%d, duration=%.1fs, throughput=%.1f obj/s",
+            dry,
             event.stats_deleted_objects or 0,
             event.stats_deleted_bytes or 0,
             event.stats_failed_objects or 0,

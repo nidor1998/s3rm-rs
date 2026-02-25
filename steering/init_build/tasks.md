@@ -45,7 +45,7 @@ Phase 26: Automated E2E Integration Testing (Task 29)
 
 - [x] 1. Project Setup and Foundation
   - Create Cargo workspace with s3rm-rs library and binary
-  - Configure dependencies matching s3sync versions (AWS SDK 1.122.0, tokio 1.49, clap 4.5, mlua 0.11, proptest 1.6)
+  - Configure dependencies matching s3sync versions (AWS SDK 1.124.0, tokio 1.49, clap 4.5, mlua 0.11, proptest 1.10)
   - Set up project structure with lib.rs and main.rs
   - Configure CI pipeline for multi-platform builds (Linux x86_64/ARM64, Windows, macOS)
   - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
@@ -310,6 +310,16 @@ Phase 26: Automated E2E Integration Testing (Task 29)
     - Test `[dry-run]` prefix in dry-run mode
     - Test normal mode logs without `[dry-run]` prefix
     - _Requirements: 3.1, 3.5_
+
+  - [x] 9.9 Write property test for confirmation prompt target display
+    - **Property 19: Confirmation Prompt Target Display**
+    - **Validates: Requirements 3.5**
+    - Implemented in src/property_tests/safety_properties.rs (Task 9)
+
+  - [x] 9.10 Write property test for max-delete threshold enforcement
+    - **Property 20: Max-Delete Threshold Enforcement**
+    - **Validates: Requirements 3.6**
+    - Implemented in src/deleter/tests.rs (Task 9)
 
 
 - [x] 10. Implement Deletion Pipeline (Adapted from s3sync)
@@ -855,7 +865,7 @@ Phase 26: Automated E2E Integration Testing (Task 29)
 - Unit tests validate specific examples and edge cases
 - Maximum code reuse from s3sync (~90% of codebase)
 - Library-first architecture: CLI is thin wrapper over library
-- Target: 97%+ line coverage (matching s3sync's 97.88%)
+- Current: 94.44% line coverage (94.58% region, 87.94% function via cargo llvm-cov, 2026-02-23)
 - All 49 correctness properties must have property-based tests with minimum 100 iterations
 
 ## Implementation Status Summary

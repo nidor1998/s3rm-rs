@@ -16,7 +16,7 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 - **Batch_Deleter**: Component that groups objects into batches for the S3 DeleteObjects API
 - **Single_Deleter**: Component that deletes objects one at a time using DeleteObject API
 - **Object_Lister**: Component that retrieves object lists from S3 with parallel pagination
-- **Audit_Logger**: Component that records deletion operations with verbosity controlled by -v flags
+- **Audit_Logger**: Logging of deletion operations via tracing macros with verbosity controlled by -v flags (no separate component; integrated into each pipeline stage)
 - **Dry_Run_Mode**: Execution mode that simulates deletions without actually removing objects
 - **Delete_Marker**: S3 versioning concept - a placeholder indicating an object was deleted
 - **Prefix**: S3 key prefix used to filter objects (e.g., "logs/2023/")

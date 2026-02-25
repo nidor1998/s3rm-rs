@@ -103,7 +103,7 @@ src/
 │   ├── mod.rs              # ObjectDeleter, Deleter trait, DeleteResult types
 │   ├── batch.rs            # BatchDeleter (S3 DeleteObjects API)
 │   ├── single.rs           # SingleDeleter (S3 DeleteObject API)
-│   └── tests.rs            # Unit + property tests for deletion (Properties 1-3, 6)
+│   └── tests.rs            # Unit + property tests for deletion (Properties 1-3, 6, 20)
 ├── callback/
 │   ├── mod.rs              # Re-exports
 │   ├── event_manager.rs    # EventManager (event callback registration and dispatch)

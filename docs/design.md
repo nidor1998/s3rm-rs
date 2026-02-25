@@ -179,7 +179,7 @@ pub fn create_pipeline_cancellation_token() -> PipelineCancellationToken;
 // pipeline.close_stats_sender();
 // pipeline.run().await;
 // if pipeline.has_error() {
-//     println!("{:?}", pipeline.get_errors_and_consume().unwrap()[0]);
+//     eprintln!("{:?}", pipeline.get_errors_and_consume().unwrap()[0]);
 // }
 // let stats = pipeline.get_deletion_stats();
 
@@ -1849,23 +1849,20 @@ proptest! {
 
 **Generators** (arbitrary data generators):
 ```rust
-fn arbitrary_s3_object() -> impl Strategy<Value = S3Object> {
-    (
-        "[a-z0-9/]{1,100}",  // key
-        prop::option::of(any::<u64>().prop_map(|v| v.to_string())),  // version_id
-        any::<u64>(),  // size
-        arbitrary_datetime(),  // last_modified
-        "[a-f0-9]{32}",  // etag
-        prop::option::of(prop::sample::select(vec!["STANDARD", "GLACIER"])),  // storage_class
-        prop::option::of("[a-z]+/[a-z]+"),  // content_type
-        prop::collection::hash_map("[a-z]+", "[a-z0-9]+", 0..5),  // metadata
-        prop::option::of(prop::collection::hash_map("[a-z]+", "[a-z0-9]+", 0..5)),  // tags
-        any::<bool>(),  // is_delete_marker
-    ).prop_map(|(key, version_id, size, last_modified, etag, storage_class, content_type, metadata, tags, is_delete_marker)| {
-        S3Object {
-            key, version_id, size, last_modified, etag, storage_class, content_type, metadata, tags, is_delete_marker
-        }
-    })
+// Example: create S3Object using AWS SDK builder for property tests
+fn arbitrary_s3_object_with_key(key: String) -> S3Object {
+    S3Object::NotVersioning(
+        Object::builder()
+            .key(key)
+            .size(100)
+            .last_modified(DateTime::from_secs(0))
+            .build(),
+    )
+}
+
+// Example: proptest strategy for generating S3Objects
+fn arb_s3_object() -> impl Strategy<Value = S3Object> {
+    "[a-z0-9/]{1,50}".prop_map(|key| arbitrary_s3_object_with_key(key))
 }
 ```
 
@@ -2005,12 +2002,13 @@ async fn test_batch_deletion_with_partial_failure() {
 
 ### Test Coverage Goals
 
-- **Line Coverage**: >97% (matching s3sync's 97.88% coverage standard)
-- **Branch Coverage**: >95%
+- **Line Coverage**: >94% (current: 94.44% as of 2026-02-23, via `cargo llvm-cov report` combining lib+bin+E2E)
+- **Region Coverage**: >94% (current: 94.58%)
+- **Function Coverage**: >87% (current: 87.94%)
 - **Property Coverage**: 49 of 49 properties tested
 - **Critical Path Coverage**: 100% (deletion logic, safety checks, error handling)
 
-**Note**: Like s3sync, achieving 97%+ line coverage requires comprehensive unit tests, property-based tests, and manual E2E tests for network operations.
+**Note**: Coverage includes unit tests (522 lib, 26 binary) and E2E tests (84 tests across 14 files). The remaining uncovered code is primarily in runtime paths that require live AWS infrastructure (S3 API calls, network error handlers).
 
 ### Continuous Integration
 
@@ -2198,7 +2196,7 @@ s3rm-rs/
 │   │   ├── mod.rs             # ObjectDeleter, Deleter trait, DeleteResult types (NEW)
 │   │   ├── batch.rs           # BatchDeleter (NEW)
 │   │   ├── single.rs          # SingleDeleter (NEW)
-│   │   └── tests.rs           # Unit + property tests for deletion components
+│   │   └── tests.rs           # Unit + property tests for deletion components (Properties 1-3, 6, 20)
 │   ├── safety/
 │   │   └── mod.rs             # SafetyChecker, PromptHandler trait, confirmation prompts (NEW)
 │   ├── lua/

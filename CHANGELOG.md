@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Consolidate 10 root-level property test files into `src/property_tests/` module for cleaner source tree organization
+- Consolidate all 14 library property test files into `src/property_tests/` module for cleaner source tree; only `indicator_properties.rs` remains in `bin/s3rm/` (binary crate dependency)
 - Update `docs/design.md`, `docs/structure.md`, and `CLAUDE.md` to reflect new property test layout
 
 ## [0.2.0] - 2026-02-25

@@ -2194,22 +2194,19 @@ s3rm-rs/
 │   │   ├── smaller_size.rs    # SmallerSizeFilter (from s3sync)
 │   │   ├── mtime_after.rs     # MtimeAfterFilter (from s3sync)
 │   │   ├── mtime_before.rs    # MtimeBeforeFilter (from s3sync)
-│   │   ├── user_defined.rs    # UserDefinedFilter / Lua filter stage (from s3sync)
-│   │   └── filter_properties.rs  # Property tests for filters
+│   │   └── user_defined.rs    # UserDefinedFilter / Lua filter stage (from s3sync)
 │   ├── deleter/
 │   │   ├── mod.rs             # ObjectDeleter, Deleter trait, DeleteResult types (NEW)
 │   │   ├── batch.rs           # BatchDeleter (NEW)
 │   │   ├── single.rs          # SingleDeleter (NEW)
 │   │   └── tests.rs           # Unit + property tests for deletion components
 │   ├── safety/
-│   │   ├── mod.rs             # SafetyChecker, PromptHandler trait, confirmation prompts (NEW)
-│   │   └── safety_properties.rs  # Property tests for safety features (NEW)
+│   │   └── mod.rs             # SafetyChecker, PromptHandler trait, confirmation prompts (NEW)
 │   ├── lua/
 │   │   ├── mod.rs             # Lua module exports
 │   │   ├── engine.rs          # LuaScriptCallbackEngine (from s3sync)
 │   │   ├── filter.rs          # LuaFilterCallback (from s3sync)
-│   │   ├── event.rs           # LuaEventCallback (from s3sync)
-│   │   └── lua_properties.rs  # Property tests for Lua integration
+│   │   └── event.rs           # LuaEventCallback (from s3sync)
 │   ├── property_tests/          # Root-level property-based tests (consolidated)
 │   │   ├── mod.rs               # Module declarations
 │   │   ├── lib_properties.rs    # Library API (Properties 44-47)
@@ -2221,7 +2218,11 @@ s3rm-rs/
 │   │   ├── rate_limiting_properties.rs # Rate limiting (Property 36)
 │   │   ├── cross_platform_properties.rs # Cross-platform (Property 37)
 │   │   ├── cicd_properties.rs        # CI/CD integration (Properties 48-49)
-│   │   └── additional_properties.rs  # Properties 4, 12, 13
+│   │   ├── additional_properties.rs  # Properties 4, 12, 13
+│   │   ├── filter_properties.rs      # Filters (Properties 7-10)
+│   │   ├── event_callback_properties.rs # Event callbacks (Property 32)
+│   │   ├── safety_properties.rs      # Safety features (Properties 16-19)
+│   │   └── lua_properties.rs         # Lua integration (Properties 11, 14-15)
 │   ├── test_utils.rs            # Shared test utilities (mock builders, test config helpers)
 │   └── bin/
 │       └── s3rm/
@@ -2237,7 +2238,7 @@ s3rm-rs/
 └── README.md
 ```
 
-**Notes**: Root-level property tests are consolidated in `property_tests/` (10 files covering Properties 4, 12-13, 21-30, 34-37, 41-49). Module-level property tests remain co-located with source code (e.g., `deleter/tests.rs`, `filters/filter_properties.rs`, `lua/lua_properties.rs`, `safety/safety_properties.rs`, `callback/event_callback_properties.rs`, `bin/s3rm/indicator_properties.rs`). All core components are fully implemented including pipeline orchestrator, terminator, progress indicator, CLI binary, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, and CI/CD integration.
+**Notes**: Property tests are consolidated in `property_tests/` (14 files covering Properties 4, 7-19, 21-30, 32, 34-37, 41-49). Unit tests remain co-located with source code (e.g., `deleter/tests.rs`, `config/args/tests.rs`). The binary crate's `indicator_properties.rs` stays in `bin/s3rm/` because it imports binary-local modules. All core components are fully implemented including pipeline orchestrator, terminator, progress indicator, CLI binary, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, and CI/CD integration.
 
 ### Development Phases
 

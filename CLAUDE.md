@@ -190,8 +190,8 @@ cargo fmt
 - `src/test_utils.rs` - Shared test utilities
 
 ### Tests
-- `src/property_tests/` - Root-level property-based tests (proptest)
-- `src/**/*_properties.rs` - Module-level property-based tests (proptest)
+- `src/property_tests/` - Property-based tests (proptest, 14 files)
+- `src/bin/s3rm/indicator_properties.rs` - Binary crate property tests (Property 31)
 - `src/**/tests.rs` and `#[cfg(test)]` modules - Unit tests
 - `tests/e2e_*.rs` - End-to-end integration tests (14 files, 84 tests)
 

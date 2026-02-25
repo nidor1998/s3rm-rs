@@ -24,7 +24,6 @@ use crate::types::event_callback::{EventData, EventType};
 use crate::types::{DeletionStatistics, S3Object};
 
 pub mod exclude_regex;
-mod filter_properties;
 pub mod include_regex;
 pub mod larger_size;
 pub mod mtime_after;

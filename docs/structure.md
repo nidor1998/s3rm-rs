@@ -98,8 +98,7 @@ src/
 │   ├── larger_size.rs      # LargerSizeFilter
 │   ├── include_regex.rs    # IncludeRegexFilter
 │   ├── exclude_regex.rs    # ExcludeRegexFilter
-│   ├── user_defined.rs     # UserDefinedFilter (Lua/Rust callbacks via FilterManager)
-│   └── filter_properties.rs # Property tests for filters (Properties 7-10)
+│   └── user_defined.rs     # UserDefinedFilter (Lua/Rust callbacks via FilterManager)
 ├── deleter/
 │   ├── mod.rs              # ObjectDeleter, Deleter trait, DeleteResult types
 │   ├── batch.rs            # BatchDeleter (S3 DeleteObjects API)
@@ -110,18 +109,15 @@ src/
 │   ├── event_manager.rs    # EventManager (event callback registration and dispatch)
 │   ├── filter_manager.rs   # FilterManager (filter callback registration and dispatch)
 │   ├── user_defined_event_callback.rs  # UserDefinedEventCallback
-│   ├── user_defined_filter_callback.rs # UserDefinedFilterCallback
-│   └── event_callback_properties.rs    # Property tests for event callbacks (Property 32)
+│   └── user_defined_filter_callback.rs # UserDefinedFilterCallback
 ├── safety/
-│   ├── mod.rs              # SafetyChecker, PromptHandler trait, confirmation flow
-│   └── safety_properties.rs # Property tests for safety features (Properties 16-18)
+│   └── mod.rs              # SafetyChecker, PromptHandler trait, confirmation flow
 ├── terminator.rs           # Terminator stage
 ├── lua/                    # Lua integration (reused from s3sync)
 │   ├── mod.rs
 │   ├── engine.rs           # LuaScriptCallbackEngine
 │   ├── filter.rs           # LuaFilterCallback
-│   ├── event.rs            # LuaEventCallback
-│   └── lua_properties.rs   # Property tests for Lua (Properties 11, 14-15)
+│   └── event.rs            # LuaEventCallback
 ├── types/
 │   ├── mod.rs              # S3Object, DeletionStats, DeletionStatistics, S3Target, etc.
 │   ├── error.rs            # S3rmError enum with exit_code() and is_retryable()
@@ -139,7 +135,11 @@ src/
 │   ├── rate_limiting_properties.rs # Rate limiting (Property 36)
 │   ├── cross_platform_properties.rs # Cross-platform (Property 37)
 │   ├── cicd_properties.rs        # CI/CD integration (Properties 48-49)
-│   └── additional_properties.rs  # Properties 4, 12, 13
+│   ├── additional_properties.rs  # Properties 4, 12, 13
+│   ├── filter_properties.rs      # Filters (Properties 7-10)
+│   ├── event_callback_properties.rs # Event callbacks (Property 32)
+│   ├── safety_properties.rs      # Safety features (Properties 16-19)
+│   └── lua_properties.rs         # Lua integration (Properties 11, 14-15)
 ├── test_utils.rs             # Shared test utilities (make_test_config, make_s3_object, etc.)
 └── bin/s3rm/
     ├── main.rs             # CLI binary entry point
@@ -178,7 +178,7 @@ src/
 
 Tests are co-located with source code or collected under `tests/`:
 - Unit tests in `#[cfg(test)]` modules within each source file
-- Property-based tests in `src/property_tests/` (root-level) and `*_properties.rs` files within submodules
+- Property-based tests in `src/property_tests/` (14 files); `indicator_properties.rs` in `bin/s3rm/`
 - E2E integration tests in `tests/e2e_*.rs` files, each gated behind `#[cfg(e2e_test)]`
   - Require live AWS credentials configured under the `s3rm-e2e-test` AWS profile
   - Shared helpers (bucket setup/teardown, object seeding, assertion utilities) live in `tests/common/mod.rs`

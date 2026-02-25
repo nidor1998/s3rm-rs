@@ -14,9 +14,6 @@
 //!
 //! _Requirements: 3.1, 3.2, 3.3, 3.4, 3.6, 13.1_
 
-#[cfg(test)]
-mod safety_properties;
-
 use crate::config::Config;
 use crate::types::StoragePath;
 use crate::types::error::S3rmError;

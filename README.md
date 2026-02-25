@@ -1188,9 +1188,9 @@ We recommend trying s3rm in a test environment first — such as a non-productio
 
 ## AI Evaluation Notice
 
-*A message from the developer:*
+*"A message from the developer":*
 
-> Although considerable human effort has been invested in this project, users are advised to test it in a safe, non-production environment (such as a test environment) before applying it in real-world scenarios.
+> This tool was created in about a week. Although considerable human effort has been invested in this project, users are advised to test it in a safe, non-production environment (such as a test environment) before applying it in real-world scenarios.
 
 ## License
 

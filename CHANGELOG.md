@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Consolidate 10 root-level property test files into `src/property_tests/` module for cleaner source tree organization
+- Update `docs/design.md`, `docs/structure.md`, and `CLAUDE.md` to reflect new property test layout
+
 ## [0.2.0] - 2026-02-25
 
 Initial build quality improvements based on comprehensive audit by software maintainer, development lead, and test lead reviewers.

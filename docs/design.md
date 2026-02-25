@@ -2153,7 +2153,6 @@ rusty-fork = "0.3.1"
 s3rm-rs/
 ├── src/
 │   ├── lib.rs                 # Public API exports and root-level re-exports
-│   ├── lib_properties.rs      # Property tests for library API (Properties 44-47)
 │   ├── pipeline.rs            # DeletionPipeline orchestrator (adapted from s3sync)
 │   ├── stage.rs               # Stage struct for pipeline stages (from s3sync)
 │   ├── lister.rs              # ObjectLister (reused from s3sync)
@@ -2211,15 +2210,18 @@ s3rm-rs/
 │   │   ├── filter.rs          # LuaFilterCallback (from s3sync)
 │   │   ├── event.rs           # LuaEventCallback (from s3sync)
 │   │   └── lua_properties.rs  # Property tests for Lua integration
-│   ├── versioning_properties.rs  # Property tests for versioning support (Properties 25-28)
-│   ├── retry_properties.rs     # Property tests for retry and error handling (Properties 29-30)
-│   ├── optimistic_locking_properties.rs  # Property tests for If-Match support (Properties 41-43)
-│   ├── logging_properties.rs   # Property tests for logging/verbosity (Properties 21-24)
-│   ├── aws_config_properties.rs # Property tests for AWS config (Properties 34-35)
-│   ├── rate_limiting_properties.rs # Property tests for rate limiting (Property 36)
-│   ├── cross_platform_properties.rs # Property tests for cross-platform paths (Property 37)
-│   ├── cicd_properties.rs      # Property tests for CI/CD integration (Properties 48-49)
-│   ├── additional_properties.rs # Property tests for Properties 4, 12, 13
+│   ├── property_tests/          # Root-level property-based tests (consolidated)
+│   │   ├── mod.rs               # Module declarations
+│   │   ├── lib_properties.rs    # Library API (Properties 44-47)
+│   │   ├── versioning_properties.rs  # Versioning (Properties 25-28)
+│   │   ├── retry_properties.rs       # Retry/error handling (Properties 29-30)
+│   │   ├── optimistic_locking_properties.rs # If-Match (Properties 41-43)
+│   │   ├── logging_properties.rs     # Logging/verbosity (Properties 21-24)
+│   │   ├── aws_config_properties.rs  # AWS config (Properties 34-35)
+│   │   ├── rate_limiting_properties.rs # Rate limiting (Property 36)
+│   │   ├── cross_platform_properties.rs # Cross-platform (Property 37)
+│   │   ├── cicd_properties.rs        # CI/CD integration (Properties 48-49)
+│   │   └── additional_properties.rs  # Properties 4, 12, 13
 │   ├── test_utils.rs            # Shared test utilities (mock builders, test config helpers)
 │   └── bin/
 │       └── s3rm/
@@ -2235,7 +2237,7 @@ s3rm-rs/
 └── README.md
 ```
 
-**Notes**: Tests are co-located with source code (e.g., `deleter/tests.rs`, `filters/filter_properties.rs`, `lua/lua_properties.rs`, `safety/safety_properties.rs`, `callback/event_callback_properties.rs`, `bin/s3rm/indicator_properties.rs`, `versioning_properties.rs`, `retry_properties.rs`, `optimistic_locking_properties.rs`, `logging_properties.rs`, `aws_config_properties.rs`, `rate_limiting_properties.rs`, `cross_platform_properties.rs`, `cicd_properties.rs`, `additional_properties.rs`). Property tests and unit tests share the same test files. All core components are fully implemented including pipeline orchestrator, terminator, progress indicator, CLI binary, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, and CI/CD integration.
+**Notes**: Root-level property tests are consolidated in `property_tests/` (10 files covering Properties 4, 12-13, 21-30, 34-37, 41-49). Module-level property tests remain co-located with source code (e.g., `deleter/tests.rs`, `filters/filter_properties.rs`, `lua/lua_properties.rs`, `safety/safety_properties.rs`, `callback/event_callback_properties.rs`, `bin/s3rm/indicator_properties.rs`). All core components are fully implemented including pipeline orchestrator, terminator, progress indicator, CLI binary, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, and CI/CD integration.
 
 ### Development Phases
 

@@ -5,7 +5,7 @@
 - **Express One Zone**: Detected by `--x-s3` bucket name suffix; parallel listing disabled by default
 - **Worker range**: 1-65,535 (u16)
 - **Batch size range**: 1-1,000
-- **Default config**: worker-size 24, batch-size 200, max-parallel-listings 16
+- **Default config**: worker-size 16, batch-size 200, max-parallel-listings 16
 - **Property test count**: 49 correctness properties (proptest)
 
 ## Competitor Research (Feb 2026)

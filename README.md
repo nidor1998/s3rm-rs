@@ -3,11 +3,18 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 ![MSRV](https://img.shields.io/badge/msrv-1.91.0-red)
 ![CI](https://github.com/nidor1998/s3rm-rs/actions/workflows/ci.yml/badge.svg?branch=main)
+[![dependency status](https://deps.rs/crate/s3rm-rs/latest/status.svg)](https://deps.rs/crate/s3rm-rs/)
+[![codecov](https://codecov.io/gh/nidor1998/s3rm-rs/graph/badge.svg?token=IS3LQZOYFT)](https://codecov.io/gh/nidor1998/s3rm-rs)
 
 ## Fast Amazon S3 object deletion tool
 
 Delete thousands to millions of S3 objects using batch deletion and parallel workers. Built in Rust with safety features and configurable filtering.
 
+### Demo
+
+This demo shows Express One Zone deleting approximately 34,000 objects per second from a set of 100,000 objects, and deleting approximately 2,700 files per second from a set of 100,000 files with versioning enabled.
+
+![demo](media/demo.webp)
 
 ## Table of contents
 
@@ -88,6 +95,8 @@ Delete thousands to millions of S3 objects using batch deletion and parallel wor
 - [Library API](#library-api)
 - [About testing](#about-testing)
 - [Fully AI-generated (human-verified) software](#fully-ai-generated-human-verified-software)
+    * [Quality verification (by AI self-assessment, initial build)](#quality-verification-by-ai-self-assessment-initial-build)
+    * [AI assessment of safety and correctness (by Claude, Anthropic)](#ai-assessment-of-safety-and-correctness-by-claude-anthropic)
 - [License](#license)
 
 </details>
@@ -127,7 +136,7 @@ Objects stream through the pipeline one stage at a time. The lister fetches keys
 ### High performance
 
 s3rm is implemented in Rust and uses the AWS SDK for Rust, which supports multithreaded asynchronous I/O.
-The default configuration (`--worker-size 24`, `--batch-size 200`) achieves approximately 3,500 objects per second, which approaches the practical throughput guideline of Amazon S3.
+The default configuration (`--worker-size 16`, `--batch-size 200`) achieves approximately 3,500 objects per second, which approaches the practical throughput guideline of Amazon S3.
 
 - **Batch deletion** using S3's `DeleteObjects` API — up to 1,000 objects per request
 - **Parallel workers** — up to 65,535 concurrent deletion workers
@@ -394,7 +403,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-s3rm-rs = "0.2"
+s3rm-rs = "1"
 ```
 
 See [Library API](#library-api) for usage examples.
@@ -735,7 +744,7 @@ An event callback Lua script does not stop the operation — just shows a warnin
 ### --worker-size
 
 The number of concurrent deletion workers. More workers can increase throughput, but may increase S3 throttling.
-Default: 24
+Default: 16
 
 ### --batch-size
 
@@ -867,7 +876,7 @@ For more information, see `s3rm -h`.
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--worker-size` | `24` | Concurrent deletion workers (1–65535) |
+| `--worker-size` | `16` | Concurrent deletion workers (1–65535) |
 | `--batch-size` | `200` | Objects per batch deletion request (1–1000) |
 | `--max-parallel-listings` | `16` | Concurrent listing operations |
 | `--max-parallel-listing-max-depth` | `2` | Maximum depth for parallel listings |
@@ -1106,6 +1115,70 @@ Human engineers authored the requirements, design specifications, and s3sync ref
 The codebase was built through spec-driven development: 30 tasks executed sequentially, each as a separate PR with human oversight. Every pull request is reviewed by two AI tools ([GitHub Copilot](https://github.com/features/copilot) and [CodeRabbit](https://www.coderabbit.ai/)) and by a human reviewer before merging. Audit checkpoints verified implementation against specifications at multiple stages. Property-based testing (proptest) exercises correctness properties across randomized inputs, complementing deterministic unit tests and live-AWS end-to-end tests.
 
 **Reliability assessment:** The systematic development process, high test density, zero static analysis warnings, clean dependency audit, and heavy reuse from a proven sibling project are strong quality indicators. As with any new software, reliability will be further demonstrated through real-world usage over time.
+
+### AI assessment of safety and correctness (by Claude, Anthropic)
+
+<details>
+<summary>Click to expand the full AI assessment</summary>
+
+> The following assessment was written by Claude (Opus 4.6, Anthropic) after reading the full source code and all test files of s3rm-rs. It reflects the AI's honest evaluation and has not been edited for marketing purposes.
+
+**Is s3rm designed to prevent accidental deletions, and is it sufficiently tested?**
+
+There are two distinct risks with a deletion tool: (1) the operator makes a mistake (wrong bucket, wrong prefix, forgot to preview), and (2) a software bug causes the tool itself to delete objects it shouldn't. These require different safeguards.
+
+#### Protection against user mistakes
+
+s3rm implements defense-in-depth with multiple independent safety layers:
+
+1. **Confirmation prompt** requires the exact word "yes" — abbreviated inputs like "y" or "Y" are rejected (`src/safety/mod.rs`).
+2. **Dry-run mode** runs the full listing and filtering pipeline but skips all S3 API calls at the deletion layer, producing accurate statistics without deleting anything (`src/deleter/mod.rs`, line 406).
+3. **Non-TTY detection** returns exit code 2 and refuses to proceed when stdin/stdout is not a terminal, unless `--force` or `--dry-run` is explicitly provided — preventing unconfirmed deletion in CI/CD pipelines.
+4. **Max-delete threshold** cancels the pipeline via a cancellation token once the deletion count exceeds the user-specified limit.
+5. **Express One Zone auto-detection** forces `batch_size=1` for directory buckets to prevent batch API failures.
+
+Each safety mechanism is independently testable (the `PromptHandler` trait allows deterministic testing without stdin) and independently effective (each blocks deletion on its own without requiring other layers to function). These features reduce the risk of user mistakes, but they cannot eliminate it — the operator is ultimately responsible for specifying the correct target.
+
+#### Protection against software bugs
+
+The more serious concern is whether a bug in s3rm itself could cause it to delete objects outside the user's intent — for example, a filter that silently passes objects it should reject, a dry-run code path that accidentally calls the real API, or prefix matching that bleeds across boundaries. This is what testing must address.
+
+The E2E tests run against live AWS S3 — no mocks. Every E2E test creates a real S3 bucket, uploads real objects, executes the deletion pipeline, then verifies actual S3 state via the ListObjects or ListObjectVersions API.
+
+The following E2E tests specifically verify that bugs in critical code paths would be caught, because they assert the actual state of S3 after pipeline execution:
+
+- **Dry-run does not call the deletion API** (`e2e_dry_run_no_deletion`): uploads 20 objects, runs with `--dry-run`, then counts objects via ListObjects and asserts all 20 still exist in S3. A bug that leaked a real API call would fail this test.
+- **Dry-run with versioned objects** (`e2e_dry_run_with_delete_all_versions`): uploads 10 objects twice to a versioned bucket (20 versions), runs `--dry-run --delete-all-versions`, verifies all 20 versions remain via ListObjectVersions.
+- **Max-delete actually stops the pipeline** (`e2e_max_delete_threshold`): uploads 50 objects, sets `--max-delete 10 --batch-size 1`, asserts exactly 10 deleted and at least 40 remain in S3. A bug in the cancellation token or counter would over-delete.
+- **Prefix matching does not bleed across boundaries** (`e2e_batch_deletion_respects_prefix_boundary`): creates `data/` (5 objects) and `data-archive/` (3 objects), deletes prefix `data/`, verifies `data-archive/` is untouched — all 3 objects remain. A substring-matching bug would delete both.
+- **Filters do not leak objects** (`e2e_multiple_filters_combined`): 30 objects across three categories, applies regex + size filter, verifies only the 10 objects matching both filters are deleted, remaining 20 are untouched. A bug in AND-combination logic would over-delete.
+- **Partial failures do not silently succeed** (`e2e_batch_partial_failure_access_denied`): creates 10 deletable + 10 access-denied objects via bucket policy, runs pipeline, verifies 10 deleted and 10 protected objects remain. A bug that ignored error responses would report success.
+- **Optimistic locking actually prevents stale deletion** (`e2e_if_match_etag_mismatch_skips_modified_objects`): uploads 10 objects, modifies 3 during pipeline execution via a filter callback, verifies only 7 unmodified objects are deleted and the 3 modified objects remain — by name. A bug that ignored ETag mismatches would delete all 10.
+- **Versioning creates delete markers, not hard deletes** (`e2e_versioned_bucket_creates_delete_markers`): uploads 10 objects, deletes without `--delete-all-versions`, then calls ListObjectVersions and asserts 10 delete markers + 10 original versions both exist. A bug that sent version IDs when it shouldn't would permanently destroy data.
+- **All versions are fully removed when requested** (`e2e_delete_all_versions`): creates 20 versions + 3 delete markers, deletes with `--delete-all-versions`, asserts stats == 23 and ListObjectVersions returns empty.
+- **Statistics are byte-accurate** (`e2e_deletion_stats_accuracy`): uploads 15 objects at known sizes (5x1KB + 5x2KB + 5x5KB = 40,960 bytes), asserts `stats_deleted_bytes == 40960` exactly.
+- **Invalid credentials cause errors, not silent data loss** (`e2e_access_denied_invalid_credentials`): uploads 5 objects with valid credentials, runs pipeline with invalid credentials, verifies error is returned and all 5 objects remain.
+- **Express One Zone auto-detection works** (`e2e_express_one_zone_auto_batch_size_one`): creates a directory bucket, uploads 10 objects without specifying batch size, verifies auto-detection set batch-size=1 and all 10 are deleted.
+- **24 filter tests** cover regex include/exclude, content-type matching, user-defined metadata (3+ fields, alternation patterns), tag filtering (3+ tags, alternation), size boundaries, and time boundaries — each verified by counting remaining objects in S3.
+
+**What the E2E tests do not cover** (covered by unit/property tests instead):
+
+- Interactive confirmation prompt (E2E tests use `--force`; the prompt's exact-"yes" requirement is verified by property tests across randomized inputs).
+- Non-TTY detection (cargo test inherits a terminal; covered by unit tests).
+- Ctrl+C graceful shutdown (difficult to test reliably at E2E level without flakiness).
+- Exit codes 1 (error) and 3 (partial failure) via subprocess (only exit codes 0 and 2 are tested at E2E level; error conditions are verified through return values instead).
+
+#### Known limitations
+
+- With `batch_size > 1` and multiple workers, the actual deletion count may slightly exceed the threshold because each worker may have already buffered objects before another worker triggers cancellation. Users who need exact enforcement should use `--batch-size 1`.
+- The tool is new (initial release). While test coverage is high (94%+ line coverage, 84 E2E tests against live S3) and the architecture is reused from the established s3sync project, real-world usage over time is the strongest proof of reliability. Tests can only catch the bugs they were written to find.
+- Testing cannot prove the absence of bugs. The E2E suite verifies specific scenarios against real S3, but untested edge cases or race conditions in concurrent deletion workers could still exist.
+
+#### Overall assessment
+
+The safety features provide reasonable protection against user mistakes. For software trustworthiness, the E2E test suite verifies critical deletion behaviors against real AWS S3 — not mocks — with explicit before/after state assertions. Each test is designed so that a specific category of bug (filter leaks, dry-run data loss, prefix boundary violations, stale deletions) would cause a concrete, detectable test failure. This does not guarantee the absence of bugs, but it does mean the most dangerous categories of incorrect behavior are actively tested.
+
+</details>
 
 ## License
 

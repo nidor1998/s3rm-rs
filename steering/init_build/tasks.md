@@ -550,17 +550,17 @@ Phase 26: Automated E2E Integration Testing (Task 29)
   - [x] 16.3 Write property test for If-Match conditional deletion
     - **Property 41: If-Match Conditional Deletion**
     - **Validates: Requirements 11.1, 11.2**
-    - Implemented in src/optimistic_locking_properties.rs (Task 16)
+    - Implemented in src/property_tests/optimistic_locking_properties.rs (Task 16)
 
   - [x] 16.4 Write property test for If-Match flag propagation
     - **Property 42: If-Match Flag Propagation**
     - **Validates: Requirements 11.3**
-    - Implemented in src/optimistic_locking_properties.rs (Task 16)
+    - Implemented in src/property_tests/optimistic_locking_properties.rs (Task 16)
 
   - [x] 16.5 Write property test for batch conditional deletion handling
     - **Property 43: Batch Conditional Deletion Handling**
     - **Validates: Requirements 11.4**
-    - Implemented in src/optimistic_locking_properties.rs (Task 16)
+    - Implemented in src/property_tests/optimistic_locking_properties.rs (Task 16)
 
 
 - [x] 17. Implement Logging and Verbosity
@@ -578,22 +578,22 @@ Phase 26: Automated E2E Integration Testing (Task 29)
   - [x] 17.3 Write property test for verbosity level configuration
     - **Property 21: Verbosity Level Configuration**
     - **Validates: Requirements 4.1**
-    - Implemented in src/logging_properties.rs (Task 17)
+    - Implemented in src/property_tests/logging_properties.rs (Task 17)
 
   - [x] 17.4 Write property test for JSON logging format
     - **Property 22: JSON Logging Format**
     - **Validates: Requirements 4.7, 13.3**
-    - Implemented in src/logging_properties.rs (Task 17)
+    - Implemented in src/property_tests/logging_properties.rs (Task 17)
 
   - [x] 17.5 Write property test for color output control
     - **Property 23: Color Output Control**
     - **Validates: Requirements 4.8, 4.9, 7.5, 13.7**
-    - Implemented in src/logging_properties.rs (Task 17)
+    - Implemented in src/property_tests/logging_properties.rs (Task 17)
 
   - [x] 17.6 Write property test for error logging
     - **Property 24: Error Logging**
     - **Validates: Requirements 4.10**
-    - Implemented in src/logging_properties.rs (Task 17)
+    - Implemented in src/property_tests/logging_properties.rs (Task 17)
 
 
 - [x] 18. Implement AWS Configuration Support
@@ -610,12 +610,12 @@ Phase 26: Automated E2E Integration Testing (Task 29)
   - [x] 18.3 Write property test for AWS credential loading
     - **Property 34: AWS Credential Loading**
     - **Validates: Requirements 8.4**
-    - Implemented in src/aws_config_properties.rs (Task 18)
+    - Implemented in src/property_tests/aws_config_properties.rs (Task 18)
 
   - [x] 18.4 Write property test for custom endpoint support
     - **Property 35: Custom Endpoint Support**
     - **Validates: Requirements 8.6**
-    - Implemented in src/aws_config_properties.rs (Task 18)
+    - Implemented in src/property_tests/aws_config_properties.rs (Task 18)
 
 
 - [x] 19. Implement Rate Limiting
@@ -628,7 +628,7 @@ Phase 26: Automated E2E Integration Testing (Task 29)
   - [x] 19.2 Write property test for rate limiting enforcement
     - **Property 36: Rate Limiting Enforcement**
     - **Validates: Requirements 8.7**
-    - Implemented in src/rate_limiting_properties.rs (Task 19)
+    - Implemented in src/property_tests/rate_limiting_properties.rs (Task 19)
 
 
 - [x] 20. Implement Cross-Platform Support
@@ -636,7 +636,7 @@ Phase 26: Automated E2E Integration Testing (Task 29)
     - Test file path normalization on Windows
     - Test file path normalization on Unix
     - Ensure Lua script paths work cross-platform
-    - Implemented in src/cross_platform_properties.rs and src/config/args/value_parser/file_exist.rs (Task 20)
+    - Implemented in src/property_tests/cross_platform_properties.rs and src/config/args/value_parser/file_exist.rs (Task 20)
     - _Requirements: 9.6_
 
   - [x] 20.2 Verify terminal feature detection
@@ -652,7 +652,7 @@ Phase 26: Automated E2E Integration Testing (Task 29)
   - [x] 20.4 Write property test for cross-platform path handling
     - **Property 37: Cross-Platform Path Handling**
     - **Validates: Requirements 9.6**
-    - Implemented in src/cross_platform_properties.rs (Task 20)
+    - Implemented in src/property_tests/cross_platform_properties.rs (Task 20)
 
 
 - [x] 21. Implement CI/CD Integration Features
@@ -669,12 +669,12 @@ Phase 26: Automated E2E Integration Testing (Task 29)
   - [x] 21.3 Write property test for non-interactive environment detection
     - **Property 48: Non-Interactive Environment Detection**
     - **Validates: Requirements 13.1**
-    - Implemented in src/cicd_properties.rs (Task 21)
+    - Implemented in src/property_tests/cicd_properties.rs (Task 21)
 
   - [x] 21.4 Write property test for output stream separation
     - **Property 49: Output Stream Separation**
     - **Validates: Requirements 13.6**
-    - Implemented in src/cicd_properties.rs (Task 21)
+    - Implemented in src/property_tests/cicd_properties.rs (Task 21)
 
 
 - [x] 22. Implement Additional Property Tests
@@ -742,7 +742,7 @@ Phase 26: Automated E2E Integration Testing (Task 29)
 
 - [x] 25. Set Up Property-Based Testing Infrastructure
   - [x] 25.1 Review existing property test generators
-    - proptest generators exist in filters/filter_properties.rs, deleter/tests.rs, lua/lua_properties.rs, safety/safety_properties.rs, lister.rs
+    - proptest generators exist in property_tests/*.rs, deleter/tests.rs, lister.rs
     - S3Object generators, config generators, datetime generators all present
     - proptest configured with appropriate iteration counts
     - _Requirements: N/A (testing infrastructure)_

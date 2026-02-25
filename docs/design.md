@@ -2179,8 +2179,7 @@ s3rm-rs/
 │   │   ├── filter_manager.rs  # FilterManager (Rust + Lua filter dispatch)
 │   │   ├── event_manager.rs   # EventManager (Rust + Lua event dispatch with PipelineStats)
 │   │   ├── user_defined_filter_callback.rs  # UserDefinedFilterCallback wrapper
-│   │   ├── user_defined_event_callback.rs   # UserDefinedEventCallback wrapper
-│   │   └── event_callback_properties.rs     # Property tests for event callbacks (Property 32)
+│   │   └── user_defined_event_callback.rs   # UserDefinedEventCallback wrapper
 │   ├── storage/
 │   │   ├── mod.rs             # StorageTrait, create_storage(), Storage type alias (from s3sync)
 │   │   └── s3/

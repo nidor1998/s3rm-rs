@@ -37,8 +37,8 @@
 - `src/lister.rs` lines 148-249: Tracks list method calls
 - `src/pipeline.rs` lines 861-962: `ListingMockStorage` for pipeline tests
 - `src/deleter/tests.rs` lines 60-240: Richest mock (failures, recording, versions, ETags)
-- `src/versioning_properties.rs`: `VersioningMockStorage`
-- `src/optimistic_locking_properties.rs`: `RecordingMockStorage`, `BatchRecordingMockStorage`
+- `src/property_tests/versioning_properties.rs`: `VersioningMockStorage`
+- `src/property_tests/optimistic_locking_properties.rs`: `RecordingMockStorage`, `BatchRecordingMockStorage`
 - **Recommendation**: Consolidate into shared builder-pattern mock (post-release)
 
 ## E2E Test Suite (84 tests, reviewed 2026-02-23)

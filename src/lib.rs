@@ -169,34 +169,7 @@ pub use callback::event_manager::EventManager;
 pub use callback::filter_manager::FilterManager;
 
 #[cfg(test)]
-mod lib_properties;
-
-#[cfg(test)]
-mod versioning_properties;
-
-#[cfg(test)]
-mod retry_properties;
-
-#[cfg(test)]
-mod optimistic_locking_properties;
-
-#[cfg(test)]
-mod logging_properties;
-
-#[cfg(test)]
-mod aws_config_properties;
-
-#[cfg(test)]
-mod rate_limiting_properties;
-
-#[cfg(test)]
-mod cross_platform_properties;
-
-#[cfg(test)]
-mod cicd_properties;
-
-#[cfg(test)]
-mod additional_properties;
+mod property_tests;
 
 #[cfg(test)]
 mod tests {

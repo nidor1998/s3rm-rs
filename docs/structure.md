@@ -71,7 +71,6 @@
 ```
 src/
 ├── lib.rs                  # Public API exports and re-exports
-├── lib_properties.rs       # Property tests for library API (Properties 44-47)
 ├── pipeline.rs             # DeletionPipeline orchestrator
 ├── stage.rs                # Stage struct for pipeline stages
 ├── config/
@@ -129,15 +128,18 @@ src/
 │   ├── event_callback.rs   # EventCallback trait, EventType bitflags, EventData
 │   ├── filter_callback.rs  # FilterCallback trait
 │   └── token.rs            # PipelineCancellationToken type alias
-├── versioning_properties.rs  # Property tests for versioning (Properties 25-28)
-├── retry_properties.rs       # Property tests for retry/error handling (Properties 29-30)
-├── optimistic_locking_properties.rs # Property tests for If-Match (Properties 41-43)
-├── logging_properties.rs     # Property tests for logging/verbosity (Properties 21-24)
-├── aws_config_properties.rs  # Property tests for AWS config (Properties 34-35)
-├── rate_limiting_properties.rs # Property tests for rate limiting (Property 36)
-├── cross_platform_properties.rs # Property tests for cross-platform (Property 37)
-├── cicd_properties.rs        # Property tests for CI/CD integration (Properties 48-49)
-├── additional_properties.rs  # Property tests for Properties 4, 12, 13
+├── property_tests/          # Root-level property-based tests (consolidated)
+│   ├── mod.rs               # Module declarations
+│   ├── lib_properties.rs    # Library API (Properties 44-47)
+│   ├── versioning_properties.rs  # Versioning (Properties 25-28)
+│   ├── retry_properties.rs       # Retry/error handling (Properties 29-30)
+│   ├── optimistic_locking_properties.rs # If-Match (Properties 41-43)
+│   ├── logging_properties.rs     # Logging/verbosity (Properties 21-24)
+│   ├── aws_config_properties.rs  # AWS config (Properties 34-35)
+│   ├── rate_limiting_properties.rs # Rate limiting (Property 36)
+│   ├── cross_platform_properties.rs # Cross-platform (Property 37)
+│   ├── cicd_properties.rs        # CI/CD integration (Properties 48-49)
+│   └── additional_properties.rs  # Properties 4, 12, 13
 ├── test_utils.rs             # Shared test utilities (make_test_config, make_s3_object, etc.)
 └── bin/s3rm/
     ├── main.rs             # CLI binary entry point
@@ -176,7 +178,7 @@ src/
 
 Tests are co-located with source code or collected under `tests/`:
 - Unit tests in `#[cfg(test)]` modules within each source file
-- Property-based tests in `*_properties.rs` files alongside source modules
+- Property-based tests in `src/property_tests/` (root-level) and `*_properties.rs` files within submodules
 - E2E integration tests in `tests/e2e_*.rs` files, each gated behind `#[cfg(e2e_test)]`
   - Require live AWS credentials configured under the `s3rm-e2e-test` AWS profile
   - Shared helpers (bucket setup/teardown, object seeding, assertion utilities) live in `tests/common/mod.rs`

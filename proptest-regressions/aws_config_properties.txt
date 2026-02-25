@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 0b6477341a02bff6b182ae1fc00b105fb60b80ee08c10bbdac1edca7dc4d108e # shrinks to region = "us-east-1"
+cc 6d7dbb284e23a23259d0fe26ca475883707e4b78b19627ff46a4c07ad1eba43a # shrinks to region = "us-east-1"
+cc 2917e35b394eae1bfcefa68255d23f692723d5c5877bfca23bc3a470b7c3e777 # shrinks to access_key = "0A00A0A0AA0AAAAA", secret_key = "+aA+AAA+AAAaa+0aA0AAAAAAaAA0Aa", session_token = Some("0a++a0a==AaaA=+d99hX"), region = "ap-northeast-1"

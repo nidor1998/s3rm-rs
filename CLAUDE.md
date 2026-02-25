@@ -4,7 +4,7 @@ This document provides instructions for working with the s3rm-rs spec using Clau
 
 ## Overview
 
-s3rm-rs is a high-performance S3 object deletion tool built in Rust. The project follows a spec-driven development approach with:
+s3rm-rs is an S3 object deletion tool built in Rust. The project follows a spec-driven development approach with:
 - Requirements document defining user stories and acceptance criteria
 - Design document detailing architecture and components
 - Tasks document with implementation checklist
@@ -74,7 +74,7 @@ Before implementing ANY component:
 
 ### Task Structure
 
-Tasks are organized in `.kiro/specs/s3rm-rs/tasks.md` using markdown checkbox syntax:
+Tasks are organized in `steering/init_build/tasks.md` using markdown checkbox syntax:
 
 ```markdown
 - [ ] Task not started
@@ -114,6 +114,8 @@ When working on tasks, follow this process:
      - Configure timeouts to prevent indefinite hangs
 
 4. **Verification**
+   - **Always run `cargo fmt` before finishing any task** — CI enforces formatting and will fail otherwise
+   - Run `cargo clippy` to check for warnings
    - Run tests to verify implementation
    - Limit verification attempts to 2 tries maximum
    - If tests fail after 2 attempts, explain the issue and request guidance
@@ -164,28 +166,34 @@ cargo fmt
 
 ## Key Files and Locations
 
-### Specification Files
-- `.kiro/specs/s3rm-rs/requirements.md` - User stories and acceptance criteria
-- `.kiro/specs/s3rm-rs/design.md` - Architecture and component design
-- `.kiro/specs/s3rm-rs/tasks.md` - Implementation task list
+### Documentation
+- @docs/requirements.md - User stories and acceptance criteria
+- docs/design.md - Architecture and component design
+- @docs/tech.md - Technology stack and common commands
+- @docs/structure.md - Project structure and organization
+- @docs/product.md - Product overview and features
 
-### Steering Documents
-- `.kiro/steering/tech.md` - Technology stack and common commands
-- `.kiro/steering/structure.md` - Project structure and organization
-- `.kiro/steering/product.md` - Product overview and features
+### Steering (Active Phase)
+- steering/init_build/tasks.md - Implementation task list
+- steering/init_build/e2e_test_plan.md - E2E test plan (Task 29: 84 test functions across 14 test files, complete)
 
 ### Source Code
 - `src/lib.rs` - Library entry point and public API
-- `src/cli/main.rs` - CLI binary entry point
-- `src/config.rs` - Configuration and argument parsing
+- `src/bin/s3rm/main.rs` - CLI binary entry point
+- `src/config/mod.rs` - Configuration and argument parsing
+- `src/config/args/mod.rs` - CLI argument definitions (clap)
+- `src/pipeline.rs` - DeletionPipeline orchestrator
 - `src/deleter/` - Deletion components (batch, single, worker)
 - `src/filters/` - Filter stages (regex, size, time, Lua)
 - `src/lister.rs` - Object listing with parallel pagination
+- `src/safety/` - Safety features (confirmation, dry-run)
+- `src/test_utils.rs` - Shared test utilities
 
 ### Tests
-- `src/**/*_properties.rs` - Property-based tests (proptest)
-- `src/**/*_unit_tests.rs` - Unit tests
-- `tests/e2e_*.rs` - End-to-end integration tests
+- `src/property_tests/` - Property-based tests (proptest, 14 files)
+- `src/bin/s3rm/indicator_properties.rs` - Binary crate property tests (Property 31)
+- `src/**/tests.rs` and `#[cfg(test)]` modules - Unit tests
+- `tests/e2e_*.rs` - End-to-end integration tests (14 files, 84 tests)
 
 ## Architecture Overview
 
@@ -234,25 +242,32 @@ export AWS_ACCESS_KEY_ID=your_key
 export AWS_SECRET_ACCESS_KEY=your_secret
 export AWS_DEFAULT_REGION=us-east-1
 
-# Run E2E tests
-cargo test --test e2e_basic_deletion
-cargo test --test e2e_filtering
-cargo test --test e2e_versioning
+# Express One Zone tests use S3RM_E2E_AZ_ID (defaults to apne1-az4)
+# export S3RM_E2E_AZ_ID=apne1-az4
+
+# Run E2E tests (requires RUSTFLAGS="--cfg e2e_test" and AWS profile s3rm-e2e-test)
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_deletion
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_filter
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_versioning
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_safety
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_callback
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_optimistic
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_performance
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_tracing
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_retry
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_error
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_aws_config
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_combined
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_stats
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_express_one_zone
+
+# Run all E2E tests at once
+RUSTFLAGS="--cfg e2e_test" cargo test --all-features --test '*' -- --test-threads=8
 ```
 
 ## Next Steps for Development
 
-Based on the current status, the remaining work includes:
-
-### Task 29: Manual E2E Testing (In Progress)
-- Code is complete and ready
-- Requires AWS credentials for execution
-- Test scenarios documented in tasks.md
-
-### Task 31: Release Preparation (Pending)
-- Cross-platform binary builds (Linux, Windows, macOS)
-- Release artifacts creation
-- Pre-built binary distribution
+All tasks (1-30) are complete. v1.0.0 pre-release validation passed.
 
 ## Tips for Claude Code Users
 
@@ -262,6 +277,8 @@ Based on the current status, the remaining work includes:
 4. **Ask Questions**: If requirements are unclear, ask before implementing
 5. **Follow Patterns**: Reuse patterns from s3sync where applicable
 6. **Property Tests**: Focus on correctness properties, not just examples
+7. **No auto `/check-commit-push`**: Never run `/check-commit-push` automatically. Only run it when the user explicitly asks.
+8. **No autonomous commits**: Never run `git commit` or `mcp__git__git_commit` without explicit human approval. The settings file enforces this — commit operations are not in the allow list and will always prompt for confirmation.
 
 ## Getting Help
 

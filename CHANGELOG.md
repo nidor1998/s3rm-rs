@@ -7,23 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-02-24
+## [0.2.0] - 2026-02-25
 
-Pre-release quality improvements based on comprehensive audit by software maintainer, development lead, and test lead reviewers.
+Initial build quality improvements based on comprehensive audit by software maintainer, development lead, and test lead reviewers.
 
 ### Changed
 
 - Update all dependencies to latest compatible versions (AWS SDK 1.124.0, clap 4.5.60, chrono 0.4.44, etc.)
 - Suppress Ctrl-C shutdown warning at default verbosity level
+- Replace README library usage example with `build_config_from_args` pattern from lib.rs
+- Fix `DELETE_CANCEL` event description (pipeline cancelled, not max-delete specific)
+- Fix E2E test commands in README (correct glob pattern and test function name)
 
 ### Fixed
 
+- Remove unnecessary `--show-no-progress` from CI script example in README
 - Remove unused `regex` crate from dependencies (all regex usage is via `fancy-regex`)
 - Remove unused `tokio-test` from dev-dependencies
 - Move `rusty-fork` from `[dependencies]` to `[dev-dependencies]` to reduce dependency tree for library consumers
 - Gate `file_exist` value parser module behind `lua_support` feature to eliminate dead code warning with `--no-default-features`
 - Remove dead `#![allow(clippy::unnecessary_unwrap)]` lint suppression
 - Add `include` key to `[package]` in Cargo.toml to prevent publishing internal development files (`.claude/`, `.serena/`, `steering/`, `docs/`, etc.) to crates.io
+- Fix Claude Code link URL in README
 
 ## [0.1.0] - 2026-02-23
 

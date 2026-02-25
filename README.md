@@ -12,7 +12,7 @@ Delete thousands to millions of S3 objects using batch deletion and parallel wor
 
 ### Demo
 
-This demo shows Express One Zone deleting approximately 36,000 objects per second from a set of 100,000 objects, and deleting approximately 3,300 files per second from a set of 100,000 files with versioning enabled.
+This demo shows Express One Zone deleting approximately 34,000 objects per second from a set of 100,000 objects, and deleting approximately 2,700 files per second from a set of 100,000 files with versioning enabled.
 
 ![demo](media/demo.webp)
 

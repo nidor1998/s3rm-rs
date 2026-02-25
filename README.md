@@ -134,7 +134,7 @@ Objects stream through the pipeline one stage at a time. The lister fetches keys
 ### High performance
 
 s3rm is implemented in Rust and uses the AWS SDK for Rust, which supports multithreaded asynchronous I/O.
-The default configuration (`--worker-size 24`, `--batch-size 200`) achieves approximately 3,500 objects per second, which approaches the practical throughput guideline of Amazon S3.
+The default configuration (`--worker-size 16`, `--batch-size 200`) achieves approximately 3,500 objects per second, which approaches the practical throughput guideline of Amazon S3.
 
 - **Batch deletion** using S3's `DeleteObjects` API — up to 1,000 objects per request
 - **Parallel workers** — up to 65,535 concurrent deletion workers
@@ -742,7 +742,7 @@ An event callback Lua script does not stop the operation — just shows a warnin
 ### --worker-size
 
 The number of concurrent deletion workers. More workers can increase throughput, but may increase S3 throttling.
-Default: 24
+Default: 16
 
 ### --batch-size
 
@@ -874,7 +874,7 @@ For more information, see `s3rm -h`.
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--worker-size` | `24` | Concurrent deletion workers (1–65535) |
+| `--worker-size` | `16` | Concurrent deletion workers (1–65535) |
 | `--batch-size` | `200` | Objects per batch deletion request (1–1000) |
 | `--max-parallel-listings` | `16` | Concurrent listing operations |
 | `--max-parallel-listing-max-depth` | `2` | Maximum depth for parallel listings |

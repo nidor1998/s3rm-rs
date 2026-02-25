@@ -25,7 +25,7 @@ use fancy_regex::Regex;
 /// use s3rm_rs::Config;
 ///
 /// let config = Config::for_target("my-bucket", "logs/2024/");
-/// assert_eq!(config.worker_size, 24);
+/// assert_eq!(config.worker_size, 16);
 /// assert_eq!(config.batch_size, 200);
 /// ```
 ///
@@ -97,7 +97,7 @@ impl Config {
     ///
     /// This is the recommended way to construct a `Config` for library usage.
     /// All fields are set to production-ready defaults matching the CLI defaults
-    /// (24 workers, batch size 200, etc.). The `force` flag is set to `true` to
+    /// (16 workers, batch size 200, etc.). The `force` flag is set to `true` to
     /// skip interactive confirmation prompts, which is appropriate for programmatic use.
     ///
     /// # Examples
@@ -136,7 +136,7 @@ impl Default for Config {
             target_client_config: None,
             force_retry_config: ForceRetryConfig::default(),
             tracing_config: None,
-            worker_size: 24,
+            worker_size: 16,
             warn_as_error: false,
             dry_run: false,
             rate_limit_objects: None,
@@ -367,7 +367,7 @@ mod tests {
     #[test]
     fn config_for_target_uses_default_worker_and_batch_size() {
         let config = Config::for_target("bucket", "");
-        assert_eq!(config.worker_size, 24);
+        assert_eq!(config.worker_size, 16);
         assert_eq!(config.batch_size, 200);
     }
 
@@ -403,7 +403,7 @@ mod tests {
     #[test]
     fn config_default_field_values() {
         let config = Config::default();
-        assert_eq!(config.worker_size, 24);
+        assert_eq!(config.worker_size, 16);
         assert_eq!(config.batch_size, 200);
         assert!(!config.show_no_progress);
         assert!(!config.dry_run);

@@ -3,11 +3,18 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 ![MSRV](https://img.shields.io/badge/msrv-1.91.0-red)
 ![CI](https://github.com/nidor1998/s3rm-rs/actions/workflows/ci.yml/badge.svg?branch=main)
+[![dependency status](https://deps.rs/crate/s3rm-rs/latest/status.svg)](https://deps.rs/crate/s3rm-rs/)
+[![codecov](https://codecov.io/gh/nidor1998/s3rm-rs/graph/badge.svg?token=IS3LQZOYFT)](https://codecov.io/gh/nidor1998/s3rm-rs)
 
 ## Fast Amazon S3 object deletion tool
 
 Delete thousands to millions of S3 objects using batch deletion and parallel workers. Built in Rust with safety features and configurable filtering.
 
+### Demo
+
+This demo shows Express One Zone deleting approximately 36,000 objects per second from a set of 100,000 objects, and deleting approximately 3,300 files per second from a set of 100,000 files with versioning enabled.
+
+![demo](media/demo.webp)
 
 ## Table of contents
 

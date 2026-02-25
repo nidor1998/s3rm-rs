@@ -7,7 +7,10 @@ use s3rm_rs::callback::user_defined_event_callback::UserDefinedEventCallback;
 use s3rm_rs::callback::user_defined_filter_callback::UserDefinedFilterCallback;
 use s3rm_rs::config::Config;
 use s3rm_rs::types::event_callback::EventType;
-use s3rm_rs::{CLIArgs, DeletionPipeline, create_pipeline_cancellation_token, is_cancelled_error};
+use s3rm_rs::{
+    CLIArgs, DeletionPipeline, create_pipeline_cancellation_token, exit_code_from_error,
+    is_cancelled_error,
+};
 
 mod ctrl_c_handler;
 pub mod indicator;
@@ -111,7 +114,13 @@ async fn run(mut config: Config) -> Result<()> {
         // so the progress bar doesn't interfere with the prompt.
         if let Err(e) = pipeline.check_prerequisites().await {
             pipeline.close_stats_sender();
-            return Err(e);
+            if is_cancelled_error(&e) {
+                debug!("deletion cancelled by user.");
+                return Ok(());
+            }
+            let code = exit_code_from_error(&e);
+            error!("{}", e);
+            std::process::exit(code);
         }
 
         let indicator_join_handle = indicator::show_indicator(
@@ -138,15 +147,20 @@ async fn run(mut config: Config) -> Result<()> {
                 std::process::exit(EXIT_CODE_ABNORMAL_TERMINATION);
             }
             let errors = pipeline.get_errors_and_consume().unwrap();
+            // Use the highest exit code across all errors so that a severe
+            // status (e.g. 3 for PartialFailure) is not downgraded by a
+            // subsequent generic error (code 1).
+            let mut code = 1;
             for err in &errors {
                 if is_cancelled_error(err) {
                     debug!("deletion cancelled by user.");
                     return Ok(());
                 }
+                code = code.max(exit_code_from_error(err));
                 error!("{}", err);
             }
             error!(duration_sec = duration_sec, "s3rm failed.");
-            return Err(anyhow::anyhow!("s3rm failed."));
+            std::process::exit(code);
         }
 
         has_warning = pipeline.has_warning();

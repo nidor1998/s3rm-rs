@@ -63,7 +63,7 @@ graph TB
 - Size filters (`pipeline/filter/larger_size.rs`, `smaller_size.rs`)
 - Time filters (`pipeline/filter/mtime_after.rs`, `mtime_before.rs`)
 - Lua VM integration and sandbox (`lua/lua_script_callback_engine.rs`)
-- Callback system: event, filter, preprocess managers (`callback/`)
+- Callback system: event and filter managers (`callback/`)
 - Progress reporter with indicatif (`bin/s3sync/cli/indicator.rs`)
 - Tracing/logging infrastructure (`bin/s3sync/tracing/`)
 - UI configuration: color, verbosity (`bin/s3sync/cli/ui_config.rs`)
@@ -435,7 +435,7 @@ pub struct ExcludeRegexFilter { /* ObjectFilterBase + Stage */ }
 pub struct UserDefinedFilter { /* Stage */ }
 
 impl ObjectFilter for MtimeBeforeFilter {
-    async fn filter(&self) -> Result<(), Error> {
+    async fn filter(&self) -> Result<()> {
         // Read from stage.receiver
         // Filter based on mtime
         // Write to stage.sender

@@ -104,13 +104,14 @@ mod tests {
             }
         }
 
-        /// Feature: s3rm-rs, Property 21: Verbosity Level Configuration (dry-run floor)
+        /// Feature: s3rm-rs, Property 21: Verbosity Level Configuration (dry-run boost)
         /// **Validates: Requirements 4.1, 3.1**
         ///
-        /// When dry-run mode is enabled, the tracing level must be at least Info,
-        /// even if the user requested a lower verbosity level.
+        /// When dry-run mode is enabled, the default level (Warn) is boosted to Info
+        /// so dry-run output is visible. But explicit -q flags are respected — the
+        /// user's quiet preference takes priority over dry-run convenience.
         #[test]
-        fn prop_verbosity_dry_run_floor(
+        fn prop_verbosity_dry_run_boost(
             (flags, expected_level) in arb_verbosity_flags(),
         ) {
             let mut args: Vec<&str> = vec!["s3rm", "s3://bucket/prefix/", "--dry-run"];
@@ -119,25 +120,28 @@ mod tests {
             let cli = parse_from_args(args).unwrap();
             let config = Config::try_from(cli).unwrap();
 
-            // Dry-run always ensures tracing is enabled at Info level or above
-            prop_assert!(
-                config.tracing_config.is_some(),
-                "Dry-run must always enable tracing"
-            );
-            let tracing_config = config.tracing_config.unwrap();
-
             match expected_level {
-                // Silent/quiet: dry-run overrides to Info
+                // Silent (-qq): user explicitly requested no output, dry-run respects that
                 None => {
-                    prop_assert_eq!(tracing_config.tracing_level, log::Level::Info);
+                    prop_assert!(
+                        config.tracing_config.is_none(),
+                        "Dry-run must respect explicit silent mode (-qq)"
+                    );
                 }
-                Some(level) if level < log::Level::Info => {
-                    // Warn is less verbose than Info, so dry-run raises it
-                    prop_assert_eq!(tracing_config.tracing_level, log::Level::Info);
+                // Error (-q): user explicitly asked for errors only, dry-run respects that
+                Some(log::Level::Error) => {
+                    prop_assert!(config.tracing_config.is_some());
+                    prop_assert_eq!(config.tracing_config.unwrap().tracing_level, log::Level::Error);
                 }
+                // Warn (default, no flags): dry-run boosts to Info for visibility
+                Some(log::Level::Warn) => {
+                    prop_assert!(config.tracing_config.is_some());
+                    prop_assert_eq!(config.tracing_config.unwrap().tracing_level, log::Level::Info);
+                }
+                // Info, Debug, Trace (-v/-vv/-vvv): already >= Info, kept as-is
                 Some(level) => {
-                    // Info, Debug, Trace are already >= Info, kept as-is
-                    prop_assert_eq!(tracing_config.tracing_level, level);
+                    prop_assert!(config.tracing_config.is_some());
+                    prop_assert_eq!(config.tracing_config.unwrap().tracing_level, level);
                 }
             }
         }

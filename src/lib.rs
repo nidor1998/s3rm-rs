@@ -31,76 +31,60 @@ wrapper that parses arguments, builds a [`Config`], and runs a [`DeletionPipelin
 
 ```toml
 [dependencies]
-s3rm-rs = "0.1"
+s3rm-rs = "0.2"
 tokio = { version = "1", features = ["full"] }
 ```
 
-To use s3rm-rs as a library, construct a [`Config`], create a
-[`DeletionPipeline`], and call [`run()`](DeletionPipeline::run):
+The easiest way is [`build_config_from_args`] — pass CLI-style arguments
+and get a ready-to-run [`Config`]:
 
 ```no_run
-use s3rm_rs::Config;
-use s3rm_rs::DeletionPipeline;
-use s3rm_rs::create_pipeline_cancellation_token;
+use s3rm_rs::{build_config_from_args, DeletionPipeline, create_pipeline_cancellation_token};
 
-# async fn example() {
-# let config: Config = todo!();
-let cancellation_token = create_pipeline_cancellation_token();
-let mut pipeline = DeletionPipeline::new(config, cancellation_token).await;
+#[tokio::main]
+async fn main() {
+    // Same arguments you would pass to the s3rm CLI.
+    let config = build_config_from_args([
+        "s3rm",
+        "s3://my-bucket/logs/2024/",
+        "--dry-run",
+        "--force",
+    ]).expect("invalid arguments");
 
-// Close the stats sender if you don't need real-time progress reporting.
-pipeline.close_stats_sender();
+    let token = create_pipeline_cancellation_token();
+    let mut pipeline = DeletionPipeline::new(config, token).await;
+    // The pipeline sends real-time stats to a channel for progress reporting.
+    // Close the sender if you aren't reading from get_stats_receiver(),
+    // otherwise the channel fills up and the pipeline stalls.
+    pipeline.close_stats_sender();
 
-// Run the pipeline (blocks until all deletions are complete).
-pipeline.run().await;
+    pipeline.run().await;
 
-if pipeline.has_error() {
-    eprintln!("{:?}", pipeline.get_errors_and_consume().unwrap()[0]);
-}
-
-let stats = pipeline.get_deletion_stats();
-println!("Deleted {} objects ({} bytes)",
-    stats.stats_deleted_objects, stats.stats_deleted_bytes);
-# }
-```
-
-## Callback Registration
-
-Register Rust callbacks for custom filtering or event handling:
-
-```no_run
-use s3rm_rs::{FilterCallback, EventCallback, EventData, S3Object};
-use async_trait::async_trait;
-use anyhow::Result;
-
-struct MyFilter;
-
-#[async_trait]
-impl FilterCallback for MyFilter {
-    async fn filter(&mut self, object: &S3Object) -> Result<bool> {
-        // Return true to delete, false to skip
-        Ok(object.size() > 1024)
+    // --- Error checking ---
+    if pipeline.has_error() {
+        if let Some(messages) = pipeline.get_error_messages() {
+            for msg in &messages {
+                eprintln!("Error: {msg}");
+            }
+        }
+        std::process::exit(1);
     }
-}
 
-struct MyEventHandler;
+    let stats = pipeline.get_deletion_stats();
 
-#[async_trait]
-impl EventCallback for MyEventHandler {
-    async fn on_event(&mut self, event: EventData) {
-        println!("Event: {:?}", event.event_type);
-    }
+    println!("Deleted {} objects ({} bytes)",
+        stats.stats_deleted_objects, stats.stats_deleted_bytes);
 }
 ```
 
-Register callbacks via [`FilterManager`] and [`EventManager`] on the [`Config`]:
+Or build a [`Config`] programmatically with [`Config::for_target`]:
 
-```ignore
-use s3rm_rs::{Config, FilterManager, EventManager, EventType};
-
-let mut config: Config = /* ... */;
-config.filter_manager.register_callback(my_filter);
-config.event_manager.register_callback(EventType::ALL_EVENTS, my_handler, false);
+```no_run
+# use s3rm_rs::Config;
+let mut config = Config::for_target("my-bucket", "logs/2024/");
+config.dry_run = true;          // preview without deleting
+config.worker_size = 100;       // more concurrent workers
+config.max_delete = Some(5000); // stop after 5 000 deletions
 ```
 
 ## Lua Scripting
@@ -122,7 +106,6 @@ as s3rm-rs shares the same Lua integration.
 
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::assertions_on_constants)]
-#![allow(clippy::unnecessary_unwrap)]
 
 // ---------------------------------------------------------------------------
 // Module declarations
@@ -130,17 +113,20 @@ as s3rm-rs shares the same Lua integration.
 
 pub mod callback;
 pub mod config;
-pub mod deleter;
-pub mod filters;
-pub mod lister;
+pub(crate) mod deleter;
+pub(crate) mod filters;
+pub(crate) mod lister;
 #[cfg(feature = "lua_support")]
-pub mod lua;
-pub mod pipeline;
-pub mod safety;
-pub mod stage;
-pub mod storage;
-pub mod terminator;
+pub(crate) mod lua;
+pub(crate) mod pipeline;
+pub(crate) mod safety;
+pub(crate) mod stage;
+pub(crate) mod storage;
+pub(crate) mod terminator;
 pub mod types;
+
+#[cfg(test)]
+pub(crate) mod test_utils;
 
 // ---------------------------------------------------------------------------
 // Root-level re-exports for convenient access
@@ -183,34 +169,7 @@ pub use callback::event_manager::EventManager;
 pub use callback::filter_manager::FilterManager;
 
 #[cfg(test)]
-mod lib_properties;
-
-#[cfg(test)]
-mod versioning_properties;
-
-#[cfg(test)]
-mod retry_properties;
-
-#[cfg(test)]
-mod optimistic_locking_properties;
-
-#[cfg(test)]
-mod logging_properties;
-
-#[cfg(test)]
-mod aws_config_properties;
-
-#[cfg(test)]
-mod rate_limiting_properties;
-
-#[cfg(test)]
-mod cross_platform_properties;
-
-#[cfg(test)]
-mod cicd_properties;
-
-#[cfg(test)]
-mod additional_properties;
+mod property_tests;
 
 #[cfg(test)]
 mod tests {

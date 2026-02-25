@@ -23,7 +23,6 @@ const EXIT_CODE_ABNORMAL_TERMINATION: i32 = 101;
 ///
 /// This binary is a thin wrapper over the s3rm-rs library.
 /// All core functionality is implemented in the library crate.
-#[cfg_attr(coverage_nightly, coverage(off))]
 #[tokio::main]
 async fn main() -> Result<()> {
     let config = load_config_exit_if_err();
@@ -46,7 +45,6 @@ async fn main() -> Result<()> {
     run(config).await
 }
 
-#[cfg_attr(coverage_nightly, coverage(off))]
 fn load_config_exit_if_err() -> Config {
     let config = Config::try_from(CLIArgs::parse());
     if let Err(error_message) = config {
@@ -116,20 +114,20 @@ async fn run(mut config: Config) -> Result<()> {
             return Err(e);
         }
 
-        let log_deletion_summary = config.log_deletion_summary;
-
         let indicator_join_handle = indicator::show_indicator(
             pipeline.get_stats_receiver(),
             ui_config::is_progress_indicator_needed(&config),
             ui_config::is_show_result_needed(&config),
-            log_deletion_summary,
             config.dry_run,
         );
 
         pipeline.run().await;
-        if let Err(e) = indicator_join_handle.await {
-            error!("indicator task panicked: {}", e);
-            std::process::exit(EXIT_CODE_ABNORMAL_TERMINATION);
+        match indicator_join_handle.await {
+            Ok(_summary) => {}
+            Err(e) => {
+                error!("indicator task panicked: {}", e);
+                std::process::exit(EXIT_CODE_ABNORMAL_TERMINATION);
+            }
         }
 
         let duration_sec = format!("{:.3}", start_time.elapsed().as_secs_f32());

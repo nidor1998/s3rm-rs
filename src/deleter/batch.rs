@@ -6,10 +6,10 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use aws_sdk_s3::types::ObjectIdentifier;
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
 use crate::config::Config;
-use crate::types::S3Object;
+use crate::types::{DeletionStatistics, S3Object};
 
 use super::{DeleteResult, DeletedKey, Deleter, FailedKey};
 
@@ -177,6 +177,9 @@ impl Deleter for BatchDeleter {
                             code,
                             message,
                         );
+                        self.target
+                            .send_stats(DeletionStatistics::DeleteError { key: key.clone() })
+                            .await;
                         result.failed.push(FailedKey {
                             key,
                             version_id,
@@ -185,8 +188,9 @@ impl Deleter for BatchDeleter {
                         });
                     }
                 } else {
-                    // Non-retryable error: add directly to failures
-                    error!(
+                    // Non-retryable error: treat as warning, not error.
+                    // The caller (ObjectDeleter) handles warn-as-error promotion.
+                    warn!(
                         key = key,
                         version_id = version_id,
                         code = code,
@@ -196,6 +200,9 @@ impl Deleter for BatchDeleter {
                         code,
                         message,
                     );
+                    self.target
+                        .send_stats(DeletionStatistics::DeleteError { key: key.clone() })
+                        .await;
 
                     result.failed.push(FailedKey {
                         key,

@@ -87,7 +87,7 @@ Delete thousands to millions of S3 objects using batch deletion and parallel wor
 - [CI/CD Integration](#cicd-integration)
 - [Library API](#library-api)
 - [About testing](#about-testing)
-- [AI Spec-Driven Development](#ai-spec-driven-development)
+- [Fully AI-generated (human-verified) software](#fully-ai-generated-human-verified-software)
 - [License](#license)
 
 </details>
@@ -115,9 +115,9 @@ s3rm solves these problems with batch deletion, parallel workers, comprehensive 
 ```
 ObjectLister → [Filters] → ObjectDeleter Workers → Terminator
      ↓              ↓              ↓                    ↓
-  Parallel      Regex, size,   Batch API calls     Statistics
-  pagination    time, Lua,     with retry logic    and cleanup
-               metadata, tags
+  Parallel      Regex, size,   Batch API calls     Drains output
+  pagination    time, Lua,     with retry logic    and closes
+               metadata, tags                      the pipeline
 ```
 
 Objects stream through the pipeline one stage at a time. The lister fetches keys from S3 using parallel pagination, filters narrow down which objects to delete, and a pool of concurrent workers executes batch deletions against the S3 API. Nothing is loaded into memory all at once — s3rm handles buckets of any size with constant memory usage.
@@ -394,7 +394,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-s3rm-rs = "0.1"
+s3rm-rs = "0.2"
 ```
 
 See [Library API](#library-api) for usage examples.
@@ -556,7 +556,7 @@ s3rm uses a streaming pipeline architecture with four stages connected by async 
 1. **ObjectLister** — Lists objects from S3 using `ListObjectsV2` (or `ListObjectVersions` when `--delete-all-versions` is enabled). Supports parallel pagination for fast enumeration.
 2. **Filter stages** — A chain of filters that narrow down which objects to delete. Objects flow through each filter in sequence — if any filter rejects an object, it is skipped.
 3. **ObjectDeleter** — A pool of concurrent workers that execute batch deletions using the `DeleteObjects` API (or `DeleteObject` for single-object mode). Includes retry logic for partial failures.
-4. **Terminator** — Consumes the final output, collects statistics, and closes the pipeline.
+4. **Terminator** — Drains the final output channel, allowing upstream stages to complete without blocking.
 
 Each stage runs as an independent async task. Objects stream through the pipeline without being buffered in memory.
 
@@ -815,9 +815,7 @@ For more information, see `s3rm -h`.
 | `--dry-run` | `-d` | `false` | Preview deletions without executing them |
 | `--force` | `-f` | `false` | Skip confirmation prompt |
 | `--show-no-progress` | | `false` | Hide the progress bar |
-| `--log-deletion-summary` | | `true` | Log deletion summary at completion |
 | `--delete-all-versions` | | `false` | Delete all versions including delete markers |
-| `--batch-size` | | `200` | Objects per batch deletion request (1–1000) |
 | `--max-delete` | | | Stop after deleting this many objects |
 
 ### Filtering
@@ -870,6 +868,7 @@ For more information, see `s3rm -h`.
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--worker-size` | `24` | Concurrent deletion workers (1–65535) |
+| `--batch-size` | `200` | Objects per batch deletion request (1–1000) |
 | `--max-parallel-listings` | `16` | Concurrent listing operations |
 | `--max-parallel-listing-max-depth` | `2` | Maximum depth for parallel listings |
 | `--rate-limit-objects` | | Maximum objects/second (minimum: 10) |
@@ -965,7 +964,6 @@ s3rm \
   --filter-mtime-before "$(date -u -d '30 days ago' +%Y-%m-%dT%H:%M:%SZ)" \
   --force \
   --json-tracing \
-  --show-no-progress \
   s3://my-bucket/temp/
 
 exit_code=$?
@@ -998,23 +996,35 @@ s3rm is designed library-first. All CLI functionality is available programmatica
 ### Basic usage
 
 ```rust
-use s3rm_rs::Config;
-use s3rm_rs::DeletionPipeline;
-use s3rm_rs::create_pipeline_cancellation_token;
+use s3rm_rs::{build_config_from_args, DeletionPipeline, create_pipeline_cancellation_token};
 
 #[tokio::main]
 async fn main() {
-    // Build a Config from CLI args, environment, or programmatically.
-    let config: Config = todo!("construct or parse your Config here");
+    // Same arguments you would pass to the s3rm CLI.
+    let config = build_config_from_args([
+        "s3rm",
+        "s3://my-bucket/logs/2024/",
+        "--dry-run",
+        "--force",
+    ]).expect("invalid arguments");
 
-    let cancellation_token = create_pipeline_cancellation_token();
-    let mut pipeline = DeletionPipeline::new(config, cancellation_token).await;
+    let token = create_pipeline_cancellation_token();
+    let mut pipeline = DeletionPipeline::new(config, token).await;
+    // The pipeline sends real-time stats to a channel for progress reporting.
+    // Close the sender if you aren't reading from get_stats_receiver(),
+    // otherwise the channel fills up and the pipeline stalls.
     pipeline.close_stats_sender();
+
     pipeline.run().await;
 
+    // --- Error checking ---
     if pipeline.has_error() {
-        let errors = pipeline.get_errors_and_consume().unwrap();
-        eprintln!("Errors: {:?}", errors);
+        if let Some(messages) = pipeline.get_error_messages() {
+            for msg in &messages {
+                eprintln!("Error: {msg}");
+            }
+        }
+        std::process::exit(1);
     }
 
     let stats = pipeline.get_deletion_stats();
@@ -1032,9 +1042,8 @@ async fn main() {
 | `DELETE_COMPLETE` | An object was successfully deleted |
 | `DELETE_FAILED` | An object deletion failed |
 | `DELETE_FILTERED` | An object was filtered out (not deleted) |
-| `DELETE_WARNING` | A non-fatal warning occurred |
 | `PIPELINE_ERROR` | A pipeline-level error occurred |
-| `DELETE_CANCEL` | A deletion was cancelled (e.g., max-delete reached) |
+| `DELETE_CANCEL` | The pipeline was cancelled |
 | `STATS_REPORT` | Periodic statistics update |
 
 ## About testing
@@ -1042,16 +1051,61 @@ async fn main() {
 **Supported target: Amazon S3 only.**
 
 Support for S3-compatible storage is on a best-effort basis and may behave differently.
-s3rm has been tested with Amazon S3. s3rm has comprehensive unit tests and property-based tests (proptest) covering 47 correctness properties.
+s3rm has been tested with Amazon S3. s3rm has comprehensive unit tests, property-based tests (proptest) covering 49 correctness properties, and 84 end-to-end integration tests across 14 test files.
+
+### Running unit and property tests
+
+```bash
+cargo test
+```
+
+### Running E2E tests
+
+E2E tests require live AWS credentials and are gated behind `#[cfg(e2e_test)]`.
+
+```bash
+# Run all E2E tests
+RUSTFLAGS="--cfg e2e_test" cargo test --test 'e2e_*'
+
+# Run a specific test file
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_deletion
+
+# Run a specific test function
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_deletion -- e2e_basic_prefix_deletion
+```
+
+Available test files: `e2e_deletion`, `e2e_filter`, `e2e_versioning`, `e2e_safety`, `e2e_callback`, `e2e_optimistic`, `e2e_performance`, `e2e_tracing`, `e2e_retry`, `e2e_error`, `e2e_aws_config`, `e2e_combined`, `e2e_stats`, `e2e_express_one_zone`.
+
+Express One Zone tests require the `S3RM_E2E_AZ_ID` environment variable (defaults to `apne1-az4` if unset).
 
 S3-compatible storage is not tested when a new version is released.
 Since there is no official certification for S3-compatible storage, comprehensive testing is not possible.
 
-## AI Spec-Driven Development
+## Fully AI-generated (human-verified) software
 
-**No human wrote a single line of source code in this project.** Every line of source code, every test, all documentation, CI/CD configuration, and this README were generated by AI using [Claude](https://claude.ai) (Anthropic).
+No human wrote a single line of source code in this project. Every line of source code, every test, all documentation, CI/CD configuration, and this README were generated by AI using [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) (Anthropic).
 
-Human engineers authored the requirements, design specifications, and s3sync reference architecture. They thoroughly reviewed and verified the design, all source code, and all tests. The development followed a spec-driven process: requirements and design documents were written first, and the AI generated code to match those specifications under continuous human oversight.
+Human engineers authored the requirements, design specifications, and s3sync reference architecture. They thoroughly reviewed and verified the design, all source code, and all tests. All features of the initial build binary have been manually tested and verified by humans. All E2E test scenarios have been thoroughly verified by humans against live AWS S3. The development followed a spec-driven process: requirements and design documents were written first, and the AI generated code to match those specifications under continuous human oversight.
+
+### Quality verification (by AI self-assessment, initial build)
+
+| Metric | Value |
+|---|---|
+| Production code | 14,247 lines of Rust (46 source files) |
+| Test code | 18,037 lines (1.27x production code) |
+| Unit & property tests | 548 passing (522 lib + 26 binary), 0 failing |
+| Property-based tests (proptest) | 49 correctness properties across 19 test files |
+| E2E integration tests | 84 tests across 14 test files, all verified against live AWS S3 |
+| Code coverage (llvm-cov) | 94.57% regions, 88.02% functions, 94.43% lines |
+| Static analysis (clippy) | 0 warnings |
+| Dependency audit (cargo-deny) | advisories ok, bans ok, licenses ok, sources ok |
+| Security review (Claude Code) | No issues found |
+| Development | 7 days (2026-02-18 to 2026-02-24), 357 commits, 25 PRs |
+| Code reuse from [s3sync](https://github.com/nidor1998/s3sync) | ~90% of architecture |
+
+The codebase was built through spec-driven development: 30 tasks executed sequentially, each as a separate PR with human oversight. Every pull request is reviewed by two AI tools ([GitHub Copilot](https://github.com/features/copilot) and [CodeRabbit](https://www.coderabbit.ai/)) and by a human reviewer before merging. Audit checkpoints verified implementation against specifications at multiple stages. Property-based testing (proptest) exercises correctness properties across randomized inputs, complementing deterministic unit tests and live-AWS end-to-end tests.
+
+**Reliability assessment:** The systematic development process, high test density, zero static analysis warnings, clean dependency audit, and heavy reuse from a proven sibling project are strong quality indicators. As with any new software, reliability will be further demonstrated through real-world usage over time.
 
 ## License
 

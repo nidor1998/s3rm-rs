@@ -101,7 +101,8 @@
       "Bash(cargo build:*)",
       "WebFetch(domain:aws.amazon.com)",
       "WebFetch(domain:rclone.org)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(RUSTFLAGS=\"--cfg e2e_test\" cargo clippy:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -40,6 +40,7 @@ impl LuaEventCallback {
     }
 
     /// Load and compile a Lua event script from a string.
+    #[cfg(test)]
     pub fn load_and_compile_from_string(&mut self, script: &str) -> Result<()> {
         self.lua.load_and_compile(script)
     }
@@ -72,7 +73,6 @@ impl EventCallback for LuaEventCallback {
         let _ = table.set("stats_deleted_bytes", event_data.stats_deleted_bytes);
         let _ = table.set("stats_failed_objects", event_data.stats_failed_objects);
         let _ = table.set("stats_skipped_objects", event_data.stats_skipped_objects);
-        let _ = table.set("stats_warning_count", event_data.stats_warning_count);
         let _ = table.set("stats_error_count", event_data.stats_error_count);
         let _ = table.set("stats_duration_sec", event_data.stats_duration_sec);
         let _ = table.set("stats_objects_per_sec", event_data.stats_objects_per_sec);

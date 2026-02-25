@@ -135,9 +135,8 @@ impl DeletionPipeline {
 }
 
 // Configuration (similar to s3sync's Config)
-pub struct Config {
-    // Internal configuration state
-}
+// All fields are public for programmatic access — see Section 15 for full listing.
+pub struct Config { /* ... */ }
 
 impl TryFrom<CLIArgs> for Config {
     type Error = String;
@@ -180,7 +179,7 @@ pub fn create_pipeline_cancellation_token() -> PipelineCancellationToken;
 // pipeline.close_stats_sender();
 // pipeline.run().await;
 // if pipeline.has_error() {
-//     println!("{:?}", pipeline.get_errors_and_consume().unwrap()[0]);
+//     eprintln!("{:?}", pipeline.get_errors_and_consume().unwrap()[0]);
 // }
 // let stats = pipeline.get_deletion_stats();
 
@@ -203,13 +202,31 @@ pub trait FilterCallback: Send {
 #[async_trait]
 pub trait EventCallback: Send {
     async fn on_event(&mut self, event_data: EventData);
-    // EventData is a flat struct with event_type, key, version_id, size,
-    // error_message, and stats fields (not the DeletionEvent enum)
+    // EventData is a flat struct with event_type, dry_run, key, version_id,
+    // size, last_modified, e_tag, error_message, message, and stats fields
 }
 
 // Callback management (registration and execution)
 pub struct FilterManager;  // Manages filter callbacks (Rust and Lua)
 pub struct EventManager;   // Manages event callbacks with event type filtering
+
+// Accumulated pipeline statistics for the STATS_REPORT event.
+// EventManager accumulates these stats during pipeline execution and
+// emits a STATS_REPORT event on PIPELINE_END.
+pub struct PipelineStats {
+    pub pipeline_start_time: Option<Instant>,
+    pub stats_deleted_objects: u64,
+    pub stats_deleted_bytes: u64,
+    pub stats_failed_objects: u64,
+    pub stats_skipped_objects: u64,
+    pub stats_error_count: u64,
+    pub stats_duration_sec: f64,
+    pub stats_objects_per_sec: f64,
+}
+
+impl From<PipelineStats> for EventData {
+    // Converts accumulated stats into a STATS_REPORT EventData
+}
 ```
 
 **Reuse from s3sync**: The Pipeline pattern, Config structure, parse_from_args function, and cancellation token are directly from s3sync. This provides a consistent API between s3sync and s3rm-rs.
@@ -242,7 +259,7 @@ impl DeletionPipeline {
     }
 
     pub async fn run(&mut self) {
-        // Note: check_prerequisites() must be called before run().
+        // Automatically calls check_prerequisites() if not already called.
         // 1. Fire PIPELINE_START event
         // 2. List objects (using s3sync's parallel lister)
         // 3. Filter objects (using s3sync's filter stages)
@@ -252,13 +269,17 @@ impl DeletionPipeline {
         // Note: All stages connected by async channels
     }
 
-    // Safety checks (run before pipeline execution)
+    // Safety checks (confirmation prompt, versioning).
+    // Called automatically by run() if not already called.
+    // Can be called explicitly before run() to separate the prompt from
+    // the progress bar.
     pub async fn check_prerequisites(&mut self) -> Result<()>;
 
     // Error handling (from s3sync)
     pub fn has_error(&self) -> bool;
     pub fn has_panic(&self) -> bool;
     pub fn get_errors_and_consume(&self) -> Option<Vec<anyhow::Error>>;
+    pub fn get_error_messages(&self) -> Option<Vec<String>>;
     pub fn has_warning(&self) -> bool;
 
     // Stats receiver for progress reporting
@@ -306,7 +327,7 @@ graph LR
 ```
 
 **Workflow**:
-1. **Check Prerequisites** (via `check_prerequisites()`): Validate configuration, check versioning, handle confirmation prompt (dry-run skips confirmation but pipeline still runs fully). Called separately before `run()` so the progress bar doesn't interfere with prompts.
+1. **Check Prerequisites** (via `check_prerequisites()`): Validate configuration, handle confirmation prompt (dry-run skips confirmation but pipeline still runs fully). If `delete_all_versions` is set but the bucket is not versioned, the flag is silently cleared so the pipeline proceeds with normal deletion. Called separately before `run()` so the progress bar doesn't interfere with prompts.
 2. **List Stage**: Spawn ObjectLister to list target objects into channel
 3. **Filter Stages**: Chain filter stages (each reads from previous, writes to next)
    - MtimeBeforeFilter (if configured)
@@ -590,11 +611,10 @@ pub trait StorageTrait: DynClone {
 
     async fn list_objects(&self, sender: &Sender<S3Object>, max_keys: i32) -> Result<()>;
     async fn list_object_versions(&self, sender: &Sender<S3Object>, max_keys: i32) -> Result<()>;
+    async fn head_object(&self, key: &str, version_id: Option<String>) -> Result<HeadObjectOutput>;
+    async fn get_object_tagging(&self, key: &str, version_id: Option<String>) -> Result<GetObjectTaggingOutput>;
 
-    async fn head_object(&self, relative_key: &str, version_id: Option<String>) -> Result<HeadObjectOutput>;
-    async fn get_object_tagging(&self, relative_key: &str, version_id: Option<String>) -> Result<GetObjectTaggingOutput>;
-
-    async fn delete_object(&self, relative_key: &str, version_id: Option<String>, if_match: Option<String>) -> Result<DeleteObjectOutput>;
+    async fn delete_object(&self, key: &str, version_id: Option<String>, if_match: Option<String>) -> Result<DeleteObjectOutput>;
     async fn delete_objects(&self, objects: Vec<ObjectIdentifier>) -> Result<DeleteObjectsOutput>;
 
     async fn is_versioning_enabled(&self) -> Result<bool>;
@@ -620,7 +640,36 @@ pub async fn create_storage(
 }
 ```
 
-**Reuse from s3sync**: The Storage trait and S3 storage implementation. Local storage is NOT needed since s3rm-rs only deletes from S3.
+**StorageFactory Trait**:
+```rust
+/// Factory trait for creating Storage instances.
+/// Adapted from s3sync's StorageFactory - simplified for S3-only usage.
+#[async_trait]
+pub trait StorageFactory {
+    async fn create(
+        config: Config,
+        path: StoragePath,
+        cancellation_token: PipelineCancellationToken,
+        stats_sender: Sender<DeletionStatistics>,
+        client_config: Option<ClientConfig>,
+        request_payer: Option<RequestPayer>,
+        rate_limit_objects_per_sec: Option<Arc<RateLimiter>>,
+        has_warning: Arc<AtomicBool>,
+    ) -> Storage;
+}
+
+/// S3-specific factory implementation.
+pub struct S3StorageFactory;
+
+#[async_trait]
+impl StorageFactory for S3StorageFactory {
+    async fn create(/* same params */) -> Storage {
+        // Build AWS S3 client, wrap in S3Storage, return as boxed StorageTrait
+    }
+}
+```
+
+**Reuse from s3sync**: The Storage trait, StorageFactory trait, and S3 storage implementation. Local storage is NOT needed since s3rm-rs only deletes from S3.
 
 ### 11. Retry Policy (Integrated, Reused from s3sync)
 
@@ -650,17 +699,25 @@ There is no standalone `RetryPolicy` module. Rate limiting is handled via `leaky
 
 ```rust
 // Reused from s3sync - progress reporting is a function, not a struct
+/// Summary returned by `show_indicator` after the stats channel closes.
+pub struct IndicatorSummary {
+    pub total_delete_count: u64,
+    pub total_delete_bytes: u64,
+    pub total_error_count: u64,
+    pub total_skip_count: u64,
+}
+
 pub fn show_indicator(
     stats_receiver: Receiver<DeletionStatistics>,
     show_progress: bool,
     show_result: bool,
-    log_deletion_summary: bool,
     dry_run: bool,
-) -> JoinHandle<()> {
+) -> JoinHandle<IndicatorSummary> {
     // Spawn task that reads from stats_receiver channel
     // Display progress using indicatif progress bar
     // Calculate moving averages for throughput
     // Display final summary when channel closes
+    // Returns IndicatorSummary with accumulated counts
     // Reuse s3sync's implementation
 }
 ```
@@ -680,10 +737,12 @@ use tracing::{trace, debug, info, warn, error};
 info!("Starting deletion of {} objects", object_count);
 debug!("Applying filters: {:?}", filter_config);
 trace!("Processing object: {}", object.key);
-error!("Failed to delete object {}: {}", object.key, error);
+warn!("S3 DeleteObjects partial failure for key '{}': {} ({})", key, code, message);
 
 // Tracing subscriber configuration (in bin/s3rm/tracing_init.rs, adapted from s3sync)
 // Uses TracingConfig from the library's config module
+const EVENT_FILTER_ENV_VAR: &str = "RUST_LOG";
+
 pub fn init_tracing(config: &TracingConfig) {
     let fmt_span = if config.span_events_tracing {
         FmtSpan::NEW | FmtSpan::CLOSE
@@ -692,28 +751,39 @@ pub fn init_tracing(config: &TracingConfig) {
     };
 
     let subscriber_builder = tracing_subscriber::fmt()
+        .with_writer(std::io::stdout)
         .compact()
         .with_target(false)
-        .with_ansi(!config.disable_color_tracing)
+        .with_ansi(!config.disable_color_tracing && std::io::stdout().is_terminal())
         .with_span_events(fmt_span);
+
+    // show_target controls whether the target module path is shown in log output.
+    // When using custom env filter (RUST_LOG) or AWS SDK tracing, show the target
+    // so users can identify which crate/module emitted each log line.
+    // For the default case (only s3rm_rs/s3rm filters), hide it for cleaner output.
+    let mut show_target = true;
+    let tracing_level = config.tracing_level;
 
     // Build event filter based on AWS SDK tracing and RUST_LOG env var
     let event_filter = if config.aws_sdk_tracing {
-        format!("s3rm_rs={level},aws_smithy_runtime={level},aws_config={level},aws_sigv4={level}",
-                level = config.tracing_level)
-    } else if let Ok(env_filter) = env::var("RUST_LOG") {
-        env_filter
+        format!("s3rm_rs={tracing_level},s3rm={tracing_level},aws_smithy_runtime={tracing_level},aws_config={tracing_level},aws_sigv4={tracing_level}")
+    } else if env::var(EVENT_FILTER_ENV_VAR).is_ok() {
+        env::var(EVENT_FILTER_ENV_VAR).unwrap()
     } else {
-        format!("s3rm_rs={}", config.tracing_level)
+        show_target = false;
+        format!("s3rm_rs={tracing_level},s3rm={tracing_level}")
     };
 
     // TracingConfig.tracing_level is log::Level, mapped from CLI verbosity:
     // -qq -> (None/silent), -q -> Error, default -> Warn, -v -> Info, -vv -> Debug, -vvv -> Trace
 
+    let subscriber_builder = subscriber_builder
+        .with_env_filter(event_filter)
+        .with_target(show_target);
     if config.json_tracing {
-        subscriber_builder.with_env_filter(event_filter).json().init();
+        subscriber_builder.json().init();
     } else {
-        subscriber_builder.with_env_filter(event_filter).init();
+        subscriber_builder.init();
     }
 }
 ```
@@ -851,7 +921,6 @@ pub struct CLIArgs {
     pub aws_sdk_tracing: bool,
     pub span_events_tracing: bool,
     pub disable_color_tracing: bool,
-    pub log_deletion_summary: bool,  // default true, help_heading = "Tracing/Logging"
 
     // Performance (same as s3sync)
     pub worker_size: u16,                  // value_parser range(1..)
@@ -922,8 +991,12 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    start_tracing_if_necessary(&config);
+    start_tracing_if_necessary(&config);  // returns bool (true if tracing was initialized)
     run(config).await
+}
+
+fn start_tracing_if_necessary(config: &Config) -> bool {
+    // Returns true if tracing was initialized, false if tracing_config is None
 }
 
 fn load_config_exit_if_err() -> Config {
@@ -954,50 +1027,68 @@ async fn run(mut config: Config) -> Result<()> {
         config.filter_manager.register_callback(user_defined_filter_callback);
     }
 
-    // Create cancellation token and Ctrl-C handler (tokio::select! pattern)
-    let cancellation_token = create_pipeline_cancellation_token();
-    ctrl_c_handler::spawn_ctrl_c_handler(cancellation_token.clone());
+    #[allow(unused_assignments)]
+    let mut has_warning = false;
 
-    // Create pipeline
-    let mut pipeline = DeletionPipeline::new(config.clone(), cancellation_token).await;
+    {
+        // Create cancellation token and Ctrl-C handler (tokio::select! pattern)
+        let cancellation_token = create_pipeline_cancellation_token();
+        ctrl_c_handler::spawn_ctrl_c_handler(cancellation_token.clone());
 
-    // Check prerequisites (confirmation prompt) BEFORE starting progress indicator,
-    // so the progress bar doesn't interfere with the prompt.
-    if let Err(e) = pipeline.check_prerequisites().await {
-        pipeline.close_stats_sender();
-        return Err(e);
-    }
+        let start_time = tokio::time::Instant::now();
 
-    let log_deletion_summary = config.log_deletion_summary;
+        // Create pipeline
+        let mut pipeline = DeletionPipeline::new(config.clone(), cancellation_token).await;
 
-    // Start progress indicator after prerequisites pass
-    let indicator_join_handle = indicator::show_indicator(
-        pipeline.get_stats_receiver(),
-        ui_config::is_progress_indicator_needed(&config),
-        ui_config::is_show_result_needed(&config),
-        log_deletion_summary, config.dry_run,
-    );
-
-    pipeline.run().await;
-    indicator_join_handle.await?;
-
-    // Handle panics — exit code 101
-    if pipeline.has_error() {
-        if pipeline.has_panic() {
-            error!("s3rm abnormal termination.");
-            std::process::exit(EXIT_CODE_ABNORMAL_TERMINATION); // 101
+        // Check prerequisites (confirmation prompt) BEFORE starting progress indicator,
+        // so the progress bar doesn't interfere with the prompt.
+        if let Err(e) = pipeline.check_prerequisites().await {
+            pipeline.close_stats_sender();
+            return Err(e);
         }
-        // Handle errors — exit code 1
-        let errors = pipeline.get_errors_and_consume().unwrap();
-        for err in &errors {
-            if is_cancelled_error(err) { return Ok(()); }
-            error!("{}", err);
+
+        // Start progress indicator after prerequisites pass
+        let indicator_join_handle = indicator::show_indicator(
+            pipeline.get_stats_receiver(),
+            ui_config::is_progress_indicator_needed(&config),
+            ui_config::is_show_result_needed(&config),
+            config.dry_run,
+        );
+
+        pipeline.run().await;
+        match indicator_join_handle.await {
+            Ok(_summary) => {}
+            Err(e) => {
+                error!("indicator task panicked: {}", e);
+                std::process::exit(EXIT_CODE_ABNORMAL_TERMINATION);
+            }
         }
-        return Err(anyhow::anyhow!("s3rm failed."));
+
+        let duration_sec = format!("{:.3}", start_time.elapsed().as_secs_f32());
+
+        // Handle panics — exit code 101
+        if pipeline.has_error() {
+            if pipeline.has_panic() {
+                error!(duration_sec = duration_sec, "s3rm abnormal termination.");
+                std::process::exit(EXIT_CODE_ABNORMAL_TERMINATION); // 101
+            }
+            // Handle errors — exit code 1
+            let errors = pipeline.get_errors_and_consume().unwrap();
+            for err in &errors {
+                if is_cancelled_error(err) { return Ok(()); }
+                error!("{}", err);
+            }
+            error!(duration_sec = duration_sec, "s3rm failed.");
+            return Err(anyhow::anyhow!("s3rm failed."));
+        }
+
+        has_warning = pipeline.has_warning();
+
+        debug!(duration_sec = duration_sec, "s3rm has been completed.");
     }
 
     // Handle warnings — exit code 3
-    if pipeline.has_warning() {
+    if has_warning {
         std::process::exit(EXIT_CODE_WARNING); // 3
     }
 
@@ -1021,7 +1112,7 @@ s3rm s3://my-bucket/ --filter-mtime-before 2023-01-01 --worker-size 100
 Options are organized into clear categories matching s3sync's help structure:
 - **General**: dry-run, force, show-no-progress, delete-all-versions, max-delete
 - **Filtering**: Regex, size, time filters (identical to s3sync)
-- **Tracing/Logging**: Verbosity, JSON, color control, AWS SDK tracing, span events, log-deletion-summary
+- **Tracing/Logging**: Verbosity, JSON, color control, AWS SDK tracing, span events
 - **AWS Configuration**: Credentials, region, endpoint (target-* only, no source-*)
 - **Performance**: Worker count, batch-size, parallel listings, rate limiting (identical to s3sync)
 - **Retry Options**: Max attempts, backoff configuration (identical to s3sync)
@@ -1083,9 +1174,12 @@ impl SafetyChecker {
             return Ok(());
         }
 
-        // 3. Non-interactive environment (non-TTY or JSON logging): skip prompts
+        // 3. Non-interactive environment (non-TTY or JSON logging): error
+        //    (unsafe to proceed without confirmation and without --force)
         if self.json_logging || !self.prompt_handler.is_interactive() {
-            return Ok(());
+            return Err(S3rmError::InvalidConfig(
+                "Cannot run destructive operation without --force (-f) in a non-interactive environment".into()
+            ));
         }
 
         // 4. Prompt for confirmation (require exact "yes" input)
@@ -1135,7 +1229,6 @@ pub enum DeletionStatistics {
     DeleteComplete { key: String },
     DeleteSkip { key: String },
     DeleteError { key: String },
-    DeleteWarning { key: String },
 }
 
 // Aggregate deletion statistics report with atomic counters (adapted from s3sync's SyncStatsReport)
@@ -1218,7 +1311,6 @@ pub fn create_pipeline_cancellation_token() -> PipelineCancellationToken {
 pub struct Config {
     pub target: StoragePath,
     pub show_no_progress: bool,
-    pub log_deletion_summary: bool,
     pub target_client_config: Option<ClientConfig>,
     pub force_retry_config: ForceRetryConfig,
     pub tracing_config: Option<TracingConfig>,
@@ -1501,7 +1593,7 @@ pub struct FilterConfig {
 **Validates: Requirements 12.8**
 
 ### Property 48: Non-Interactive Environment Detection
-*For any* execution in a non-interactive environment (no TTY), the tool should detect the absence of a TTY and disable interactive prompts.
+*For any* execution in a non-interactive environment (no TTY) without the --force flag, the tool should return an error (exit code 2) to prevent unsafe unconfirmed deletions. With --force or --dry-run, the tool proceeds without prompting.
 **Validates: Requirements 13.1**
 
 ### Property 49: Output Stream Separation
@@ -1619,10 +1711,12 @@ impl S3rmError {
 
 When batch deletions partially fail:
 1. Parse DeleteObjects response to identify successes and failures
-2. Log each failure with error code and message
-3. Track failed objects for retry
+2. Classify each failure by error code:
+   - **Retryable errors** (InternalError, SlowDown, ServiceUnavailable, RequestTimeout): Fall back to individual DeleteObject calls with retries. Log each retry attempt at `warn!` level.
+   - **Non-retryable errors** (AccessDenied, NoSuchKey, etc.): Log at `warn!` level (not `error!`) and add directly to failed list. The caller (ObjectDeleter) handles warn-as-error promotion if `--warn-as-error` is enabled.
+3. Track failed objects in DeleteResult
 4. Continue processing remaining objects
-5. Return PartialFailure error if any objects failed after all retries
+5. ObjectDeleter sets warning flag on any failures; if `--warn-as-error` is enabled, cancels the pipeline
 
 ### Error Logging
 
@@ -1755,201 +1849,152 @@ proptest! {
 
 **Generators** (arbitrary data generators):
 ```rust
-fn arbitrary_s3_object() -> impl Strategy<Value = S3Object> {
-    (
-        "[a-z0-9/]{1,100}",  // key
-        prop::option::of(any::<u64>().prop_map(|v| v.to_string())),  // version_id
-        any::<u64>(),  // size
-        arbitrary_datetime(),  // last_modified
-        "[a-f0-9]{32}",  // etag
-        prop::option::of(prop::sample::select(vec!["STANDARD", "GLACIER"])),  // storage_class
-        prop::option::of("[a-z]+/[a-z]+"),  // content_type
-        prop::collection::hash_map("[a-z]+", "[a-z0-9]+", 0..5),  // metadata
-        prop::option::of(prop::collection::hash_map("[a-z]+", "[a-z0-9]+", 0..5)),  // tags
-        any::<bool>(),  // is_delete_marker
-    ).prop_map(|(key, version_id, size, last_modified, etag, storage_class, content_type, metadata, tags, is_delete_marker)| {
-        S3Object {
-            key, version_id, size, last_modified, etag, storage_class, content_type, metadata, tags, is_delete_marker
-        }
-    })
+// Example: create S3Object using AWS SDK builder for property tests
+fn arbitrary_s3_object_with_key(key: String) -> S3Object {
+    S3Object::NotVersioning(
+        Object::builder()
+            .key(key)
+            .size(100)
+            .last_modified(DateTime::from_secs(0))
+            .build(),
+    )
+}
+
+// Example: proptest strategy for generating S3Objects
+fn arb_s3_object() -> impl Strategy<Value = S3Object> {
+    "[a-z0-9/]{1,50}".prop_map(|key| arbitrary_s3_object_with_key(key))
 }
 ```
 
-#### 3. End-to-End (E2E) Tests (Planned — Not Yet Implemented)
+#### 3. End-to-End (E2E) Tests
 
-E2E tests will validate s3rm-rs functionality with real AWS S3 buckets and S3-compatible services. These tests are designed for manual execution by humans with AWS credentials. The `tests/` directory does not exist yet; it will be created as part of Task 29.
+E2E tests validate s3rm-rs functionality with real AWS S3 buckets. These tests require explicit opt-in via `--cfg e2e_test` and AWS credentials.
 
 **Test Design Philosophy**:
 - **Library-First Approach**: All E2E tests use the s3rm-rs library API directly (not the CLI binary)
-- **Dual Test Approach**: 
-  - Comprehensive tests with automatic bucket management (recommended)
-  - Manual bucket tests for testing against existing buckets
+- **Automatic Bucket Management**: Tests create temporary buckets, upload test data, run assertions, and clean up automatically via `BucketGuard`
 - **Safety by Default**: Tests use `#![cfg(e2e_test)]` to require explicit opt-in via `--cfg e2e_test` flag
-- **Human-Friendly**: Clear output with `println!` for verification, statistics display, performance metrics
+- **Timeout Protection**: All tests use the `e2e_timeout!` macro to prevent hangs
 
-**Test Infrastructure** (`tests/e2e_helpers.rs`):
+**Test Infrastructure** (`tests/common/mod.rs`):
 ```rust
-// TestBucket: Automatic bucket management with RAII cleanup
-pub struct TestBucket {
-    bucket_name: String,
-    client: S3Client,
-    // Automatically cleans up bucket on drop
+/// Result of running a deletion pipeline.
+pub struct PipelineResult {
+    pub stats: DeletionStats,
+    pub has_error: bool,
+    pub has_panic: bool,
+    pub has_warning: bool,
+    pub errors: Vec<String>,
 }
 
-impl TestBucket {
-    // Create temporary bucket with random name
-    pub async fn create() -> Self;
-    
-    // Upload test data (varied sizes, types, counts)
-    pub async fn upload_test_objects(&self, count: usize);
-    
-    // Enable versioning
-    pub async fn enable_versioning(&self);
+/// RAII guard that ensures bucket cleanup even on test panic.
+pub struct BucketGuard {
+    helper: Arc<TestHelper>,
+    bucket: String,
 }
 
-impl Drop for TestBucket {
-    // Automatic cleanup: delete all objects and bucket
-    fn drop(&mut self);
+/// Primary test helper wrapping an AWS S3 Client.
+pub struct TestHelper {
+    client: Client,
+    region: String,
+}
+
+impl TestHelper {
+    pub async fn new() -> Self;
+    pub fn build_config(args: Vec<&str>) -> Config;
+    pub async fn run_pipeline(&self, args: Vec<&str>) -> PipelineResult;
+    pub fn bucket_guard(self: &Arc<Self>, bucket: &str) -> BucketGuard;
+    pub fn generate_bucket_name(&self) -> String;
+    pub fn region(&self) -> &str;
+    pub async fn create_bucket(&self, name: &str) -> String;
+    pub async fn create_versioned_bucket(&self, name: &str) -> String;
+    pub fn generate_directory_bucket_name(&self, az_id: &str) -> String;
+    pub async fn create_directory_bucket(&self, bucket: &str, az_id: &str);
+    pub async fn delete_bucket_cascade(&self, bucket: &str);
+    pub async fn delete_all_versions(&self, bucket: &str);
+    pub async fn delete_all_objects(&self, bucket: &str);
+    pub async fn put_object(&self, bucket: &str, key: &str, body: &[u8]);
+    pub async fn put_object_with_content_type(&self, bucket: &str, key: &str, body: &[u8], content_type: &str);
+    pub async fn put_object_with_metadata(&self, bucket: &str, key: &str, body: &[u8], metadata: HashMap<String, String>);
+    pub async fn put_object_with_tags(&self, bucket: &str, key: &str, body: &[u8], tagging: &str);
+    pub async fn put_object_full(&self, ...);
+    pub async fn put_objects_parallel(&self, bucket: &str, prefix: &str, count: usize, body: &[u8]);
+    pub async fn list_objects(&self, bucket: &str, prefix: &str) -> Vec<Object>;
+    pub async fn list_object_versions(&self, bucket: &str) -> (Vec<ObjectVersion>, Vec<DeleteMarkerEntry>);
+    pub async fn count_objects(&self, bucket: &str, prefix: &str) -> usize;
+    pub fn client(&self) -> &Client;
+    pub async fn deny_delete_on_prefix(&self, bucket: &str, prefix: &str);
+    pub async fn delete_bucket_policy(&self, bucket: &str);
+}
+
+/// Event callback that collects all events for assertion.
+pub struct CollectingEventCallback {
+    pub events: Arc<Mutex<Vec<EventData>>>,
+}
+
+/// Timeout wrapper macro for E2E tests.
+macro_rules! e2e_timeout {
+    ($body:expr) => {
+        tokio::time::timeout(common::E2E_TIMEOUT, $body)
+            .await
+            .expect("E2E test timed out")
+    };
 }
 ```
 
-**Comprehensive Test Suite** (`tests/e2e_comprehensive.rs` - Recommended):
-- **Automatic Bucket Management**: Creates temporary buckets, uploads test data, runs tests, cleans up automatically
-- **No Manual Setup Required**: Tests handle all bucket creation and cleanup
-- **Tests Real Deletions**: Validates actual deletion operations (not just dry-run)
-- **Coverage**:
-  - Basic deletion with auto-cleanup
-  - Batch deletion with 1500+ objects (tests multiple batches)
-  - Size filtering with varied object sizes
-  - Regex filtering with varied file types
-  - Versioned bucket operations
-  - Actual deletion and verification
+**E2E Test Files**:
 
-**Manual Bucket Test Suites**:
-
-1. **Basic Deletion Tests** (`tests/e2e_basic_deletion.rs`):
-   - Basic deletion with prefix filtering
-   - Batch deletion mode (1000 objects per request)
-   - Single deletion mode (one at a time)
-   - Force flag behavior
-
-2. **Filtering Tests** (`tests/e2e_filtering.rs`):
-   - Regex key filtering
-   - Size filtering (smaller/larger than threshold)
-   - Time filtering (before/after date)
-   - Combined filters (AND logic)
-
-3. **Versioning Tests** (`tests/e2e_versioning.rs`):
-   - Delete marker creation
-   - All-versions deletion
-   - Versioned dry-run display
-
-4. **Performance Tests** (`tests/e2e_performance.rs`):
-   - Performance with 10,000+ objects
-   - Worker count scaling (1, 10, 100, 1000 workers)
-   - Rate limiting enforcement
-   - Memory usage monitoring
-
-5. **S3-Compatible Services** (`tests/e2e_s3_compatible.rs`):
-   - MinIO basic deletion
-   - LocalStack deletion
-   - Custom endpoint support
-
-6. **Callback Tests** (`tests/e2e_callbacks.rs`):
-   - Lua filter callback execution
-   - Lua event callback execution
+| File | Tests | Description |
+|------|-------|-------------|
+| `tests/common/mod.rs` | — | Shared test infrastructure (`TestHelper`, `PipelineResult`, `BucketGuard`, `CollectingEventCallback`, `e2e_timeout!` macro) |
+| `tests/e2e_deletion.rs` | 7 | Basic deletion, batch mode, single mode, dry-run, force flag |
+| `tests/e2e_filter.rs` | 24 | Regex, size, time, content-type, metadata, tag, and combined filters |
+| `tests/e2e_safety.rs` | 3 | Safety feature tests - dry-run, max-delete |
+| `tests/e2e_versioning.rs` | 3 | Delete markers, all-versions deletion, versioned dry-run |
+| `tests/e2e_callback.rs` | 7 | Lua filter/event callbacks, Rust event callbacks, event data validation |
+| `tests/e2e_optimistic.rs` | 3 | If-Match conditional deletion, ETag mismatch handling |
+| `tests/e2e_performance.rs` | 5 | Worker scaling, batch throughput, rate limiting, large object counts |
+| `tests/e2e_tracing.rs` | 7 | Verbosity levels, JSON logging, color output, structured fields |
+| `tests/e2e_retry.rs` | 3 | Retry on transient errors, force retry, error continuation |
+| `tests/e2e_error.rs` | 6 | Error handling, exit codes, partial failure, invalid config |
+| `tests/e2e_aws_config.rs` | 4 | Credential loading, region config, custom endpoint, profile |
+| `tests/e2e_combined.rs` | 7 | Multi-filter combinations, pipeline integration scenarios |
+| `tests/e2e_stats.rs` | 2 | Statistics accuracy, event callback stats reporting |
+| `tests/e2e_express_one_zone.rs` | 3 | Express One Zone auto-detection, filtering, parallel listing override |
 
 **Running E2E Tests**:
 
-Comprehensive tests (recommended):
 ```bash
 # Set up AWS credentials
 export AWS_ACCESS_KEY_ID=your-access-key
 export AWS_SECRET_ACCESS_KEY=your-secret-key
 export AWS_REGION=us-east-1
 
-# Run comprehensive tests with automatic bucket management
-RUSTFLAGS='--cfg e2e_test' cargo test --test e2e_comprehensive -- --nocapture
-```
-
-Manual bucket tests:
-```bash
-# Set up test bucket
-export E2E_TEST_BUCKET=your-test-bucket-name
-
 # Run all E2E tests
 RUSTFLAGS='--cfg e2e_test' cargo test --test 'e2e_*' -- --nocapture
 
 # Run specific test suite
-RUSTFLAGS='--cfg e2e_test' cargo test --test e2e_basic_deletion -- --nocapture
+RUSTFLAGS='--cfg e2e_test' cargo test --test e2e_deletion -- --nocapture
 ```
 
-**Test Example** (using library API):
-```rust
-#![cfg(e2e_test)]
-
-use s3rm_rs::{create_pipeline_cancellation_token, parse_from_args, Config, DeletionPipeline};
-
-#[tokio::test]
-async fn test_basic_deletion_with_auto_cleanup() {
-    // Create temporary test bucket
-    let test_bucket = TestBucket::create().await;
-    
-    // Upload test data
-    test_bucket.upload_test_objects(100).await;
-    
-    // Configure deletion
-    let args = vec![
-        "s3rm",
-        &format!("s3://{}/", test_bucket.bucket_name),
-        "--dry-run",
-        "--force",
-    ];
-    
-    let cli_args = parse_from_args(args).expect("Failed to parse arguments");
-    let config = Config::try_from(cli_args).expect("Failed to create config");
-    let cancellation_token = create_pipeline_cancellation_token();
-    
-    // Run deletion pipeline
-    let mut pipeline = DeletionPipeline::new(config, cancellation_token).await;
-    pipeline.run().await;
-    
-    // Verify results
-    let stats = pipeline.get_deletion_stats();
-    println!("Deleted {} objects", stats.stats_deleted_objects);
-    
-    // Automatic cleanup on drop
-}
-```
-
-**Documentation**: See `tests/e2e_README.md` for:
-- Complete setup instructions
-- Environment variable reference
-- Running instructions for each test suite
-- Troubleshooting guide
-- Safety notes
+Express One Zone tests use the `S3RM_E2E_AZ_ID` environment variable to select an availability zone (defaults to `apne1-az4` if unset).
 
 **Note**: E2E tests requiring network access are performed manually as part of release validation, not in automated CI.
 
 #### 4. Mock Testing Strategy
 
 **AWS Client Mocking**:
-- Use `aws-smithy-mocks` for mocking AWS SDK calls
-- Mock successful deletions
-- Mock partial failures
-- Mock throttling and retries
-- Mock network errors
+- Use a custom `MockStorage` struct (in `deleter/tests.rs`) implementing `StorageTrait`
+- Mock successful deletions, partial failures, throttling, and network errors
+- `MockStorage` uses configurable closures to simulate various S3 API responses
 
 **Example Mock Test**:
 ```rust
 #[tokio::test]
 async fn test_batch_deletion_with_partial_failure() {
-    let mock_client = S3Client::from_conf(
-        aws_sdk_s3::Config::builder()
-            .with_test_defaults()
-            .build()
-    );
-    
+    let mock_storage = MockStorage::new()
+        .with_delete_objects_response(/* partial failure response */);
+
     // Configure mock to return partial failure
     // Test that failed objects are retried
 }
@@ -1957,12 +2002,13 @@ async fn test_batch_deletion_with_partial_failure() {
 
 ### Test Coverage Goals
 
-- **Line Coverage**: >97% (matching s3sync's 97.88% coverage standard)
-- **Branch Coverage**: >95%
+- **Line Coverage**: >94% (current: 94.44% as of 2026-02-23, via `cargo llvm-cov report` combining lib+bin+E2E)
+- **Region Coverage**: >94% (current: 94.58%)
+- **Function Coverage**: >87% (current: 87.94%)
 - **Property Coverage**: 49 of 49 properties tested
 - **Critical Path Coverage**: 100% (deletion logic, safety checks, error handling)
 
-**Note**: Like s3sync, achieving 97%+ line coverage requires comprehensive unit tests, property-based tests, and manual E2E tests for network operations.
+**Note**: Coverage includes unit tests (522 lib, 26 binary) and E2E tests (84 tests across 14 files). The remaining uncovered code is primarily in runtime paths that require live AWS infrastructure (S3 API calls, network error handlers).
 
 ### Continuous Integration
 
@@ -2020,7 +2066,7 @@ async fn test_batch_deletion_with_partial_failure() {
 ```toml
 [dependencies]
 # Error handling (same as s3sync)
-anyhow = "1.0.101"
+anyhow = "1.0.102"
 thiserror = "2.0.18"
 
 # Async runtime (same as s3sync)
@@ -2030,25 +2076,24 @@ tokio = { version = "1.49.0", features = ["full"] }
 tokio-util = "0.7.18"
 
 # AWS SDK (same versions as s3sync)
-aws-config = { version = "1.8.13", features = ["behavior-version-latest"] }
-aws-runtime = "1.6.0"
-aws-sdk-s3 = "1.122.0"
-aws-smithy-runtime-api = "1.11.3"
-aws-smithy-types = "1.4.3"
-aws-smithy-types-convert = { version = "0.60.12", features = ["convert-chrono"] }
-aws-types = "1.3.11"
+aws-config = { version = "1.8.14", features = ["behavior-version-latest"] }
+aws-runtime = "1.7.1"
+aws-sdk-s3 = "1.124.0"
+aws-smithy-runtime-api = "1.11.5"
+aws-smithy-types = "1.4.5"
+aws-smithy-types-convert = { version = "0.60.13", features = ["convert-chrono"] }
+aws-types = "1.3.13"
 
 # CLI (same as s3sync)
-clap = { version = "4.5.57", features = ["derive", "env", "cargo", "string"] }
-clap_complete = "4.5.65"
+clap = { version = "4.5.60", features = ["derive", "env", "cargo", "string"] }
+clap_complete = "4.5.66"
 clap-verbosity-flag = "3.0.4"
 
 # Date/time
-chrono = "0.4.43"
+chrono = "0.4.44"
 
 # Regex (same as s3sync)
 fancy-regex = "0.17.0"
-regex = "1.12.3"
 
 # Rate limiter (same as s3sync)
 leaky-bucket = "1.1.2"
@@ -2062,7 +2107,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json", "local-time"] }
 
 # Progress bar (same as s3sync)
-indicatif = "0.18.3"
+indicatif = "0.18.4"
 simple_moving_average = "1.0.2"
 
 # Terminal
@@ -2085,20 +2130,19 @@ shadow-rs = { version = "1.7.0", optional = true }
 
 # Misc (same as s3sync)
 cfg-if = "1.0.4"
-bitflags = "2.10.0"
+bitflags = "2.11.0"
 log = "0.4.29"
-rusty-fork = "0.3.1"
 
 [build-dependencies]
 shadow-rs = { version = "1.7.0", optional = true }
 
 [dev-dependencies]
-proptest = "1.6"
-tokio-test = "0.4"
+proptest = "1.10"
 once_cell = "1.21.3"
-uuid = { version = "1.20.0", features = ["v4"] }
+uuid = { version = "1.21.0", features = ["v4"] }
 nix = { version = "0.31.1", features = ["process", "signal"] }
 tempfile = "3.25.0"
+rusty-fork = "0.3.1"
 ```
 
 ### File Structure
@@ -2107,7 +2151,6 @@ tempfile = "3.25.0"
 s3rm-rs/
 ├── src/
 │   ├── lib.rs                 # Public API exports and root-level re-exports
-│   ├── lib_properties.rs      # Property tests for library API (Properties 44-47)
 │   ├── pipeline.rs            # DeletionPipeline orchestrator (adapted from s3sync)
 │   ├── stage.rs               # Stage struct for pipeline stages (from s3sync)
 │   ├── lister.rs              # ObjectLister (reused from s3sync)
@@ -2134,8 +2177,7 @@ s3rm-rs/
 │   │   ├── filter_manager.rs  # FilterManager (Rust + Lua filter dispatch)
 │   │   ├── event_manager.rs   # EventManager (Rust + Lua event dispatch with PipelineStats)
 │   │   ├── user_defined_filter_callback.rs  # UserDefinedFilterCallback wrapper
-│   │   ├── user_defined_event_callback.rs   # UserDefinedEventCallback wrapper
-│   │   └── event_callback_properties.rs     # Property tests for event callbacks (Property 32)
+│   │   └── user_defined_event_callback.rs   # UserDefinedEventCallback wrapper
 │   ├── storage/
 │   │   ├── mod.rs             # StorageTrait, create_storage(), Storage type alias (from s3sync)
 │   │   └── s3/
@@ -2149,31 +2191,36 @@ s3rm-rs/
 │   │   ├── smaller_size.rs    # SmallerSizeFilter (from s3sync)
 │   │   ├── mtime_after.rs     # MtimeAfterFilter (from s3sync)
 │   │   ├── mtime_before.rs    # MtimeBeforeFilter (from s3sync)
-│   │   ├── user_defined.rs    # UserDefinedFilter / Lua filter stage (from s3sync)
-│   │   └── filter_properties.rs  # Property tests for filters
+│   │   └── user_defined.rs    # UserDefinedFilter / Lua filter stage (from s3sync)
 │   ├── deleter/
 │   │   ├── mod.rs             # ObjectDeleter, Deleter trait, DeleteResult types (NEW)
 │   │   ├── batch.rs           # BatchDeleter (NEW)
 │   │   ├── single.rs          # SingleDeleter (NEW)
-│   │   └── tests.rs           # Unit + property tests for deletion components
+│   │   └── tests.rs           # Unit + property tests for deletion components (Properties 1-3, 6, 20)
 │   ├── safety/
-│   │   ├── mod.rs             # SafetyChecker, PromptHandler trait, confirmation prompts (NEW)
-│   │   └── safety_properties.rs  # Property tests for safety features (NEW)
+│   │   └── mod.rs             # SafetyChecker, PromptHandler trait, confirmation prompts (NEW)
 │   ├── lua/
 │   │   ├── mod.rs             # Lua module exports
 │   │   ├── engine.rs          # LuaScriptCallbackEngine (from s3sync)
 │   │   ├── filter.rs          # LuaFilterCallback (from s3sync)
-│   │   ├── event.rs           # LuaEventCallback (from s3sync)
-│   │   └── lua_properties.rs  # Property tests for Lua integration
-│   ├── versioning_properties.rs  # Property tests for versioning support (Properties 25-28)
-│   ├── retry_properties.rs     # Property tests for retry and error handling (Properties 29-30)
-│   ├── optimistic_locking_properties.rs  # Property tests for If-Match support (Properties 41-43)
-│   ├── logging_properties.rs   # Property tests for logging/verbosity (Properties 21-24)
-│   ├── aws_config_properties.rs # Property tests for AWS config (Properties 34-35)
-│   ├── rate_limiting_properties.rs # Property tests for rate limiting (Property 36)
-│   ├── cross_platform_properties.rs # Property tests for cross-platform paths (Property 37)
-│   ├── cicd_properties.rs      # Property tests for CI/CD integration (Properties 48-49)
-│   ├── additional_properties.rs # Property tests for Properties 4, 12, 13
+│   │   └── event.rs           # LuaEventCallback (from s3sync)
+│   ├── property_tests/          # Root-level property-based tests (consolidated)
+│   │   ├── mod.rs               # Module declarations
+│   │   ├── lib_properties.rs    # Library API (Properties 44-47)
+│   │   ├── versioning_properties.rs  # Versioning (Properties 25-28)
+│   │   ├── retry_properties.rs       # Retry/error handling (Properties 29-30)
+│   │   ├── optimistic_locking_properties.rs # If-Match (Properties 41-43)
+│   │   ├── logging_properties.rs     # Logging/verbosity (Properties 21-24)
+│   │   ├── aws_config_properties.rs  # AWS config (Properties 34-35)
+│   │   ├── rate_limiting_properties.rs # Rate limiting (Property 36)
+│   │   ├── cross_platform_properties.rs # Cross-platform (Property 37)
+│   │   ├── cicd_properties.rs        # CI/CD integration (Properties 48-49)
+│   │   ├── additional_properties.rs  # Properties 4, 12, 13
+│   │   ├── filter_properties.rs      # Filters (Properties 7-10)
+│   │   ├── event_callback_properties.rs # Event callbacks (Property 32)
+│   │   ├── safety_properties.rs      # Safety features (Properties 16-19)
+│   │   └── lua_properties.rs         # Lua integration (Properties 11, 14-15)
+│   ├── test_utils.rs            # Shared test utilities (mock builders, test config helpers)
 │   └── bin/
 │       └── s3rm/
 │           ├── main.rs            # CLI binary entry point (fully implemented)
@@ -2188,7 +2235,7 @@ s3rm-rs/
 └── README.md
 ```
 
-**Notes**: Tests are co-located with source code (e.g., `deleter/tests.rs`, `filters/filter_properties.rs`, `lua/lua_properties.rs`, `safety/safety_properties.rs`, `callback/event_callback_properties.rs`, `bin/s3rm/indicator_properties.rs`, `versioning_properties.rs`, `retry_properties.rs`, `optimistic_locking_properties.rs`, `logging_properties.rs`, `aws_config_properties.rs`, `rate_limiting_properties.rs`, `cross_platform_properties.rs`, `cicd_properties.rs`, `additional_properties.rs`). Property tests and unit tests share the same test files. All core components are fully implemented including pipeline orchestrator, terminator, progress indicator, CLI binary, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, and CI/CD integration.
+**Notes**: Property tests are consolidated in `property_tests/` (14 files covering Properties 4, 7-19, 21-30, 32, 34-37, 41-49). Unit tests remain co-located with source code (e.g., `deleter/tests.rs`, `config/args/tests.rs`). The binary crate's `indicator_properties.rs` stays in `bin/s3rm/` because it imports binary-local modules. All core components are fully implemented including pipeline orchestrator, terminator, progress indicator, CLI binary, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, and CI/CD integration.
 
 ### Development Phases
 

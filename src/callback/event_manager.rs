@@ -19,7 +19,6 @@ pub struct PipelineStats {
     pub stats_deleted_bytes: u64,
     pub stats_failed_objects: u64,
     pub stats_skipped_objects: u64,
-    pub stats_warning_count: u64,
     pub stats_error_count: u64,
     pub stats_duration_sec: f64,
     pub stats_objects_per_sec: f64,
@@ -32,7 +31,6 @@ impl From<PipelineStats> for EventData {
         event_data.stats_deleted_bytes = Some(stats.stats_deleted_bytes);
         event_data.stats_failed_objects = Some(stats.stats_failed_objects);
         event_data.stats_skipped_objects = Some(stats.stats_skipped_objects);
-        event_data.stats_warning_count = Some(stats.stats_warning_count);
         event_data.stats_error_count = Some(stats.stats_error_count);
         event_data.stats_duration_sec = Some(stats.stats_duration_sec);
         event_data.stats_objects_per_sec = Some(stats.stats_objects_per_sec);
@@ -137,9 +135,6 @@ impl EventManager {
             }
             EventType::DELETE_FILTERED => {
                 stats.stats_skipped_objects += 1;
-            }
-            EventType::DELETE_WARNING => {
-                stats.stats_warning_count += 1;
             }
             EventType::PIPELINE_ERROR => {
                 stats.stats_error_count += 1;
@@ -310,7 +305,6 @@ mod tests {
             stats_deleted_bytes: 50_000,
             stats_failed_objects: 5,
             stats_skipped_objects: 10,
-            stats_warning_count: 2,
             stats_error_count: 1,
             stats_duration_sec: 10.0,
             stats_objects_per_sec: 10.0,

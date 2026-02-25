@@ -10,6 +10,8 @@ s3rm-rs is an Amazon S3 object deletion tool designed for bulk deletion operatio
 - Comprehensive filtering: regex patterns, size, time, content-type, metadata, tags, Lua callbacks
 - Safety features: dry-run mode, confirmation prompts, deletion limits
 - S3 versioning support: delete markers, all-versions deletion
+- Express One Zone directory bucket support with auto-detection
+- Optimistic locking via If-Match conditional deletion
 - Library-first architecture: full programmatic API access
 - Cross-platform support: Linux (glibc/musl), Windows, macOS (x86_64/ARM64)
 

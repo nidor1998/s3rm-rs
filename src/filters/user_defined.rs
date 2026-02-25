@@ -10,6 +10,7 @@
 //! - Triggers event callbacks when objects are filtered
 
 use anyhow::{Result, anyhow};
+use aws_sdk_s3::primitives::DateTimeFormat;
 use tracing::{debug, error, info};
 
 use crate::stage::{SendResult, Stage};
@@ -67,6 +68,12 @@ impl UserDefinedFilter {
                                     event_data.key = Some(object.key().to_string());
                                     event_data.version_id = object.version_id().map(|v| v.to_string());
                                     event_data.size = Some(object.size() as u64);
+                                    event_data.last_modified = Some(
+                                        object
+                                            .last_modified()
+                                            .fmt(DateTimeFormat::DateTime)
+                                            .unwrap_or_default(),
+                                    );
                                     event_data.message = Some("Object filtered by user defined filter".to_string());
                                     self.base.config.event_manager.trigger_event(event_data).await;
                                 }
@@ -104,15 +111,10 @@ impl UserDefinedFilter {
 mod tests {
     use super::*;
     use crate::filters::tests::create_base_helper;
+    use crate::test_utils::init_dummy_tracing_subscriber;
     use crate::types::S3Object;
     use crate::types::token;
     use aws_sdk_s3::types::Object;
-
-    fn init_dummy_tracing_subscriber() {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter("dummy=trace")
-            .try_init();
-    }
 
     #[tokio::test]
     async fn passes_objects_through_when_no_callback() {

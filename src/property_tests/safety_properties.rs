@@ -104,7 +104,6 @@ mod tests {
                 prefix: prefix.to_string(),
             },
             show_no_progress: false,
-            log_deletion_summary: false,
             target_client_config: None,
             force_retry_config: ForceRetryConfig {
                 force_retry_count: 0,
@@ -151,7 +150,6 @@ mod tests {
                 prefix: String::new(),
             },
             show_no_progress: false,
-            log_deletion_summary: false,
             target_client_config: None,
             force_retry_config: ForceRetryConfig {
                 force_retry_count: 0,
@@ -405,8 +403,21 @@ mod tests {
     }
 
     #[test]
-    fn json_logging_skips_prompt() {
+    fn json_logging_without_force_errors() {
         let config = make_config(false, false, true);
+        let handler = MockPromptHandler::new("no");
+        let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));
+
+        let result = checker.check_before_deletion();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let s3rm_err = err.downcast_ref::<S3rmError>().unwrap();
+        assert!(matches!(s3rm_err, S3rmError::InvalidConfig(_)));
+    }
+
+    #[test]
+    fn json_logging_with_force_succeeds() {
+        let config = make_config(false, true, true);
         let handler = MockPromptHandler::new("no");
         let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));
 
@@ -415,8 +426,21 @@ mod tests {
     }
 
     #[test]
-    fn non_interactive_environment_skips_prompt() {
+    fn non_interactive_environment_without_force_errors() {
         let config = make_config(false, false, false);
+        let checker =
+            SafetyChecker::with_prompt_handler(&config, Box::new(NonInteractivePromptHandler));
+
+        let result = checker.check_before_deletion();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let s3rm_err = err.downcast_ref::<S3rmError>().unwrap();
+        assert!(matches!(s3rm_err, S3rmError::InvalidConfig(_)));
+    }
+
+    #[test]
+    fn non_interactive_environment_with_force_succeeds() {
+        let config = make_config(false, true, false);
         let checker =
             SafetyChecker::with_prompt_handler(&config, Box::new(NonInteractivePromptHandler));
 
@@ -465,6 +489,50 @@ mod tests {
         let handler = MockPromptHandler::new("yes");
         let checker = SafetyChecker::with_prompt_handler(&config, Box::new(handler));
 
+        let result = checker.check_before_deletion();
+        assert!(result.is_ok());
+    }
+
+    // ------------------------------------------------------------------
+    // SafetyChecker::new() tests (exercises the production constructor)
+    // ------------------------------------------------------------------
+
+    /// SafetyChecker::new() with dry_run=true should succeed (skips stdin).
+    /// This exercises the production constructor path without blocking on stdin.
+    #[test]
+    fn safety_checker_new_dry_run_succeeds() {
+        let config = make_config(true, false, false);
+        let checker = SafetyChecker::new(&config);
+        let result = checker.check_before_deletion();
+        assert!(result.is_ok(), "dry-run via new() should succeed");
+    }
+
+    /// SafetyChecker::new() with force=true should succeed (skips stdin).
+    #[test]
+    fn safety_checker_new_force_succeeds() {
+        let config = make_config(false, true, false);
+        let checker = SafetyChecker::new(&config);
+        let result = checker.check_before_deletion();
+        assert!(result.is_ok(), "force via new() should succeed");
+    }
+
+    /// SafetyChecker::new() extracts json_logging from tracing_config.
+    /// With json_logging=true and force=false, it should error.
+    #[test]
+    fn safety_checker_new_json_no_force_errors() {
+        let config = make_config(false, false, true);
+        let checker = SafetyChecker::new(&config);
+        let result = checker.check_before_deletion();
+        assert!(result.is_err());
+    }
+
+    /// SafetyChecker::new() with no tracing_config defaults to json=false, color=false.
+    /// Force=true should still succeed.
+    #[test]
+    fn safety_checker_new_no_tracing_config() {
+        let mut config = make_config(false, true, false);
+        config.tracing_config = None;
+        let checker = SafetyChecker::new(&config);
         let result = checker.check_before_deletion();
         assert!(result.is_ok());
     }

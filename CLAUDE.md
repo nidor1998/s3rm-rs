@@ -175,20 +175,25 @@ cargo fmt
 
 ### Steering (Active Phase)
 - steering/init_build/tasks.md - Implementation task list
-- steering/init_build/e2e_test_plan.md - E2E test plan (Task 29: 62 test cases)
+- steering/init_build/e2e_test_plan.md - E2E test plan (Task 29: 84 test functions across 14 test files, complete)
 
 ### Source Code
 - `src/lib.rs` - Library entry point and public API
-- `src/cli/main.rs` - CLI binary entry point
-- `src/config.rs` - Configuration and argument parsing
+- `src/bin/s3rm/main.rs` - CLI binary entry point
+- `src/config/mod.rs` - Configuration and argument parsing
+- `src/config/args/mod.rs` - CLI argument definitions (clap)
+- `src/pipeline.rs` - DeletionPipeline orchestrator
 - `src/deleter/` - Deletion components (batch, single, worker)
 - `src/filters/` - Filter stages (regex, size, time, Lua)
 - `src/lister.rs` - Object listing with parallel pagination
+- `src/safety/` - Safety features (confirmation, dry-run)
+- `src/test_utils.rs` - Shared test utilities
 
 ### Tests
-- `src/**/*_properties.rs` - Property-based tests (proptest)
-- `src/**/*_unit_tests.rs` - Unit tests
-- `tests/e2e_*.rs` - End-to-end integration tests
+- `src/property_tests/` - Property-based tests (proptest, 14 files)
+- `src/bin/s3rm/indicator_properties.rs` - Binary crate property tests (Property 31)
+- `src/**/tests.rs` and `#[cfg(test)]` modules - Unit tests
+- `tests/e2e_*.rs` - End-to-end integration tests (14 files, 84 tests)
 
 ## Architecture Overview
 
@@ -237,20 +242,36 @@ export AWS_ACCESS_KEY_ID=your_key
 export AWS_SECRET_ACCESS_KEY=your_secret
 export AWS_DEFAULT_REGION=us-east-1
 
-# Run E2E tests
-cargo test --test e2e_basic_deletion
-cargo test --test e2e_filtering
-cargo test --test e2e_versioning
+# Express One Zone tests use S3RM_E2E_AZ_ID (defaults to apne1-az4)
+# export S3RM_E2E_AZ_ID=apne1-az4
+
+# Run E2E tests (requires RUSTFLAGS="--cfg e2e_test" and AWS profile s3rm-e2e-test)
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_deletion
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_filter
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_versioning
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_safety
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_callback
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_optimistic
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_performance
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_tracing
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_retry
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_error
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_aws_config
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_combined
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_stats
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_express_one_zone
+
+# Run all E2E tests at once
+RUSTFLAGS="--cfg e2e_test" cargo test --all-features --test '*' -- --test-threads=8
 ```
 
 ## Next Steps for Development
 
 Based on the current status, the remaining work includes:
 
-### Task 29: Manual E2E Testing (In Progress)
-- Code is complete and ready
-- Requires AWS credentials for execution
-- Test scenarios documented in tasks.md
+### Task 30: Final Checkpoint / Pre-Release Validation (Pending)
+- Run all unit, property, and E2E tests with 100% pass rate
+- Verify code coverage, clippy, rustfmt, cargo-deny, and documentation builds
 
 ### Task 31: Release Preparation (Pending)
 - Cross-platform binary builds (Linux, Windows, macOS)

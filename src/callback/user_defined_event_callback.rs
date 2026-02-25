@@ -21,12 +21,10 @@ impl UserDefinedEventCallback {
 }
 
 #[async_trait]
-#[cfg_attr(coverage_nightly, coverage(off))]
 impl EventCallback for UserDefinedEventCallback {
     // If you want to implement a custom event callback, you can do so by modifying this function.
     // The callbacks are called serially, and the callback function MUST return immediately.
     // If a callback function takes a long time to execute, it may block a whole pipeline.
-    #[cfg_attr(coverage_nightly, coverage(off))]
     async fn on_event(&mut self, event_data: EventData) {
         // Todo: Implement your custom event handling logic here.
         match event_data.event_type {
@@ -45,9 +43,6 @@ impl EventCallback for UserDefinedEventCallback {
             EventType::DELETE_FILTERED => {
                 println!("Delete filtered: {event_data:?}");
             }
-            EventType::DELETE_WARNING => {
-                println!("Delete warning: {event_data:?}");
-            }
             EventType::PIPELINE_ERROR => {
                 println!("Pipeline error: {event_data:?}");
             }
@@ -62,5 +57,24 @@ impl EventCallback for UserDefinedEventCallback {
                 println!("Other events: {event_data:?}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_creates_disabled_callback() {
+        let callback = UserDefinedEventCallback::new();
+        assert!(!callback.enable);
+        assert!(!callback.is_enabled());
+    }
+
+    #[test]
+    fn enable_field_controls_is_enabled() {
+        let mut callback = UserDefinedEventCallback::new();
+        callback.enable = true;
+        assert!(callback.is_enabled());
     }
 }

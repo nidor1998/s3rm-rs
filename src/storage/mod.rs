@@ -74,35 +74,31 @@ pub trait StorageTrait: DynClone {
 
     /// Get object metadata via HeadObject API.
     ///
-    /// `relative_key` is the object key relative to the storage prefix;
-    /// the prefix is prepended internally before calling S3.
+    /// `key` is the full S3 object key as returned by the listing API;
+    /// no prefix is prepended — callers must pass the complete key.
     /// Used by ObjectDeleter for content-type and metadata filtering.
-    async fn head_object(
-        &self,
-        relative_key: &str,
-        version_id: Option<String>,
-    ) -> Result<HeadObjectOutput>;
+    async fn head_object(&self, key: &str, version_id: Option<String>) -> Result<HeadObjectOutput>;
 
     /// Get object tags via GetObjectTagging API.
     ///
-    /// `relative_key` is the object key relative to the storage prefix;
-    /// the prefix is prepended internally before calling S3.
+    /// `key` is the full S3 object key as returned by the listing API;
+    /// no prefix is prepended — callers must pass the complete key.
     /// Used by ObjectDeleter for tag filtering.
     async fn get_object_tagging(
         &self,
-        relative_key: &str,
+        key: &str,
         version_id: Option<String>,
     ) -> Result<GetObjectTaggingOutput>;
 
     /// Delete a single object via DeleteObject API.
     ///
-    /// `relative_key` is the object key relative to the storage prefix;
-    /// the prefix is prepended internally before calling S3.
+    /// `key` is the full S3 object key as returned by the listing API;
+    /// no prefix is prepended — callers must pass the complete key.
     /// Supports version_id for versioned deletions and if_match for
     /// optimistic locking (ETag-based conditional deletion).
     async fn delete_object(
         &self,
-        relative_key: &str,
+        key: &str,
         version_id: Option<String>,
         if_match: Option<String>,
     ) -> Result<DeleteObjectOutput>;
@@ -190,15 +186,10 @@ mod tests {
     use crate::config::{
         CLITimeoutConfig, FilterConfig, ForceRetryConfig, RetryConfig, TracingConfig,
     };
+    use crate::test_utils::init_dummy_tracing_subscriber;
     use crate::types::{AccessKeys, ClientConfigLocation, S3Credentials};
     use aws_smithy_types::checksum_config::RequestChecksumCalculation;
     use std::sync::atomic::AtomicBool;
-
-    fn init_dummy_tracing_subscriber() {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter("dummy=trace")
-            .try_init();
-    }
 
     fn make_test_client_config() -> ClientConfig {
         ClientConfig {
@@ -243,7 +234,6 @@ mod tests {
                 prefix: prefix.to_string(),
             },
             show_no_progress: false,
-            log_deletion_summary: false,
             target_client_config: Some(make_test_client_config()),
             force_retry_config: ForceRetryConfig {
                 force_retry_count: 0,

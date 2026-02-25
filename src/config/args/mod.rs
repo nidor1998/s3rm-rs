@@ -54,7 +54,6 @@ const DEFAULT_ALLOW_PARALLEL_LISTINGS_IN_EXPRESS_ONE_ZONE: bool = false;
 const DEFAULT_ACCELERATE: bool = false;
 const DEFAULT_REQUEST_PAYER: bool = false;
 const DEFAULT_SHOW_NO_PROGRESS: bool = false;
-const DEFAULT_LOG_DELETION_SUMMARY: bool = true;
 const DEFAULT_IF_MATCH: bool = false;
 #[allow(dead_code)]
 const DEFAULT_ALLOW_LUA_OS_LIBRARY: bool = false;
@@ -130,10 +129,6 @@ pub struct CLIArgs {
     /// Hide the progress bar
     #[arg(long, env, default_value_t = DEFAULT_SHOW_NO_PROGRESS, help_heading = "General")]
     pub show_no_progress: bool,
-
-    /// Log deletion summary at completion
-    #[arg(long, env, default_value_t = DEFAULT_LOG_DELETION_SUMMARY, help_heading = "Tracing/Logging")]
-    pub log_deletion_summary: bool,
 
     /// Delete all versions of matching objects, including delete markers
     #[arg(long, env, default_value_t = DEFAULT_DELETE_ALL_VERSIONS, help_heading = "General")]
@@ -604,23 +599,14 @@ impl CLIArgs {
             disable_color_tracing: self.disable_color_tracing,
         });
 
+        // In dry-run mode, boost the default level (Warn) to Info so dry-run
+        // output is visible without requiring -v. But respect explicit -q flags —
+        // if the user asked for quieter output, don't override their choice.
         if dry_run {
-            if tracing_config.is_none() {
-                tracing_config = Some(TracingConfig {
-                    tracing_level: log::Level::Info,
-                    json_tracing: DEFAULT_JSON_TRACING,
-                    aws_sdk_tracing: DEFAULT_AWS_SDK_TRACING,
-                    span_events_tracing: DEFAULT_SPAN_EVENTS_TRACING,
-                    disable_color_tracing: DEFAULT_DISABLE_COLOR_TRACING,
-                });
-            } else if tracing_config.unwrap().tracing_level < log::Level::Info {
-                tracing_config = Some(TracingConfig {
-                    tracing_level: log::Level::Info,
-                    json_tracing: tracing_config.unwrap().json_tracing,
-                    aws_sdk_tracing: tracing_config.unwrap().aws_sdk_tracing,
-                    span_events_tracing: tracing_config.unwrap().span_events_tracing,
-                    disable_color_tracing: tracing_config.unwrap().disable_color_tracing,
-                });
+            if let Some(ref mut config) = tracing_config {
+                if config.tracing_level == log::Level::Warn {
+                    config.tracing_level = log::Level::Info;
+                }
             }
         }
 
@@ -753,7 +739,6 @@ impl TryFrom<CLIArgs> for Config {
         Ok(Config {
             target,
             show_no_progress: args.show_no_progress,
-            log_deletion_summary: args.log_deletion_summary,
             target_client_config,
             force_retry_config: ForceRetryConfig {
                 force_retry_count: args.force_retry_count,

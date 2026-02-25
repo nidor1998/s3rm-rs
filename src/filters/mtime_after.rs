@@ -70,6 +70,7 @@ fn is_after_or_equal(object: &S3Object, config: &FilterConfig) -> bool {
 pub(crate) mod tests {
     use super::*;
     use crate::config::FilterConfig;
+    use crate::test_utils::init_dummy_tracing_subscriber;
     use aws_sdk_s3::primitives::{DateTime, DateTimeFormat};
     use aws_sdk_s3::types::Object;
     use std::str::FromStr;
@@ -77,12 +78,6 @@ pub(crate) mod tests {
     /// Test helper: expose is_after_or_equal for property tests.
     pub(crate) fn test_is_after_or_equal(object: &S3Object, config: &FilterConfig) -> bool {
         is_after_or_equal(object, config)
-    }
-
-    fn init_dummy_tracing_subscriber() {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter("dummy=trace")
-            .try_init();
     }
 
     #[tokio::test]

@@ -63,8 +63,8 @@ cargo deny check
 cargo doc --open
 
 # Run the CLI (after building)
-./target/debug/s3rm-rs --help
-./target/release/s3rm-rs --help
+./target/debug/s3rm --help
+./target/release/s3rm --help
 ```
 
 ## Testing Strategy

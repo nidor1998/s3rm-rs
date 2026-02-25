@@ -49,7 +49,6 @@ mod tests {
                 "[a-z]{1,20}".prop_map(|key| (EventType::DELETE_COMPLETE, Some(key), Some(1024))),
                 "[a-z]{1,20}".prop_map(|key| (EventType::DELETE_FAILED, Some(key), None)),
                 "[a-z]{1,20}".prop_map(|key| (EventType::DELETE_FILTERED, Some(key), None)),
-                "[a-z]{1,20}".prop_map(|key| (EventType::DELETE_WARNING, Some(key), None)),
                 Just((EventType::PIPELINE_END, None, None)),
             ],
             1..30,

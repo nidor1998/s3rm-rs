@@ -1,12 +1,7 @@
 use super::*;
 use crate::config::Config;
+use crate::test_utils::init_dummy_tracing_subscriber;
 use proptest::prelude::*;
-
-fn init_dummy_tracing_subscriber() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter("dummy=trace")
-        .try_init();
-}
 
 // ---------------------------------------------------------------------------
 // Basic parsing tests
@@ -641,5 +636,165 @@ proptest! {
         use crate::types::error::S3rmError;
         let err = anyhow::anyhow!(S3rmError::PartialFailure { deleted, failed });
         prop_assert_eq!(crate::types::error::exit_code_from_error(&err), 3);
+    }
+}
+
+// Feature: s3rm-rs, Express One Zone Detection
+// **Validates: Requirements 1.11**
+//
+// WHERE the target is an Express One Zone directory bucket (detected by the
+// `--x-s3` bucket name suffix), THE S3rm_Tool SHALL automatically set
+// batch_size to 1 unless explicitly overridden.
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(50))]
+
+    #[test]
+    fn prop_express_onezone_detection(
+        bucket_base in "[a-z][a-z0-9]{2,10}",
+        prefix in "[a-z0-9/]{0,20}",
+    ) {
+        // Buckets ending with --x-s3 must get batch_size=1
+        let target = format!("s3://{bucket_base}--x-s3/{prefix}");
+        let args = vec!["s3rm".to_string(), target];
+        let cli = parse_from_args(args).unwrap();
+        let config = Config::try_from(cli).unwrap();
+        prop_assert_eq!(config.batch_size, 1, "Express One Zone must default batch_size to 1");
+    }
+
+    #[test]
+    fn prop_non_express_keeps_defaults(
+        bucket_base in "[a-z][a-z0-9]{2,10}",
+        prefix in "[a-z0-9/]{0,20}",
+    ) {
+        // Normal buckets (no --x-s3 suffix) keep default batch_size=200
+        let target = format!("s3://{bucket_base}/{prefix}");
+        let args = vec!["s3rm".to_string(), target];
+        let cli = parse_from_args(args).unwrap();
+        let config = Config::try_from(cli).unwrap();
+        prop_assert_eq!(config.batch_size, 200, "Non-Express bucket must keep default batch_size");
+    }
+
+    #[test]
+    fn prop_express_onezone_override(
+        bucket_base in "[a-z][a-z0-9]{2,10}",
+        prefix in "[a-z0-9/]{0,20}",
+    ) {
+        // With --allow-parallel-listings-in-express-one-zone, batch_size stays default
+        let target = format!("s3://{bucket_base}--x-s3/{prefix}");
+        let args = vec![
+            "s3rm".to_string(),
+            target,
+            "--allow-parallel-listings-in-express-one-zone".to_string(),
+        ];
+        let cli = parse_from_args(args).unwrap();
+        let config = Config::try_from(cli).unwrap();
+        prop_assert_eq!(config.batch_size, 200, "Express One Zone with override must keep default batch_size");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Dry-run tracing upgrade path tests
+// (Covers cfg_if blocks in build_tracing_config for dry-run)
+// ---------------------------------------------------------------------------
+
+/// When dry-run is enabled with `-qq` (silent), the user's explicit quiet flags
+/// should be respected — tracing stays silent even in dry-run mode.
+#[test]
+fn config_dry_run_respects_silent_mode() {
+    let args = vec!["s3rm", "s3://bucket/", "--dry-run", "-qq"];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    // -qq means silent; dry-run should not override explicit quiet flags
+    assert!(config.tracing_config.is_none());
+}
+
+/// When dry-run is enabled with `-q` (Error only), the user's explicit quiet flag
+/// should be respected — tracing stays at Error level even in dry-run mode.
+#[test]
+fn config_dry_run_respects_quiet_mode() {
+    let args = vec!["s3rm", "s3://bucket/", "--dry-run", "-q"];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    // -q means Error only; dry-run should not override explicit quiet flags
+    assert!(config.tracing_config.is_some());
+    assert_eq!(
+        config.tracing_config.unwrap().tracing_level,
+        log::Level::Error
+    );
+}
+
+/// When dry-run is enabled with no verbosity flags (default Warn),
+/// tracing should be upgraded to Info (since Warn < Info is false,
+/// but the dry-run path should still ensure at minimum Info).
+#[test]
+fn config_dry_run_upgrades_warn_to_info() {
+    // Default verbosity for WarnLevel is Warn, which is lower severity than Info.
+    // log::Level ordering: Error=1, Warn=2, Info=3, Debug=4, Trace=5
+    // "less than" in log::Level means lower numeric value (more severe).
+    // Warn(2) < Info(3) is true in log ordering, so it should be upgraded.
+    let args = vec!["s3rm", "s3://bucket/", "--dry-run"];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert!(config.tracing_config.is_some());
+    // Dry-run must ensure at least Info level
+    assert!(config.tracing_config.unwrap().tracing_level >= log::Level::Info);
+}
+
+/// When dry-run is enabled with -vvv (Trace), tracing should stay at Trace.
+#[test]
+fn config_dry_run_does_not_downgrade_trace() {
+    let args = vec!["s3rm", "s3://bucket/", "--dry-run", "-vvv"];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert!(config.tracing_config.is_some());
+    assert_eq!(
+        config.tracing_config.unwrap().tracing_level,
+        log::Level::Trace
+    );
+}
+
+/// Express One Zone with explicit batch_size triggers the override warning path.
+#[test]
+fn config_express_onezone_overrides_explicit_batch_size() {
+    let args = vec!["s3rm", "s3://bucket--x-s3/prefix/", "--batch-size", "500"];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    // Explicit batch_size=500 should be overridden to 1 for Express One Zone
+    assert_eq!(config.batch_size, 1);
+}
+
+/// Bucket-only target (no prefix) parses correctly.
+#[test]
+fn config_bucket_only_no_slash() {
+    let args = vec!["s3rm", "s3://just-bucket"];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    let StoragePath::S3 { bucket, prefix } = &config.target;
+    assert_eq!(bucket, "just-bucket");
+    assert!(prefix.is_empty());
+}
+
+/// Session token is passed to client config when using access keys.
+#[test]
+fn config_target_client_with_session_token() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--target-access-key",
+        "AKIA123",
+        "--target-secret-access-key",
+        "secret",
+        "--target-session-token",
+        "session-tok",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    let client_config = config.target_client_config.unwrap();
+    if let S3Credentials::Credentials { access_keys } = &client_config.credential {
+        assert_eq!(access_keys.access_key, "AKIA123");
+        assert_eq!(access_keys.secret_access_key, "secret");
+        assert_eq!(access_keys.session_token.as_deref(), Some("session-tok"));
+    } else {
+        panic!("expected S3Credentials::Credentials");
     }
 }

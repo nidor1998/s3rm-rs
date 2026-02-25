@@ -5,7 +5,7 @@
 use s3rm_rs::PipelineCancellationToken;
 use tokio::task::JoinHandle;
 use tokio::{select, signal};
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
 
 pub fn spawn_ctrl_c_handler(cancellation_token: PipelineCancellationToken) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -16,7 +16,7 @@ pub fn spawn_ctrl_c_handler(cancellation_token: PipelineCancellationToken) -> Jo
             result = signal::ctrl_c() => {
                 match result {
                     Ok(()) => {
-                        warn!("ctrl-c received, shutting down.");
+                        debug!("ctrl-c received, shutting down.");
                         cancellation_token.cancel();
                     }
                     Err(e) => {

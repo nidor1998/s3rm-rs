@@ -468,8 +468,4 @@ mod tests {
         assert!(fc.before_time.is_none());
         assert!(fc.after_time.is_none());
     }
-
-    proptest! {
-        #![proptest_config(ProptestConfig::with_cases(100))]
-    }
 }

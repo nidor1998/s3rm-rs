@@ -26,7 +26,6 @@ impl UserDefinedFilterCallback {
 }
 
 #[async_trait]
-#[cfg_attr(coverage_nightly, coverage(off))]
 impl FilterCallback for UserDefinedFilterCallback {
     // If you want to implement a custom filter callback, you can do so by modifying this function.
     // The callbacks are called serially, and the callback function MUST return immediately.
@@ -35,10 +34,28 @@ impl FilterCallback for UserDefinedFilterCallback {
     // This function should return false if the object should be filtered out (not deleted)
     // and true if the object should be deleted.
     // If an error occurs, it should be handled gracefully, and the function should return an error, and the pipeline will be cancelled.
-    #[cfg_attr(coverage_nightly, coverage(off))]
     async fn filter(&mut self, _object: &S3Object) -> Result<bool> {
         let _key: &str = _object.key();
         // Todo: Implement your custom filtering logic here.
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_creates_disabled_callback() {
+        let callback = UserDefinedFilterCallback::new();
+        assert!(!callback.enable);
+        assert!(!callback.is_enabled());
+    }
+
+    #[test]
+    fn enable_field_controls_is_enabled() {
+        let mut callback = UserDefinedFilterCallback::new();
+        callback.enable = true;
+        assert!(callback.is_enabled());
     }
 }

@@ -17,6 +17,7 @@ mod tests {
     use crate::storage::create_storage;
     use crate::types::{AccessKeys, ClientConfigLocation, S3Credentials, StoragePath};
 
+    use crate::test_utils::init_dummy_tracing_subscriber;
     use aws_smithy_types::checksum_config::RequestChecksumCalculation;
     use proptest::prelude::*;
     use std::sync::Arc;
@@ -25,12 +26,6 @@ mod tests {
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
-
-    fn init_dummy_tracing_subscriber() {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter("dummy=trace")
-            .try_init();
-    }
 
     fn make_test_client_config() -> ClientConfig {
         ClientConfig {
@@ -72,7 +67,6 @@ mod tests {
                 prefix: "prefix/".to_string(),
             },
             show_no_progress: false,
-            log_deletion_summary: false,
             target_client_config: Some(make_test_client_config()),
             force_retry_config: ForceRetryConfig {
                 force_retry_count: 0,

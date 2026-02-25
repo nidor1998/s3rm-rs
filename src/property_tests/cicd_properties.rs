@@ -1,8 +1,9 @@
 // Property-based tests for CI/CD integration features.
 //
 // Feature: s3rm-rs, Property 48: Non-Interactive Environment Detection
-// For any execution in a non-interactive environment (no TTY), the tool should
-// detect the absence of a TTY and disable interactive prompts.
+// For any execution in a non-interactive environment (no TTY) without --force,
+// the tool should error to prevent unsafe unconfirmed deletions. With --force
+// or --dry-run, the tool proceeds without prompting.
 // **Validates: Requirements 13.1**
 //
 // Feature: s3rm-rs, Property 49: Output Stream Separation
@@ -74,7 +75,6 @@ mod tests {
                 prefix: String::new(),
             },
             show_no_progress: false,
-            log_deletion_summary: false,
             target_client_config: None,
             force_retry_config: ForceRetryConfig {
                 force_retry_count: 0,
@@ -118,9 +118,9 @@ mod tests {
     // Feature: s3rm-rs, Property 48: Non-Interactive Environment Detection
     // **Validates: Requirements 13.1**
     //
-    // When the environment is non-interactive (no TTY), the SafetyChecker
-    // MUST skip confirmation prompts and allow the operation to proceed.
-    // This ensures the tool works in CI/CD pipelines without hanging.
+    // When the environment is non-interactive (no TTY) and --force is not set,
+    // the SafetyChecker MUST return an error to prevent unsafe unconfirmed
+    // deletions. With --force or --dry-run, the tool proceeds without prompting.
     // -----------------------------------------------------------------------
 
     proptest! {
@@ -129,16 +129,18 @@ mod tests {
         /// Feature: s3rm-rs, Property 48: Non-Interactive Environment Detection
         /// **Validates: Requirements 13.1**
         ///
-        /// For any combination of dry_run, force, and json_tracing flags,
-        /// a non-interactive environment always skips prompts and returns Ok.
+        /// In a non-interactive environment, when --force or --dry-run is set,
+        /// the operation proceeds without prompting.
         #[test]
-        fn property_48_non_interactive_skips_prompts(
-            dry_run in proptest::bool::ANY,
+        fn property_48_non_interactive_with_force_or_dry_run_succeeds(
             force in proptest::bool::ANY,
+            dry_run in proptest::bool::ANY,
             json_tracing in proptest::bool::ANY,
         ) {
             // Feature: s3rm-rs, Property 48: Non-Interactive Environment Detection
             // **Validates: Requirements 13.1**
+            prop_assume!(force || dry_run);
+
             let config = make_config(dry_run, force, json_tracing, false);
             let checker = SafetyChecker::with_prompt_handler(
                 &config,
@@ -148,12 +150,42 @@ mod tests {
             let result = checker.check_before_deletion();
             prop_assert!(
                 result.is_ok(),
-                "Non-interactive environment must always skip prompts and return Ok, \
-                 but got error: {:?} (dry_run={}, force={}, json={})",
-                result.err(),
-                dry_run,
+                "Non-interactive with force={} or dry_run={} must succeed, \
+                 but got error: {:?}",
                 force,
-                json_tracing,
+                dry_run,
+                result.err(),
+            );
+        }
+
+        /// Feature: s3rm-rs, Property 48: Non-Interactive Environment Detection
+        /// **Validates: Requirements 13.1**
+        ///
+        /// In a non-interactive environment without --force and without --dry-run,
+        /// the operation MUST fail with an InvalidConfig error.
+        #[test]
+        fn property_48_non_interactive_without_force_errors(
+            json_tracing in proptest::bool::ANY,
+        ) {
+            // Feature: s3rm-rs, Property 48: Non-Interactive Environment Detection
+            // **Validates: Requirements 13.1**
+            let config = make_config(false, false, json_tracing, false);
+            let checker = SafetyChecker::with_prompt_handler(
+                &config,
+                Box::new(NonInteractiveHandler),
+            );
+
+            let result = checker.check_before_deletion();
+            prop_assert!(
+                result.is_err(),
+                "Non-interactive without --force must error"
+            );
+            let err = result.unwrap_err();
+            let s3rm_err = err.downcast_ref::<S3rmError>().unwrap();
+            prop_assert!(
+                matches!(s3rm_err, S3rmError::InvalidConfig(_)),
+                "Expected InvalidConfig error, got: {:?}",
+                s3rm_err,
             );
         }
 
@@ -191,38 +223,61 @@ mod tests {
     /// Feature: s3rm-rs, Property 48: Non-Interactive Environment Detection
     /// **Validates: Requirements 13.1**
     ///
-    /// Verify non-interactive detection with no tracing config at all.
+    /// Verify non-interactive without force errors even with no tracing config.
     #[test]
-    fn property_48_non_interactive_no_tracing_config() {
+    fn property_48_non_interactive_no_tracing_config_errors() {
         let mut config = make_config(false, false, false, false);
         config.tracing_config = None;
         let checker = SafetyChecker::with_prompt_handler(&config, Box::new(NonInteractiveHandler));
 
         let result = checker.check_before_deletion();
         assert!(
-            result.is_ok(),
-            "Non-interactive environment must skip prompts even without tracing config"
+            result.is_err(),
+            "Non-interactive without --force must error even without tracing config"
         );
     }
 
     /// Feature: s3rm-rs, Property 48: Non-Interactive Environment Detection
     /// **Validates: Requirements 13.1**
     ///
-    /// Verify that JSON logging also causes prompt skipping (relevant for
-    /// CI/CD pipelines that enable JSON output for log aggregation).
+    /// Verify non-interactive with force succeeds even with no tracing config.
     #[test]
-    fn property_48_json_logging_skips_prompt_in_interactive() {
+    fn property_48_non_interactive_no_tracing_config_with_force_succeeds() {
+        let mut config = make_config(false, true, false, false);
+        config.tracing_config = None;
+        let checker = SafetyChecker::with_prompt_handler(&config, Box::new(NonInteractiveHandler));
+
+        let result = checker.check_before_deletion();
+        assert!(result.is_ok(), "Non-interactive with --force must succeed");
+    }
+
+    /// Feature: s3rm-rs, Property 48: Non-Interactive Environment Detection
+    /// **Validates: Requirements 13.1**
+    ///
+    /// Verify that JSON logging without --force errors (interactive handler,
+    /// but JSON logging makes the environment non-interactive for prompts).
+    #[test]
+    fn property_48_json_logging_without_force_errors() {
         let config = make_config(false, false, true, false);
-        // Even with an interactive handler, JSON logging should skip the prompt
-        // (to avoid corrupting structured output).
         let checker =
             SafetyChecker::with_prompt_handler(&config, Box::new(InteractiveHandler::new("no")));
 
         let result = checker.check_before_deletion();
-        assert!(
-            result.is_ok(),
-            "JSON logging must skip prompts even in interactive mode"
-        );
+        assert!(result.is_err(), "JSON logging without --force must error");
+    }
+
+    /// Feature: s3rm-rs, Property 48: Non-Interactive Environment Detection
+    /// **Validates: Requirements 13.1**
+    ///
+    /// Verify that JSON logging with --force succeeds.
+    #[test]
+    fn property_48_json_logging_with_force_succeeds() {
+        let config = make_config(false, true, true, false);
+        let checker =
+            SafetyChecker::with_prompt_handler(&config, Box::new(InteractiveHandler::new("no")));
+
+        let result = checker.check_before_deletion();
+        assert!(result.is_ok(), "JSON logging with --force must succeed");
     }
 
     // -----------------------------------------------------------------------

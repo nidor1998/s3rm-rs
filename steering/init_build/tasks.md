@@ -2,13 +2,13 @@
 
 ## Executive Summary
 
-**Project Status**: In progress
+**Project Status**: Tasks 1-29 complete. Task 30 (pre-release validation) pending.
 
 ## Overview
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-26 complete (including Tasks 24-25: comprehensive unit tests and property testing infrastructure). Task 23 checkpoint complete (CLI polish, spec audit, docs, infrastructure). Task 27 complete (27.1-27.5 all done). Task 28 complete (28.1 clippy, 28.2 rustfmt, 28.4 cargo-deny all pass). All 49 correctness properties have property-based tests (442 lib tests, 26 binary tests). Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, CI/CD integration, additional property tests, comprehensive unit tests, and property testing infrastructure all established. Rustdoc documentation, examples, CONTRIBUTING.md, SECURITY.md, Dockerfile, build info (shadow-rs), and PR template added. Code quality checks (clippy, rustfmt, cargo-deny) all pass.
+**Current Achievement**: Tasks 1-29 complete (including Tasks 24-25: comprehensive unit tests and property testing infrastructure). Task 23 checkpoint complete (CLI polish, spec audit, docs, infrastructure). Task 27 complete (27.1-27.5 all done). Task 28 complete (28.1 clippy, 28.2 rustfmt, 28.4 cargo-deny all pass). Task 29 complete (84 E2E test functions across 14 test files + shared infrastructure, all pass verified 2026-02-24). All 49 correctness properties have property-based tests (522 lib tests, 26 binary tests, 84 E2E tests -- all pass). Project setup, core infrastructure, core data models, storage layer, object lister, filter stages, Lua integration, deletion components, safety features, deletion pipeline, progress reporting, library API, CLI implementation, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, CI/CD integration, additional property tests, comprehensive unit tests, property testing infrastructure, and automated E2E integration testing all established. Rustdoc documentation, examples, CONTRIBUTING.md, SECURITY.md, Dockerfile, build info (shadow-rs), and PR template added. Code quality checks (clippy, rustfmt, cargo-deny) all pass.
 
 ## Current Status
 
@@ -39,12 +39,13 @@ Phase 22: Verify All Property Tests (Task 26)
 Phase 23: Checkpoint Review (Task 23)
 Phase 24: Comprehensive Unit Tests (Task 24)
 Phase 25: Property-Based Testing Infrastructure (Task 25)
+Phase 26: Automated E2E Integration Testing (Task 29)
 
 ## Tasks
 
 - [x] 1. Project Setup and Foundation
   - Create Cargo workspace with s3rm-rs library and binary
-  - Configure dependencies matching s3sync versions (AWS SDK 1.122.0, tokio 1.49, clap 4.5, mlua 0.11, proptest 1.6)
+  - Configure dependencies matching s3sync versions (AWS SDK 1.124.0, tokio 1.49, clap 4.5, mlua 0.11, proptest 1.10)
   - Set up project structure with lib.rs and main.rs
   - Configure CI pipeline for multi-platform builds (Linux x86_64/ARM64, Windows, macOS)
   - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
@@ -310,6 +311,16 @@ Phase 25: Property-Based Testing Infrastructure (Task 25)
     - Test normal mode logs without `[dry-run]` prefix
     - _Requirements: 3.1, 3.5_
 
+  - [x] 9.9 Write property test for confirmation prompt target display
+    - **Property 19: Confirmation Prompt Target Display**
+    - **Validates: Requirements 3.5**
+    - Implemented in src/property_tests/safety_properties.rs (Task 9)
+
+  - [x] 9.10 Write property test for max-delete threshold enforcement
+    - **Property 20: Max-Delete Threshold Enforcement**
+    - **Validates: Requirements 3.6**
+    - Implemented in src/deleter/tests.rs (Task 9)
+
 
 - [x] 10. Implement Deletion Pipeline (Adapted from s3sync)
   - [x] 10.1 Create DeletionPipeline struct
@@ -549,17 +560,17 @@ Phase 25: Property-Based Testing Infrastructure (Task 25)
   - [x] 16.3 Write property test for If-Match conditional deletion
     - **Property 41: If-Match Conditional Deletion**
     - **Validates: Requirements 11.1, 11.2**
-    - Implemented in src/optimistic_locking_properties.rs (Task 16)
+    - Implemented in src/property_tests/optimistic_locking_properties.rs (Task 16)
 
   - [x] 16.4 Write property test for If-Match flag propagation
     - **Property 42: If-Match Flag Propagation**
     - **Validates: Requirements 11.3**
-    - Implemented in src/optimistic_locking_properties.rs (Task 16)
+    - Implemented in src/property_tests/optimistic_locking_properties.rs (Task 16)
 
   - [x] 16.5 Write property test for batch conditional deletion handling
     - **Property 43: Batch Conditional Deletion Handling**
     - **Validates: Requirements 11.4**
-    - Implemented in src/optimistic_locking_properties.rs (Task 16)
+    - Implemented in src/property_tests/optimistic_locking_properties.rs (Task 16)
 
 
 - [x] 17. Implement Logging and Verbosity
@@ -577,22 +588,22 @@ Phase 25: Property-Based Testing Infrastructure (Task 25)
   - [x] 17.3 Write property test for verbosity level configuration
     - **Property 21: Verbosity Level Configuration**
     - **Validates: Requirements 4.1**
-    - Implemented in src/logging_properties.rs (Task 17)
+    - Implemented in src/property_tests/logging_properties.rs (Task 17)
 
   - [x] 17.4 Write property test for JSON logging format
     - **Property 22: JSON Logging Format**
     - **Validates: Requirements 4.7, 13.3**
-    - Implemented in src/logging_properties.rs (Task 17)
+    - Implemented in src/property_tests/logging_properties.rs (Task 17)
 
   - [x] 17.5 Write property test for color output control
     - **Property 23: Color Output Control**
     - **Validates: Requirements 4.8, 4.9, 7.5, 13.7**
-    - Implemented in src/logging_properties.rs (Task 17)
+    - Implemented in src/property_tests/logging_properties.rs (Task 17)
 
   - [x] 17.6 Write property test for error logging
     - **Property 24: Error Logging**
     - **Validates: Requirements 4.10**
-    - Implemented in src/logging_properties.rs (Task 17)
+    - Implemented in src/property_tests/logging_properties.rs (Task 17)
 
 
 - [x] 18. Implement AWS Configuration Support
@@ -609,12 +620,12 @@ Phase 25: Property-Based Testing Infrastructure (Task 25)
   - [x] 18.3 Write property test for AWS credential loading
     - **Property 34: AWS Credential Loading**
     - **Validates: Requirements 8.4**
-    - Implemented in src/aws_config_properties.rs (Task 18)
+    - Implemented in src/property_tests/aws_config_properties.rs (Task 18)
 
   - [x] 18.4 Write property test for custom endpoint support
     - **Property 35: Custom Endpoint Support**
     - **Validates: Requirements 8.6**
-    - Implemented in src/aws_config_properties.rs (Task 18)
+    - Implemented in src/property_tests/aws_config_properties.rs (Task 18)
 
 
 - [x] 19. Implement Rate Limiting
@@ -627,7 +638,7 @@ Phase 25: Property-Based Testing Infrastructure (Task 25)
   - [x] 19.2 Write property test for rate limiting enforcement
     - **Property 36: Rate Limiting Enforcement**
     - **Validates: Requirements 8.7**
-    - Implemented in src/rate_limiting_properties.rs (Task 19)
+    - Implemented in src/property_tests/rate_limiting_properties.rs (Task 19)
 
 
 - [x] 20. Implement Cross-Platform Support
@@ -635,7 +646,7 @@ Phase 25: Property-Based Testing Infrastructure (Task 25)
     - Test file path normalization on Windows
     - Test file path normalization on Unix
     - Ensure Lua script paths work cross-platform
-    - Implemented in src/cross_platform_properties.rs and src/config/args/value_parser/file_exist.rs (Task 20)
+    - Implemented in src/property_tests/cross_platform_properties.rs and src/config/args/value_parser/file_exist.rs (Task 20)
     - _Requirements: 9.6_
 
   - [x] 20.2 Verify terminal feature detection
@@ -651,7 +662,7 @@ Phase 25: Property-Based Testing Infrastructure (Task 25)
   - [x] 20.4 Write property test for cross-platform path handling
     - **Property 37: Cross-Platform Path Handling**
     - **Validates: Requirements 9.6**
-    - Implemented in src/cross_platform_properties.rs (Task 20)
+    - Implemented in src/property_tests/cross_platform_properties.rs (Task 20)
 
 
 - [x] 21. Implement CI/CD Integration Features
@@ -668,12 +679,12 @@ Phase 25: Property-Based Testing Infrastructure (Task 25)
   - [x] 21.3 Write property test for non-interactive environment detection
     - **Property 48: Non-Interactive Environment Detection**
     - **Validates: Requirements 13.1**
-    - Implemented in src/cicd_properties.rs (Task 21)
+    - Implemented in src/property_tests/cicd_properties.rs (Task 21)
 
   - [x] 21.4 Write property test for output stream separation
     - **Property 49: Output Stream Separation**
     - **Validates: Requirements 13.6**
-    - Implemented in src/cicd_properties.rs (Task 21)
+    - Implemented in src/property_tests/cicd_properties.rs (Task 21)
 
 
 - [x] 22. Implement Additional Property Tests
@@ -741,7 +752,7 @@ Phase 25: Property-Based Testing Infrastructure (Task 25)
 
 - [x] 25. Set Up Property-Based Testing Infrastructure
   - [x] 25.1 Review existing property test generators
-    - proptest generators exist in filters/filter_properties.rs, deleter/tests.rs, lua/lua_properties.rs, safety/safety_properties.rs, lister.rs
+    - proptest generators exist in property_tests/*.rs, deleter/tests.rs, lister.rs
     - S3Object generators, config generators, datetime generators all present
     - proptest configured with appropriate iteration counts
     - _Requirements: N/A (testing infrastructure)_
@@ -754,15 +765,15 @@ Phase 25: Property-Based Testing Infrastructure (Task 25)
 
 - [x] 26. Verify All Property Tests Are Implemented
   - [x] Review all 49 correctness properties from design document — all 49 confirmed present
-  - [x] Verify each property has a corresponding property-based test file — 15 property test files with 83 proptest functions
+  - [x] Verify each property has a corresponding property-based test file — 15 property test files with 80 proptest functions
   - [x] Verify each test runs with appropriate iteration counts
   - [x] Verify each test includes comment tag: "Feature: s3rm-rs, Property N: [property text]"
-  - [x] Run all property tests: `cargo test --lib` — 442 tests pass
+  - [x] Run all property tests: `cargo test --lib` — 522 tests pass (verified 2026-02-24)
   - [x] Document any missing property tests — none missing
   - _Requirements: All requirements (comprehensive coverage)_
 
 
-**Implemented Property Tests**: Properties 1-49 (49 of 49). All correctness properties have property-based tests. Test totals: 442 lib tests (all pass), 26 binary tests (all pass).
+**Implemented Property Tests**: Properties 1-49 (49 of 49). All correctness properties have property-based tests. Test totals: 522 lib tests (all pass), 26 binary tests (all pass), 84 E2E tests (14 test files, all pass). All tests verified passing 2026-02-24.
 
 - [x] 27. Documentation and Examples
   - [x] 27.1 Write README.md (completed in commit 4082dbe on build/init/task23)
@@ -823,49 +834,27 @@ Phase 25: Property-Based Testing Infrastructure (Task 25)
 
 
 
-- [ ] 29. Automated E2E Integration Testing
-  - **Executor**: This task MUST be performed by the `test-architect` agent.
+- [x] 29. Automated E2E Integration Testing
+  - **Executor**: This task was performed by the `test-architect` agent.
   - **Full test plan**: See [`steering/init_build/e2e_test_plan.md`](e2e_test_plan.md)
-  - 62 test cases (29.0–29.61) across 14 test files + shared infrastructure
+  - 84 test functions (29.0–29.64) across 14 test files + shared infrastructure (`tests/common/mod.rs`)
   - Uses `#![cfg(e2e_test)]`, AWS profile `s3rm-e2e-test`, parallel-safe unique buckets
-  - Covers: filtering (12), deletion modes (5), safety (3), versioning (3), callbacks (7), optimistic locking (2), performance (5), tracing (7), retry (3), error/access denial (3), AWS config (4), combined (6), statistics (2)
+  - Covers: filtering (24), deletion modes (7), safety (3), versioning (3), callbacks (7), optimistic locking (3), performance (5), tracing (7), retry (3), error/access denial (6), AWS config (4), combined (7), statistics (2), Express One Zone (3)
   - _Requirements: 1.1-1.11, 2.1-2.14, 3.1-3.6, 4.1-4.10, 5.1-5.5, 6.1-6.6, 7.1-7.7, 8.1-8.8, 10.1-10.7, 11.1-11.4, 12.1-12.9, 13.1-13.7_
 
 - [ ] 30. Final Checkpoint - Pre-Release Validation
   - Run all unit tests: `cargo test --lib` (verify 100% pass rate)
   - Run all property-based tests: `cargo test --lib` (verify 100% pass rate)
   - Run all integration tests: `cargo test --test '*'`
-  - Verify code coverage meets target (>95% line coverage)
+  - Verify code coverage meets target (>95% line coverage) -- `cargo llvm-cov report` (combined lib+bin+E2E): 94.58% regions, 87.94% functions, 94.44% lines (2026-02-23)
   - Verify clippy has no warnings: `cargo clippy --all-targets --all-features`
   - Verify rustfmt is applied: `cargo fmt --all -- --check`
   - Verify security audit passes: `cargo audit && cargo deny check`
-  - Verify manual integration tests pass (E2E with real S3)
+  - Verify manual integration tests pass (E2E with real S3) -- 84/84 E2E tests pass as of 2026-02-24
   - Verify documentation builds: `cargo doc --no-deps`
   - Review all completed tasks and mark any remaining work
   - Ask the user if questions arise or if ready to proceed to release
 
-
-- [ ] 31. Release Preparation
-  - [ ] 31.1 Build release binaries
-    - Set up cross-compilation toolchains
-    - Build for Linux x86_64 (glibc): `cargo build --release --target x86_64-unknown-linux-gnu`
-    - Build for Linux x86_64 (musl): `cargo build --release --target x86_64-unknown-linux-musl`
-    - Build for Linux ARM64: `cargo build --release --target aarch64-unknown-linux-gnu`
-    - Build for Windows x86_64: `cargo build --release --target x86_64-pc-windows-gnu`
-    - Build for Windows aarch64: `cargo build --release --target aarch64-pc-windows-msvc`
-    - Build for macOS x86_64: `cargo build --release --target x86_64-apple-darwin`
-    - Build for macOS aarch64: `cargo build --release --target aarch64-apple-darwin`
-    - Test each binary on target platform
-    - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.8_
-
-  - [ ] 31.2 Create release artifacts
-    - Package binaries with README, LICENSE, and CHANGELOG
-    - Create tar.gz archives for Unix platforms
-    - Create zip archives for Windows
-    - Generate SHA256 checksums for all binaries
-    - Create release notes with feature highlights
-    - Tag release in git: `git tag -a v0.1.0 -m "Initial release"`
-    - _Requirements: N/A (release process)_
 
 ## Notes
 
@@ -876,12 +865,12 @@ Phase 25: Property-Based Testing Infrastructure (Task 25)
 - Unit tests validate specific examples and edge cases
 - Maximum code reuse from s3sync (~90% of codebase)
 - Library-first architecture: CLI is thin wrapper over library
-- Target: 97%+ line coverage (matching s3sync's 97.88%)
+- Current: 94.44% line coverage (94.58% region, 87.94% function via cargo llvm-cov, 2026-02-23)
 - All 49 correctness properties must have property-based tests with minimum 100 iterations
 
 ## Implementation Status Summary
 
-Tasks 1-28 complete (including Task 23 checkpoint, Task 24 unit tests, Task 25 property testing infrastructure, Task 27 documentation, Task 28 code quality: clippy, rustfmt, cargo-deny all pass). All merged to init_build. Test totals: 442 lib tests (all pass), 26 binary tests (all pass).
+Tasks 1-29 complete (including Task 23 checkpoint, Task 24 unit tests, Task 25 property testing infrastructure, Task 27 documentation, Task 28 code quality: clippy, rustfmt, cargo-deny all pass, Task 29 automated E2E integration testing). All merged to init_build. Test totals: 522 lib tests (all pass), 26 binary tests (all pass), 84 E2E tests (14 test files, all pass). All tests verified passing 2026-02-24. Combined coverage (`cargo llvm-cov report`): 94.58% regions, 87.94% functions, 94.44% lines.
 
 **Already implemented across Tasks 1-25** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)
@@ -937,6 +926,4 @@ Tasks 1-28 complete (including Task 23 checkpoint, Task 24 unit tests, Task 25 p
 - 27.5: CONTRIBUTING.md (done in Task 23, commit c9bedf8)
 
 **Remaining work**:
-- Task 29: Automated E2E Integration Testing (test plan documented -- 62 test cases across 14 test files; implementation not yet started; requires AWS credentials with `s3rm-e2e-test` profile)
 - Task 30: Final Checkpoint / Pre-Release Validation (not yet started)
-- Task 31: Release Preparation (not yet started)

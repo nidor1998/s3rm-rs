@@ -17,58 +17,49 @@ use fancy_regex::Regex;
 /// Adapted from s3sync's Config, removing source-specific and sync-specific options.
 /// Only target-related configuration is retained since s3rm-rs operates on a single S3 target.
 ///
-/// ## Programmatic Construction
+/// # Quick Start
 ///
-/// Build a `Config` directly when using the library API:
+/// Use [`Config::for_target`] for a minimal configuration with sensible defaults:
 ///
-/// ```no_run
-/// use s3rm_rs::config::{Config, FilterConfig, ForceRetryConfig, ClientConfig, RetryConfig, CLITimeoutConfig, TracingConfig};
-/// use s3rm_rs::types::{StoragePath, S3Credentials, ClientConfigLocation};
-/// use s3rm_rs::{FilterManager, EventManager};
-/// use std::sync::Arc;
+/// ```
+/// use s3rm_rs::Config;
 ///
-/// let config = Config {
-///     target: StoragePath::S3 {
-///         bucket: "my-bucket".into(),
-///         prefix: "logs/2024/".into(),
-///     },
-///     worker_size: 100,
-///     batch_size: 1000,
-///     dry_run: true,
-///     force: true,
-///     delete_all_versions: false,
-///     max_delete: Some(10_000),
-///     filter_config: FilterConfig::default(),
-///     filter_manager: FilterManager::new(),
-///     event_manager: EventManager::new(),
-///     // ... other fields
-///     # show_no_progress: false,
-///     # log_deletion_summary: false,
-///     # target_client_config: None,
-///     # force_retry_config: ForceRetryConfig { force_retry_count: 3, force_retry_interval_milliseconds: 1000 },
-///     # tracing_config: None,
-///     # warn_as_error: false,
-///     # rate_limit_objects: None,
-///     # max_parallel_listings: 10,
-///     # object_listing_queue_size: 1000,
-///     # max_parallel_listing_max_depth: 5,
-///     # allow_parallel_listings_in_express_one_zone: false,
-///     # max_keys: 1000,
-///     # auto_complete_shell: None,
-///     # event_callback_lua_script: None,
-///     # filter_callback_lua_script: None,
-///     # allow_lua_os_library: false,
-///     # allow_lua_unsafe_vm: false,
-///     # lua_vm_memory_limit: 50 * 1024 * 1024,
-///     # if_match: false,
-///     # test_user_defined_callback: false,
+/// let config = Config::for_target("my-bucket", "logs/2024/");
+/// assert_eq!(config.worker_size, 24);
+/// assert_eq!(config.batch_size, 200);
+/// ```
+///
+/// Then customize fields as needed:
+///
+/// ```
+/// use s3rm_rs::Config;
+///
+/// let mut config = Config::for_target("my-bucket", "logs/2024/");
+/// config.dry_run = true;
+/// config.force = true;
+/// config.worker_size = 100;
+/// config.max_delete = Some(10_000);
+/// ```
+///
+/// # Default
+///
+/// [`Config::default()`] creates a configuration targeting an empty bucket/prefix.
+/// You must set the `target` field before running a pipeline.
+///
+/// ```
+/// use s3rm_rs::Config;
+/// use s3rm_rs::types::StoragePath;
+///
+/// let mut config = Config::default();
+/// config.target = StoragePath::S3 {
+///     bucket: "my-bucket".into(),
+///     prefix: "prefix/".into(),
 /// };
 /// ```
 #[derive(Debug, Clone)]
 pub struct Config {
     pub target: StoragePath,
     pub show_no_progress: bool,
-    pub log_deletion_summary: bool,
     pub target_client_config: Option<ClientConfig>,
     pub force_retry_config: ForceRetryConfig,
     pub tracing_config: Option<TracingConfig>,
@@ -99,6 +90,87 @@ pub struct Config {
     pub force: bool,
     // Testing flag: enables user-defined callbacks (for library testing)
     pub test_user_defined_callback: bool,
+}
+
+impl Config {
+    /// Create a `Config` with sensible defaults for the given S3 bucket and prefix.
+    ///
+    /// This is the recommended way to construct a `Config` for library usage.
+    /// All fields are set to production-ready defaults matching the CLI defaults
+    /// (24 workers, batch size 200, etc.). The `force` flag is set to `true` to
+    /// skip interactive confirmation prompts, which is appropriate for programmatic use.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use s3rm_rs::Config;
+    ///
+    /// let config = Config::for_target("my-bucket", "logs/");
+    /// assert_eq!(config.batch_size, 200);
+    /// assert!(config.force); // no interactive prompts
+    /// ```
+    pub fn for_target(bucket: &str, prefix: &str) -> Self {
+        Config {
+            target: StoragePath::S3 {
+                bucket: bucket.to_string(),
+                prefix: prefix.to_string(),
+            },
+            force: true,
+            ..Config::default()
+        }
+    }
+}
+
+impl Default for Config {
+    /// Create a `Config` with sensible defaults.
+    ///
+    /// The `target` defaults to an empty bucket/prefix — set it before running
+    /// a pipeline. All other fields use production defaults matching the CLI.
+    fn default() -> Self {
+        Config {
+            target: StoragePath::S3 {
+                bucket: String::new(),
+                prefix: String::new(),
+            },
+            show_no_progress: false,
+            target_client_config: None,
+            force_retry_config: ForceRetryConfig::default(),
+            tracing_config: None,
+            worker_size: 24,
+            warn_as_error: false,
+            dry_run: false,
+            rate_limit_objects: None,
+            max_parallel_listings: 16,
+            object_listing_queue_size: 200_000,
+            max_parallel_listing_max_depth: 2,
+            allow_parallel_listings_in_express_one_zone: false,
+            filter_config: FilterConfig::default(),
+            max_keys: 1000,
+            auto_complete_shell: None,
+            event_callback_lua_script: None,
+            filter_callback_lua_script: None,
+            allow_lua_os_library: false,
+            allow_lua_unsafe_vm: false,
+            lua_vm_memory_limit: 64 * 1024 * 1024,
+            if_match: false,
+            max_delete: None,
+            filter_manager: FilterManager::new(),
+            event_manager: EventManager::new(),
+            batch_size: 200,
+            delete_all_versions: false,
+            force: false,
+            test_user_defined_callback: false,
+        }
+    }
+}
+
+impl Default for ForceRetryConfig {
+    fn default() -> Self {
+        ForceRetryConfig {
+            force_retry_count: 0,
+            force_retry_interval_milliseconds: 1000,
+        }
+    }
 }
 
 /// AWS S3 client configuration.
@@ -186,12 +258,7 @@ pub struct FilterConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn init_dummy_tracing_subscriber() {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter("dummy=trace")
-            .try_init();
-    }
+    use crate::test_utils::init_dummy_tracing_subscriber;
 
     #[test]
     fn retry_config_creation() {
@@ -273,5 +340,93 @@ mod tests {
         assert!(filter_config.exclude_regex.is_none());
         assert!(filter_config.larger_size.is_none());
         assert!(filter_config.smaller_size.is_none());
+    }
+
+    // ------------------------------------------------------------------
+    // Config::for_target and Config::default tests
+    // (Covers uncovered constructors — lines 113-166)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn config_for_target_sets_bucket_and_prefix() {
+        init_dummy_tracing_subscriber();
+
+        let config = Config::for_target("my-bucket", "logs/2024/");
+        let StoragePath::S3 { bucket, prefix } = &config.target;
+        assert_eq!(bucket, "my-bucket");
+        assert_eq!(prefix, "logs/2024/");
+    }
+
+    #[test]
+    fn config_for_target_sets_force_true() {
+        // Library usage should skip interactive prompts by default.
+        let config = Config::for_target("bucket", "prefix/");
+        assert!(config.force);
+    }
+
+    #[test]
+    fn config_for_target_uses_default_worker_and_batch_size() {
+        let config = Config::for_target("bucket", "");
+        assert_eq!(config.worker_size, 24);
+        assert_eq!(config.batch_size, 200);
+    }
+
+    #[test]
+    fn config_for_target_has_sensible_defaults() {
+        let config = Config::for_target("bucket", "prefix/");
+        assert!(!config.dry_run);
+        assert!(!config.delete_all_versions);
+        assert!(!config.if_match);
+        assert!(config.max_delete.is_none());
+        assert!(config.tracing_config.is_none());
+        assert!(config.target_client_config.is_none());
+        assert!(config.rate_limit_objects.is_none());
+        assert!(!config.warn_as_error);
+        assert!(!config.test_user_defined_callback);
+    }
+
+    #[test]
+    fn config_default_has_empty_target() {
+        let config = Config::default();
+        let StoragePath::S3 { bucket, prefix } = &config.target;
+        assert!(bucket.is_empty());
+        assert!(prefix.is_empty());
+    }
+
+    #[test]
+    fn config_default_does_not_set_force() {
+        // Default config (not library convenience) should NOT skip prompts.
+        let config = Config::default();
+        assert!(!config.force);
+    }
+
+    #[test]
+    fn config_default_field_values() {
+        let config = Config::default();
+        assert_eq!(config.worker_size, 24);
+        assert_eq!(config.batch_size, 200);
+        assert!(!config.show_no_progress);
+        assert!(!config.dry_run);
+        assert!(!config.warn_as_error);
+        assert_eq!(config.max_parallel_listings, 16);
+        assert_eq!(config.object_listing_queue_size, 200_000);
+        assert_eq!(config.max_parallel_listing_max_depth, 2);
+        assert!(!config.allow_parallel_listings_in_express_one_zone);
+        assert_eq!(config.max_keys, 1000);
+        assert!(config.auto_complete_shell.is_none());
+        assert!(config.event_callback_lua_script.is_none());
+        assert!(config.filter_callback_lua_script.is_none());
+        assert!(!config.allow_lua_os_library);
+        assert!(!config.allow_lua_unsafe_vm);
+        assert_eq!(config.lua_vm_memory_limit, 64 * 1024 * 1024);
+        assert!(!config.if_match);
+        assert!(!config.delete_all_versions);
+    }
+
+    #[test]
+    fn force_retry_config_default_values() {
+        let frc = ForceRetryConfig::default();
+        assert_eq!(frc.force_retry_count, 0);
+        assert_eq!(frc.force_retry_interval_milliseconds, 1000);
     }
 }

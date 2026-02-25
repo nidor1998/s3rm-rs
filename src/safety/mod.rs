@@ -5,17 +5,14 @@
 //! - Confirmation prompts: Requires exact "yes" input for destructive operations
 //! - Force flag: Skips confirmation prompts
 //! - Max-delete threshold: Enforced at deletion time in ObjectDeleter
-//! - Non-TTY detection: Skips prompts in non-interactive environments
-//! - JSON logging: Skips prompts to avoid corrupting structured output
+//! - Non-TTY detection: Errors when no TTY and --force is not set
+//! - JSON logging: Errors when JSON logging and --force is not set
 //!
 //! Note: Object count and size estimation is handled by dry-run mode.
 //! The confirmation prompt shows the target prefix to make clear what
 //! will be deleted.
 //!
 //! _Requirements: 3.1, 3.2, 3.3, 3.4, 3.6, 13.1_
-
-#[cfg(test)]
-mod safety_properties;
 
 use crate::config::Config;
 use crate::types::StoragePath;
@@ -98,7 +95,7 @@ impl PromptHandler for StdioPromptHandler {
 /// Orchestrates all safety checks in a defined order:
 /// 1. Dry-run mode check (skip confirmation — pipeline runs but deletions are simulated)
 /// 2. Force flag check (skip all prompts)
-/// 3. Environment check (skip prompts if non-TTY or JSON logging)
+/// 3. Environment check (error if non-TTY or JSON logging without --force)
 /// 4. User confirmation prompt (require exact "yes" input)
 ///
 /// Note: Dry-run mode does NOT abort the pipeline. The pipeline runs fully
@@ -142,6 +139,7 @@ impl SafetyChecker {
     }
 
     /// Create a SafetyChecker with a custom prompt handler (for testing).
+    #[cfg(test)]
     pub fn with_prompt_handler(config: &Config, prompt_handler: Box<dyn PromptHandler>) -> Self {
         let json_logging = config
             .tracing_config
@@ -175,7 +173,8 @@ impl SafetyChecker {
     /// 1. If `dry_run` is true → return `Ok(())` (no confirmation needed;
     ///    the pipeline runs but the deletion layer simulates deletions)
     /// 2. If `force` is true → return `Ok(())`
-    /// 3. If non-interactive (non-TTY or JSON logging) → return `Ok(())`
+    /// 3. If non-interactive (non-TTY or JSON logging) → return `Err`
+    ///    (unsafe to proceed without confirmation and without `--force`)
     /// 4. Prompt for confirmation (require exact "yes" input)
     ///
     /// Note: Object count/size estimation is handled by dry-run mode.
@@ -194,29 +193,33 @@ impl SafetyChecker {
             return Ok(());
         }
 
-        // 3. Check if prompts should be skipped (non-interactive environment)
-        if self.should_skip_prompt() {
-            return Ok(());
+        // 3. Non-interactive environment: error out (unsafe without --force)
+        if self.is_non_interactive() {
+            return Err(anyhow!(S3rmError::InvalidConfig(
+                "Cannot run destructive operation without --force (-f) in a non-interactive environment (no TTY). \
+                 Use --force to skip confirmation, or --dry-run to preview deletions."
+                    .to_string()
+            )));
         }
 
         // 4. Prompt for confirmation
         self.prompt_confirmation()
     }
 
-    /// Determine if prompts should be skipped due to environment conditions.
+    /// Check if the environment is non-interactive (cannot prompt the user).
     ///
-    /// Prompts are skipped when:
-    /// - JSON logging is enabled (would corrupt structured output)
-    /// - The environment is non-interactive (no TTY on stdin/stdout)
+    /// Returns `true` when:
+    /// - JSON logging is enabled (prompts would corrupt structured output)
+    /// - The environment has no TTY on stdin/stdout
     ///
     /// _Requirements: 13.1_
-    fn should_skip_prompt(&self) -> bool {
-        // Skip if JSON logging is enabled (would corrupt structured output)
+    fn is_non_interactive(&self) -> bool {
+        // JSON logging: prompts would corrupt structured output
         if self.json_logging {
             return true;
         }
 
-        // Skip in non-interactive (non-TTY) environments
+        // No TTY on stdin/stdout
         if !self.prompt_handler.is_interactive() {
             return true;
         }

@@ -6,7 +6,7 @@
 - **Worker range**: 1-65,535 (u16)
 - **Batch size range**: 1-1,000
 - **Default config**: worker-size 24, batch-size 200, max-parallel-listings 16
-- **Property test count**: 47 correctness properties (proptest)
+- **Property test count**: 49 correctness properties (proptest)
 
 ## Competitor Research (Feb 2026)
 - **s5cmd**: DOES support batch deletion (DeleteObjects API, up to 1000/req) and dry-run. Does NOT have: confirmation prompts, max-delete, regex (glob only), versioning, If-Match, library API, Lua.

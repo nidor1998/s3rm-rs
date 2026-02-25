@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Consolidate all 14 library property test files into `src/property_tests/` module for cleaner source tree; only `indicator_properties.rs` remains in `bin/s3rm/` (binary crate dependency)
+- Update `docs/design.md`, `docs/structure.md`, and `CLAUDE.md` to reflect new property test layout
+
+## [0.2.0] - 2026-02-25
+
+Initial build quality improvements based on comprehensive audit by software maintainer, development lead, and test lead reviewers.
+
+### Changed
+
+- Update all dependencies to latest compatible versions (AWS SDK 1.124.0, clap 4.5.60, chrono 0.4.44, etc.)
+- Suppress Ctrl-C shutdown warning at default verbosity level
+- Replace README library usage example with `build_config_from_args` pattern from lib.rs
+- Fix `DELETE_CANCEL` event description (pipeline cancelled, not max-delete specific)
+- Fix E2E test commands in README (correct glob pattern and test function name)
+
+### Fixed
+
+- Remove unnecessary `--show-no-progress` from CI script example in README
+- Remove unused `regex` crate from dependencies (all regex usage is via `fancy-regex`)
+- Remove unused `tokio-test` from dev-dependencies
+- Move `rusty-fork` from `[dependencies]` to `[dev-dependencies]` to reduce dependency tree for library consumers
+- Gate `file_exist` value parser module behind `lua_support` feature to eliminate dead code warning with `--no-default-features`
+- Remove dead `#![allow(clippy::unnecessary_unwrap)]` lint suppression
+- Add `include` key to `[package]` in Cargo.toml to prevent publishing internal development files (`.claude/`, `.serena/`, `steering/`, `docs/`, etc.) to crates.io
+- Fix Claude Code link URL in README
+
 ## [0.1.0] - 2026-02-23
 
 Initial release. s3rm-rs is a fast Amazon S3 object deletion tool built as a sibling to [s3sync](https://github.com/nidor1998/s3sync), sharing its core infrastructure (AWS client, retry logic, filtering, Lua integration, progress reporting, etc.).
@@ -35,7 +63,6 @@ Initial release. s3rm-rs is a fast Amazon S3 object deletion tool built as a sib
 - Structured logging with configurable verbosity (`-v`, `-vv`, `-vvv`) and optional JSON output
 - Colored terminal output with `--disable-color-tracing` and `NO_COLOR` environment variable support
 - `--warn-as-error` flag to promote deletion warnings to fatal pipeline errors
-- `--log-deletion-summary` flag to log per-object deletion results
 - AWS credential support: environment variables, credentials file, IAM roles, SSO
 - Custom S3-compatible endpoint support (`--target-endpoint-url`)
 - S3 Transfer Acceleration support (`--target-accelerate`)
@@ -45,7 +72,7 @@ Initial release. s3rm-rs is a fast Amazon S3 object deletion tool built as a sib
 - Shell completion generation (`--auto-complete-shell`)
 - Cross-platform CI: Linux (glibc/musl/ARM64), Windows (x86_64/aarch64), macOS (x86_64/aarch64)
 - Docker image based on debian:trixie-slim
-- 47 property-based correctness properties (proptest)
+- 49 property-based correctness properties (proptest)
 
 ### Differences from s3sync
 

@@ -174,9 +174,9 @@ impl ClientConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::init_dummy_tracing_subscriber;
     use crate::types::{AccessKeys, ClientConfigLocation};
     use aws_smithy_types::checksum_config::RequestChecksumCalculation;
-    use tracing_subscriber::EnvFilter;
 
     #[tokio::test]
     async fn create_client_from_credentials() {
@@ -614,15 +614,5 @@ mod tests {
             client.config().region().unwrap().to_string(),
             "us-east-1".to_string()
         );
-    }
-
-    fn init_dummy_tracing_subscriber() {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(
-                EnvFilter::try_from_default_env()
-                    .or_else(|_| EnvFilter::try_new("dummy=trace"))
-                    .unwrap(),
-            )
-            .try_init();
     }
 }

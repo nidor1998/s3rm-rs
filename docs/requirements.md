@@ -16,7 +16,7 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 - **Batch_Deleter**: Component that groups objects into batches for the S3 DeleteObjects API
 - **Single_Deleter**: Component that deletes objects one at a time using DeleteObject API
 - **Object_Lister**: Component that retrieves object lists from S3 with parallel pagination
-- **Audit_Logger**: Component that records deletion operations with verbosity controlled by -v flags
+- **Audit_Logger**: Logging of deletion operations via tracing macros with verbosity controlled by -v flags (no separate component; integrated into each pipeline stage)
 - **Dry_Run_Mode**: Execution mode that simulates deletions without actually removing objects
 - **Delete_Marker**: S3 versioning concept - a placeholder indicating an object was deleted
 - **Prefix**: S3 key prefix used to filter objects (e.g., "logs/2023/")
@@ -69,7 +69,7 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 7. WHEN provided modified time filters, THE S3rm_Tool SHALL delete only objects within the specified time range
 8. WHEN provided a filter callback Lua script, THE S3rm_Tool SHALL execute the Filter_Callback_Lua for each object and delete objects where the callback returns true
 9. WHERE a Rust filter callback is registered via the library API, THE S3rm_Tool SHALL execute the Filter_Callback_Rust for custom filtering logic
-10. WHEN invoked with the delete-all flag, THE S3rm_Tool SHALL delete all objects in the specified bucket
+10. WHEN invoked with a bucket-only target (e.g. `s3://bucket/`), THE S3rm_Tool SHALL delete all objects in the specified bucket
 11. WHERE multiple selection criteria are provided, THE S3rm_Tool SHALL combine them using logical AND operations
 12. THE S3rm_Tool SHALL support Lua callback types: filter and event callbacks
 13. WHERE Lua scripts are provided, THE S3rm_Tool SHALL run them in safe mode by default (no OS or I/O library access)
@@ -98,7 +98,7 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 2. WHEN no verbosity flag is provided, THE S3rm_Tool SHALL output minimal progress information
 3. WHEN -v flag is provided, THE S3rm_Tool SHALL output standard operational logs including object keys and deletion status
 4. WHEN -vv flag is provided, THE S3rm_Tool SHALL output detailed logs including timestamps, batch information, and retry attempts
-5. WHEN -vvv flag is provided, THE S3rm_Tool SHALL output debug-level logs including API request details and internal state
+5. WHEN -vvv flag is provided, THE S3rm_Tool SHALL output trace-level logs including API request details and internal state
 6. THE S3rm_Tool SHALL output logs in human-readable text format by default
 7. WHERE JSON logging is enabled, THE S3rm_Tool SHALL output structured JSON format for all log levels. Note: --json-tracing requires -f/--force because JSON output is incompatible with interactive confirmation prompts
 8. WHERE color output is enabled (default), THE S3rm_Tool SHALL use colored text for improved readability
@@ -116,6 +116,7 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 3. THE Object_Lister SHALL retrieve version information when operating on versioned buckets
 4. WHEN displaying dry-run results for versioned buckets, THE S3rm_Tool SHALL count each version as a separate object in progress and summary statistics
 5. THE Batch_Deleter SHALL handle version IDs correctly in DeleteObjects API requests
+6. WHERE the delete-all-versions flag is provided but the target bucket does not have versioning enabled, THE S3rm_Tool SHALL silently ignore the flag and proceed with normal deletion of all matching objects
 
 ### Requirement 6: Robust Error Handling and Retry Logic
 
@@ -183,7 +184,7 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 1. THE S3rm_Tool SHALL provide a help command that displays usage information and examples
 2. THE S3rm_Tool SHALL validate all required arguments and provide clear error messages for invalid input
 3. WHEN invoked without required arguments, THE S3rm_Tool SHALL display usage information
-4. THE S3rm_Tool SHALL support both short flags (-d) and long flags (--dry-run) for all options
+4. THE S3rm_Tool SHALL support both short flags (-d, -f) and long flags (--dry-run, --force) for commonly-used options, with all other options available via long flags only
 5. THE S3rm_Tool SHALL return appropriate exit codes: 0 for success, 1 for errors, 2 for invalid arguments, 3 for warnings (partial failure), and 101 for abnormal termination (internal panic)
 6. THE S3rm_Tool SHALL provide version information via --version flag
 7. THE S3rm_Tool SHALL provide an intuitive command structure that is easy to learn and remember
@@ -221,10 +222,10 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 
 #### Acceptance Criteria
 
-1. WHEN running in non-interactive environments, THE S3rm_Tool SHALL detect the absence of a TTY and disable interactive prompts. WHERE JSON logging is enabled, THE S3rm_Tool SHALL also skip interactive prompts to prevent corrupting structured output
+1. WHEN running in non-interactive environments (no TTY) without the --force flag, THE S3rm_Tool SHALL return an error (exit code 2) to prevent unsafe unconfirmed deletions. WHERE the --force flag or --dry-run flag is provided, THE S3rm_Tool SHALL proceed without prompting. WHERE JSON logging is enabled without --force, THE S3rm_Tool SHALL also return an error since interactive prompts would corrupt structured output
 2. WHERE the force flag is provided, THE S3rm_Tool SHALL execute deletions without requiring user confirmation
 3. WHERE JSON logging is enabled, THE S3rm_Tool SHALL output machine-readable JSON logs for integration with log aggregation systems
 4. THE S3rm_Tool SHALL return distinct exit codes for different failure scenarios (authentication, network, partial failure)
 5. THE S3rm_Tool SHALL support reading credentials from environment variables for CI/CD environments
 6. THE S3rm_Tool SHALL output all log messages (including errors) to stdout via tracing-subscriber by default
-7. WHERE color output is not explicitly enabled, THE S3rm_Tool SHALL automatically disable colored output in non-TTY environments
+7. WHERE color output is not explicitly disabled, THE S3rm_Tool SHALL use colored output. Color can be disabled via the --disable-color-tracing flag or DISABLE_COLOR_TRACING environment variable

@@ -97,6 +97,8 @@ This demo shows Express One Zone deleting approximately 34,000 objects per secon
 - [Fully AI-generated (human-verified) software](#fully-ai-generated-human-verified-software)
     * [Quality verification (by AI self-assessment, initial build)](#quality-verification-by-ai-self-assessment-initial-build)
     * [AI assessment of safety and correctness (by Claude, Anthropic)](#ai-assessment-of-safety-and-correctness-by-claude-anthropic)
+- [Recommendation](#recommendation)
+- [AI Evaluation Notice](#ai-evaluation-notice)
 - [License](#license)
 
 </details>
@@ -1179,6 +1181,16 @@ The following E2E tests specifically verify that bugs in critical code paths wou
 The safety features provide reasonable protection against user mistakes. For software trustworthiness, the E2E test suite verifies critical deletion behaviors against real AWS S3 — not mocks — with explicit before/after state assertions. Each test is designed so that a specific category of bug (filter leaks, dry-run data loss, prefix boundary violations, stale deletions) would cause a concrete, detectable test failure. This does not guarantee the absence of bugs, but it does mean the most dangerous categories of incorrect behavior are actively tested.
 
 </details>
+
+## Recommendation
+
+We recommend trying s3rm in a test environment first — such as a non-production bucket or a small prefix with `--dry-run` — before using it on production data. This lets you verify that filters, prefixes, and versioning options behave as expected in your specific setup without any risk to real data.
+
+## AI Evaluation Notice
+
+*A message from the developer:*
+
+> Although considerable human effort has been invested in this project, users are advised to test it in a safe, non-production environment (such as a test environment) before applying it in real-world scenarios.
 
 ## License
 

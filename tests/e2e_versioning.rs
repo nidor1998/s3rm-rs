@@ -190,6 +190,120 @@ async fn e2e_delete_all_versions() {
 }
 
 // ---------------------------------------------------------------------------
+// Versioned Bucket: Prefix Boundary Respect
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_batch_deletion_respects_prefix_boundary_versioned() {
+    e2e_timeout!(async {
+        // Purpose: Verify that batch deletion (default mode) with a prefix only
+        //          deletes objects under that prefix and leaves objects outside
+        //          completely untouched — including objects with overlapping key
+        //          prefixes (e.g., "data/" vs "data-archive/") — on a versioned bucket.
+        // Setup:   Create versioned bucket; upload objects under three prefixes:
+        //          data/, data-archive/, other/.
+        // Expected: Only data/ objects are deleted (delete markers created);
+        //           data-archive/ and other/ remain untouched.
+        //           Actual S3 state is verified, not just stats.
+        //
+        // Validates: Requirements 1.1, 2.1, 5.1 (batch mode, versioned bucket)
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        // Target prefix: 5 objects under data/
+        for i in 0..5 {
+            helper
+                .put_object(&bucket, &format!("data/item{i}.txt"), vec![b'd'; 256])
+                .await;
+        }
+        // Overlapping prefix name: 3 objects under data-archive/
+        for i in 0..3 {
+            helper
+                .put_object(
+                    &bucket,
+                    &format!("data-archive/item{i}.txt"),
+                    vec![b'a'; 256],
+                )
+                .await;
+        }
+        // Unrelated prefix: 4 objects under other/
+        for i in 0..4 {
+            helper
+                .put_object(&bucket, &format!("other/item{i}.txt"), vec![b'o'; 256])
+                .await;
+        }
+
+        let total_before = helper.count_objects(&bucket, "").await;
+        assert_eq!(total_before, 12, "Should start with 12 objects");
+
+        let config = TestHelper::build_config(vec![&format!("s3://{bucket}/data/"), "--force"]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error, "Pipeline should complete without errors");
+        assert_eq!(
+            result.stats.stats_deleted_objects, 5,
+            "Should delete all 5 data/ objects"
+        );
+        assert_eq!(
+            result.stats.stats_failed_objects, 0,
+            "No objects should fail"
+        );
+
+        // Verify data/ objects are hidden by delete markers
+        let data_remaining = helper.count_objects(&bucket, "data/").await;
+        assert_eq!(
+            data_remaining, 0,
+            "All data/ objects should be hidden by delete markers"
+        );
+
+        // Verify data-archive/ objects are untouched
+        let archive_remaining = helper.count_objects(&bucket, "data-archive/").await;
+        assert_eq!(
+            archive_remaining, 3,
+            "data-archive/ objects must not be affected by data/ deletion"
+        );
+
+        // Verify other/ objects are untouched
+        let other_remaining = helper.count_objects(&bucket, "other/").await;
+        assert_eq!(other_remaining, 4, "other/ objects must remain");
+
+        // Total remaining = 3 + 4 = 7
+        let total_after = helper.count_objects(&bucket, "").await;
+        assert_eq!(
+            total_after, 7,
+            "Only 5 data/ objects should have been removed"
+        );
+
+        // Verify original versions still exist (versioned bucket creates delete markers)
+        let versions = helper.list_object_versions(&bucket).await;
+        let data_delete_markers: Vec<_> = versions
+            .iter()
+            .filter(|(k, _)| k.starts_with("[delete-marker]") && k.contains("data/item"))
+            .collect();
+        let data_original_versions: Vec<_> = versions
+            .iter()
+            .filter(|(k, _)| !k.starts_with("[delete-marker]") && k.contains("data/item"))
+            .collect();
+        assert_eq!(
+            data_delete_markers.len(),
+            5,
+            "Should have 5 delete markers for data/ objects"
+        );
+        assert_eq!(
+            data_original_versions.len(),
+            5,
+            "Original data/ versions should still exist"
+        );
+
+        guard.cleanup().await;
+    });
+}
+
+// ---------------------------------------------------------------------------
 // 29.23 Delete All Versions on Unversioned Bucket Error
 // ---------------------------------------------------------------------------
 

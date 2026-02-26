@@ -342,12 +342,8 @@ async fn e2e_delete_all_versions_with_parallel_listing() {
         let objects: Vec<(String, Vec<u8>)> = (0..TOP_PREFIXES)
             .flat_map(|t| {
                 (0..SUB_PREFIXES).flat_map(move |s| {
-                    (0..OBJECTS_PER_SUB).map(move |i| {
-                        (
-                            format!("area{t}/sub{s}/file{i:02}.dat"),
-                            vec![b'v'; 100],
-                        )
-                    })
+                    (0..OBJECTS_PER_SUB)
+                        .map(move |i| (format!("area{t}/sub{s}/file{i:02}.dat"), vec![b'v'; 100]))
                 })
             })
             .collect();
@@ -370,7 +366,8 @@ async fn e2e_delete_all_versions_with_parallel_listing() {
         // Verify version count before deletion
         let pre_versions = helper.list_object_versions(&bucket).await;
         assert_eq!(
-            pre_versions.len() as u64, expected_versions,
+            pre_versions.len() as u64,
+            expected_versions,
             "Should have {expected_versions} total versions before deletion"
         );
 
@@ -386,10 +383,7 @@ async fn e2e_delete_all_versions_with_parallel_listing() {
         ]);
         let result = TestHelper::run_pipeline(config).await;
 
-        assert!(
-            !result.has_error,
-            "Pipeline should complete without errors"
-        );
+        assert!(!result.has_error, "Pipeline should complete without errors");
         assert_eq!(
             result.stats.stats_deleted_objects, expected_versions,
             "Should delete all {expected_versions} versions"

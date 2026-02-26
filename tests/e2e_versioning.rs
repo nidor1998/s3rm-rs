@@ -304,6 +304,114 @@ async fn e2e_batch_deletion_respects_prefix_boundary_versioned() {
 }
 
 // ---------------------------------------------------------------------------
+// Versioned Bucket: Parallel list_object_versions with Multi-Level Prefixes
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_delete_all_versions_with_parallel_listing() {
+    e2e_timeout!(async {
+        // Purpose: Verify that --delete-all-versions combined with
+        //          --max-parallel-listings actually exercises the
+        //          list_object_versions_with_parallel code path. The bucket
+        //          contains objects spread across multiple nested prefix levels
+        //          so that the parallel lister discovers common prefixes via
+        //          the "/" delimiter and fans out into sub-prefix tasks.
+        // Setup:   Create a versioned bucket; upload objects under 4 top-level
+        //          prefixes, each with 2 sub-prefixes (3 levels deep), plus
+        //          overwrite some objects to create multiple versions.
+        //          Total: 4 prefixes × 2 sub-prefixes × 5 objects = 40 keys,
+        //          10 of which are overwritten once = 50 versions total.
+        // Expected: All 50 versions are deleted; nothing remains in the bucket;
+        //           parallel listing does not cause errors or missed objects.
+        //
+        // Validates: Requirements 1.5, 1.6, 1.7, 5.2 (parallel versioned listing)
+
+        const TOP_PREFIXES: usize = 4;
+        const SUB_PREFIXES: usize = 2;
+        const OBJECTS_PER_SUB: usize = 5;
+        const OVERWRITES: usize = 10; // first 10 keys get a second version
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        // Upload objects across nested prefixes: level1/level2/fileN.dat
+        let mut all_keys: Vec<String> = Vec::new();
+        let objects: Vec<(String, Vec<u8>)> = (0..TOP_PREFIXES)
+            .flat_map(|t| {
+                (0..SUB_PREFIXES).flat_map(move |s| {
+                    (0..OBJECTS_PER_SUB).map(move |i| {
+                        (
+                            format!("area{t}/sub{s}/file{i:02}.dat"),
+                            vec![b'v'; 100],
+                        )
+                    })
+                })
+            })
+            .collect();
+        for (key, _) in &objects {
+            all_keys.push(key.clone());
+        }
+        helper.put_objects_parallel(&bucket, objects).await;
+
+        // Overwrite the first OVERWRITES keys to create a second version
+        let overwrites: Vec<(String, Vec<u8>)> = all_keys
+            .iter()
+            .take(OVERWRITES)
+            .map(|k| (k.clone(), vec![b'w'; 200]))
+            .collect();
+        helper.put_objects_parallel(&bucket, overwrites).await;
+
+        let total_keys = TOP_PREFIXES * SUB_PREFIXES * OBJECTS_PER_SUB;
+        let expected_versions = (total_keys + OVERWRITES) as u64; // 40 + 10 = 50
+
+        // Verify version count before deletion
+        let pre_versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(
+            pre_versions.len() as u64, expected_versions,
+            "Should have {expected_versions} total versions before deletion"
+        );
+
+        // Run with --delete-all-versions AND parallel listing enabled
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/"),
+            "--delete-all-versions",
+            "--max-parallel-listings",
+            "4",
+            "--max-parallel-listing-max-depth",
+            "2",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(
+            !result.has_error,
+            "Pipeline should complete without errors"
+        );
+        assert_eq!(
+            result.stats.stats_deleted_objects, expected_versions,
+            "Should delete all {expected_versions} versions"
+        );
+        assert_eq!(
+            result.stats.stats_failed_objects, 0,
+            "No objects should fail"
+        );
+
+        // Verify nothing remains
+        let post_versions = helper.list_object_versions(&bucket).await;
+        assert!(
+            post_versions.is_empty(),
+            "No versions or delete markers should remain; found {}",
+            post_versions.len()
+        );
+
+        guard.cleanup().await;
+    });
+}
+
+// ---------------------------------------------------------------------------
 // 29.23 Delete All Versions on Unversioned Bucket Error
 // ---------------------------------------------------------------------------
 

@@ -23,6 +23,7 @@
 
 #[cfg(test)]
 mod tests {
+    use crate::storage::StorageTrait;
     use aws_sdk_s3::primitives::DateTime;
     use aws_sdk_s3::types::{
         DeleteMarkerEntry, DeletedObject, Object, ObjectIdentifier, ObjectVersion,
@@ -244,6 +245,7 @@ mod tests {
         {
             Ok(
                 aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput::builder()
+                    .set_tag_set(Some(vec![]))
                     .build()
                     .unwrap(),
             )
@@ -673,5 +675,114 @@ mod tests {
         for obj in &received {
             assert!(obj.version_id().is_none());
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // VersioningMockStorage method verification tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn versioning_mock_is_express_onezone_returns_false() {
+        let mock = VersioningMockStorage::new();
+        assert!(!mock.is_express_onezone_storage());
+    }
+
+    #[tokio::test]
+    async fn versioning_mock_list_objects_returns_ok() {
+        let mock = VersioningMockStorage::new();
+        let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_objects(&sender, 1000).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn versioning_mock_list_object_versions_returns_ok() {
+        let mock = VersioningMockStorage::new();
+        let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_object_versions(&sender, 1000).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn versioning_mock_head_object_returns_ok() {
+        let mock = VersioningMockStorage::new();
+        assert!(mock.head_object("key", None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn versioning_mock_get_object_tagging_returns_ok() {
+        let mock = VersioningMockStorage::new();
+        let result = mock.get_object_tagging("key", None).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().tag_set().is_empty());
+    }
+
+    #[tokio::test]
+    async fn versioning_mock_delete_object_returns_ok() {
+        let mock = VersioningMockStorage::new();
+        assert!(mock.delete_object("key", None, None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn versioning_mock_delete_objects_records_and_returns() {
+        let mock = VersioningMockStorage::new();
+        let idents = vec![
+            ObjectIdentifier::builder()
+                .key("a.txt")
+                .version_id("v1")
+                .build()
+                .unwrap(),
+            ObjectIdentifier::builder()
+                .key("b.txt")
+                .version_id("v2")
+                .build()
+                .unwrap(),
+        ];
+        let result = mock.delete_objects(idents).await;
+        assert!(result.is_ok());
+
+        // Verify recording
+        let calls = mock.delete_objects_calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        let keys: Vec<&str> = calls[0].iter().map(|i| i.key()).collect();
+        assert_eq!(keys, vec!["a.txt", "b.txt"]);
+
+        // Verify output contains deleted keys
+        let output = result.unwrap();
+        let deleted: Vec<&str> = output.deleted().iter().filter_map(|d| d.key()).collect();
+        assert_eq!(deleted, vec!["a.txt", "b.txt"]);
+    }
+
+    #[tokio::test]
+    async fn versioning_mock_is_versioning_enabled_returns_true() {
+        let mock = VersioningMockStorage::new();
+        assert!(mock.is_versioning_enabled().await.unwrap());
+    }
+
+    #[test]
+    fn versioning_mock_get_client_returns_none() {
+        let mock = VersioningMockStorage::new();
+        assert!(mock.get_client().is_none());
+    }
+
+    #[tokio::test]
+    async fn versioning_mock_get_stats_sender_returns_sender() {
+        let mock = VersioningMockStorage::new();
+        let sender = mock.get_stats_sender();
+        // The mock creates a new channel each call and drops the receiver,
+        // so the sender is immediately closed. Verify it returns without panic.
+        assert!(sender.is_closed());
+    }
+
+    #[tokio::test]
+    async fn versioning_mock_send_stats_is_callable() {
+        let mock = VersioningMockStorage::new();
+        // No-op, just verify no panic
+        mock.send_stats(crate::types::DeletionStatistics::DeleteBytes(10))
+            .await;
+    }
+
+    #[test]
+    fn versioning_mock_set_warning_is_callable() {
+        let mock = VersioningMockStorage::new();
+        mock.set_warning(); // no-op, just verify no panic
     }
 }

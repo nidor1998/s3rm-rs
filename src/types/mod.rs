@@ -605,6 +605,70 @@ mod tests {
         assert!(s3_object.is_delete_marker());
     }
 
+    // --- S3Object::new / S3Object::new_versioned constructor tests ---
+
+    #[test]
+    fn s3_object_new_sets_key_and_size() {
+        let obj = S3Object::new("photos/cat.jpg", 2048);
+        assert_eq!(obj.key(), "photos/cat.jpg");
+        assert_eq!(obj.size(), 2048);
+    }
+
+    #[test]
+    fn s3_object_new_is_not_versioning() {
+        let obj = S3Object::new("key.txt", 100);
+        assert!(obj.version_id().is_none());
+        assert!(!obj.is_latest());
+        assert!(!obj.is_delete_marker());
+        assert!(matches!(obj, S3Object::NotVersioning(_)));
+    }
+
+    #[test]
+    fn s3_object_new_defaults_last_modified_to_epoch() {
+        let obj = S3Object::new("key.txt", 0);
+        assert_eq!(*obj.last_modified(), DateTime::from_secs(0));
+    }
+
+    #[test]
+    fn s3_object_new_zero_size() {
+        let obj = S3Object::new("empty.txt", 0);
+        assert_eq!(obj.size(), 0);
+    }
+
+    #[test]
+    fn s3_object_new_versioned_sets_key_version_size() {
+        let obj = S3Object::new_versioned("logs/app.log", "v1", 512);
+        assert_eq!(obj.key(), "logs/app.log");
+        assert_eq!(obj.version_id(), Some("v1"));
+        assert_eq!(obj.size(), 512);
+    }
+
+    #[test]
+    fn s3_object_new_versioned_is_latest() {
+        let obj = S3Object::new_versioned("key.txt", "ver-abc", 100);
+        assert!(obj.is_latest());
+        assert!(!obj.is_delete_marker());
+        assert!(matches!(obj, S3Object::Versioning(_)));
+    }
+
+    #[test]
+    fn s3_object_new_versioned_defaults_last_modified_to_epoch() {
+        let obj = S3Object::new_versioned("key.txt", "v1", 0);
+        assert_eq!(*obj.last_modified(), DateTime::from_secs(0));
+    }
+
+    #[test]
+    fn s3_object_new_versioned_has_no_etag() {
+        let obj = S3Object::new_versioned("key.txt", "v1", 100);
+        assert!(obj.e_tag().is_none());
+    }
+
+    #[test]
+    fn s3_object_new_has_no_etag() {
+        let obj = S3Object::new("key.txt", 100);
+        assert!(obj.e_tag().is_none());
+    }
+
     #[test]
     fn debug_print_access_keys_redacts_secrets() {
         let access_keys = AccessKeys {

@@ -9,6 +9,11 @@ s3rm-rs is an S3 object deletion tool built in Rust. The project follows a spec-
 - Design document detailing architecture and components
 - Tasks document with implementation checklist
 
+## ABSOLUTE REQUIREMENTS
+
+1. **No unsolicited refactoring**: Do not perform any refactoring unless explicitly instructed to do so.
+2. **No unsolicited test changes**: Do not modify unit tests or E2E tests unless explicitly instructed to do so. Request confirmation before making any changes.
+
 ## PRIMARY POLICY: Maximum Code Reuse from s3sync
 
 **CRITICAL: s3rm-rs is built as a sibling to s3sync with ~90% code reuse.**

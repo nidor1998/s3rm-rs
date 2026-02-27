@@ -12,6 +12,7 @@ mod cicd_properties;
 mod cross_platform_properties;
 mod event_callback_properties;
 mod filter_properties;
+mod keep_latest_only_properties;
 mod lib_properties;
 mod logging_properties;
 #[cfg(feature = "lua_support")]

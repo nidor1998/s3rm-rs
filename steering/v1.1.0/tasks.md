@@ -10,9 +10,9 @@
 ## Status Summary
 
 - Total tasks: 8
-- Completed: 5
+- Completed: 6
 - In progress: 0
-- Pending: 3
+- Pending: 2
 
 ## Tasks
 
@@ -46,7 +46,7 @@
   - Unit tests for the `KeepLatestOnlyFilter` filter function (latest passes through, non-latest filtered, delete markers filtered, non-versioned objects)
   - Unit tests for CLI arg validation (requires `--delete-all-versions`, conflicts with disallowed filter options)
 
-- [ ] 6. Property-based tests
+- [x] 6. Property-based tests
   - Property tests for `KeepLatestOnlyFilter` behavior across generated `S3Object` variants
   - Add to `src/property_tests/` following existing patterns
 

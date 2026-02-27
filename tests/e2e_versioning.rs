@@ -454,8 +454,7 @@ async fn e2e_parallel_version_listing_pagination_within_subprefix() {
             .collect();
         helper.put_objects_parallel(&bucket, overwrites).await;
 
-        let expected_versions =
-            (PREFIXES * OBJECTS_PER_PREFIX * VERSIONS_PER_OBJECT) as u64; // 24
+        let expected_versions = (PREFIXES * OBJECTS_PER_PREFIX * VERSIONS_PER_OBJECT) as u64; // 24
 
         // Verify version count before deletion
         let pre_versions = helper.list_object_versions(&bucket).await;

@@ -4103,3 +4103,79 @@ async fn object_deleter_metadata_exclude_filter_skips_matching() {
     let batch_calls = mock.delete_objects_calls.lock().unwrap();
     assert_eq!(batch_calls.len(), 0);
 }
+
+// ===========================================================================
+// MockStorage method tests
+// ===========================================================================
+
+#[test]
+fn mock_storage_is_express_onezone_returns_false() {
+    let (stats_sender, _) = async_channel::unbounded();
+    let mock = MockStorage::new(stats_sender);
+    assert!(!mock.is_express_onezone_storage());
+}
+
+#[tokio::test]
+async fn mock_storage_list_objects_returns_ok() {
+    let (stats_sender, _) = async_channel::unbounded();
+    let mock = MockStorage::new(stats_sender);
+    let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+    assert!(mock.list_objects(&sender, 1000).await.is_ok());
+}
+
+#[tokio::test]
+async fn mock_storage_list_object_versions_returns_ok() {
+    let (stats_sender, _) = async_channel::unbounded();
+    let mock = MockStorage::new(stats_sender);
+    let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+    assert!(mock.list_object_versions(&sender, 1000).await.is_ok());
+}
+
+#[tokio::test]
+async fn mock_storage_is_versioning_enabled_returns_false() {
+    let (stats_sender, _) = async_channel::unbounded();
+    let mock = MockStorage::new(stats_sender);
+    assert!(!mock.is_versioning_enabled().await.unwrap());
+}
+
+#[test]
+fn mock_storage_get_client_returns_none() {
+    let (stats_sender, _) = async_channel::unbounded();
+    let mock = MockStorage::new(stats_sender);
+    assert!(mock.get_client().is_none());
+}
+
+#[tokio::test]
+async fn mock_storage_get_stats_sender_works() {
+    let (stats_sender, stats_receiver) = async_channel::unbounded();
+    let mock = MockStorage::new(stats_sender);
+    let sender = mock.get_stats_sender();
+    sender
+        .send(DeletionStatistics::DeleteBytes(99))
+        .await
+        .unwrap();
+    let received = stats_receiver.recv().await.unwrap();
+    assert!(matches!(received, DeletionStatistics::DeleteBytes(99)));
+}
+
+#[tokio::test]
+async fn mock_storage_send_stats_delivers_stat() {
+    let (stats_sender, stats_receiver) = async_channel::unbounded();
+    let mock = MockStorage::new(stats_sender);
+    mock.send_stats(DeletionStatistics::DeleteComplete {
+        key: "k".to_string(),
+    })
+    .await;
+    let received = stats_receiver.recv().await.unwrap();
+    assert!(matches!(
+        received,
+        DeletionStatistics::DeleteComplete { .. }
+    ));
+}
+
+#[test]
+fn mock_storage_set_warning_is_noop() {
+    let (stats_sender, _) = async_channel::unbounded();
+    let mock = MockStorage::new(stats_sender);
+    mock.set_warning(); // no-op, just verify no panic
+}

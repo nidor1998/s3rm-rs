@@ -344,6 +344,64 @@ pub(crate) mod tests {
         assert!(receiver.try_recv().is_err());
     }
 
+    // --- MockStorage method tests ---
+
+    #[test]
+    fn mock_storage_is_express_onezone_returns_false() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let mock = MockStorage::new(vec![], vec![], stats_sender);
+        assert!(!mock.is_express_onezone_storage());
+    }
+
+    #[tokio::test]
+    async fn mock_storage_is_versioning_enabled_returns_false() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let mock = MockStorage::new(vec![], vec![], stats_sender);
+        assert!(!mock.is_versioning_enabled().await.unwrap());
+    }
+
+    #[test]
+    fn mock_storage_get_client_returns_none() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let mock = MockStorage::new(vec![], vec![], stats_sender);
+        assert!(mock.get_client().is_none());
+    }
+
+    #[tokio::test]
+    async fn mock_storage_get_stats_sender_works() {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let mock = MockStorage::new(vec![], vec![], stats_sender);
+        let sender = mock.get_stats_sender();
+        sender
+            .send(DeletionStatistics::DeleteBytes(42))
+            .await
+            .unwrap();
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(received, DeletionStatistics::DeleteBytes(42)));
+    }
+
+    #[tokio::test]
+    async fn mock_storage_send_stats_delivers_stat() {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let mock = MockStorage::new(vec![], vec![], stats_sender);
+        mock.send_stats(DeletionStatistics::DeleteComplete {
+            key: "k".to_string(),
+        })
+        .await;
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(
+            received,
+            DeletionStatistics::DeleteComplete { .. }
+        ));
+    }
+
+    #[test]
+    fn mock_storage_set_warning_does_not_panic() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let mock = MockStorage::new(vec![], vec![], stats_sender);
+        mock.set_warning(); // no-op, just verify no panic
+    }
+
     #[tokio::test]
     async fn list_target_respects_max_keys_parameter() {
         init_dummy_tracing_subscriber();

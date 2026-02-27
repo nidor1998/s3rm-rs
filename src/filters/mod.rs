@@ -134,7 +134,7 @@ impl ObjectFilterBase<'_> {
 pub(crate) mod tests {
     use super::*;
     use crate::config::Config;
-    use crate::storage::Storage;
+    use crate::storage::{Storage, StorageTrait};
     use crate::test_utils::init_dummy_tracing_subscriber;
     use crate::types::token;
     use async_channel::Receiver;
@@ -426,5 +426,115 @@ pub(crate) mod tests {
             self.has_warning
                 .store(true, std::sync::atomic::Ordering::SeqCst);
         }
+    }
+
+    // --- MockStorage method tests ---
+
+    #[test]
+    fn mock_storage_is_express_onezone_returns_false() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = MockStorage {
+            stats_sender,
+            has_warning,
+        };
+        assert!(!mock.is_express_onezone_storage());
+    }
+
+    #[tokio::test]
+    async fn mock_storage_list_objects_returns_ok() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = MockStorage {
+            stats_sender,
+            has_warning,
+        };
+        let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_objects(&sender, 1000).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn mock_storage_list_object_versions_returns_ok() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = MockStorage {
+            stats_sender,
+            has_warning,
+        };
+        let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_object_versions(&sender, 1000).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn mock_storage_is_versioning_enabled_returns_false() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = MockStorage {
+            stats_sender,
+            has_warning,
+        };
+        assert!(!mock.is_versioning_enabled().await.unwrap());
+    }
+
+    #[test]
+    fn mock_storage_get_client_returns_none() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = MockStorage {
+            stats_sender,
+            has_warning,
+        };
+        assert!(mock.get_client().is_none());
+    }
+
+    #[tokio::test]
+    async fn mock_storage_get_stats_sender_works() {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = MockStorage {
+            stats_sender,
+            has_warning,
+        };
+        let sender = mock.get_stats_sender();
+        sender
+            .send(DeletionStatistics::DeleteBytes(77))
+            .await
+            .unwrap();
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(received, DeletionStatistics::DeleteBytes(77)));
+    }
+
+    #[tokio::test]
+    async fn mock_storage_send_stats_delivers_stat() {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = MockStorage {
+            stats_sender,
+            has_warning,
+        };
+        mock.send_stats(DeletionStatistics::DeleteComplete {
+            key: "k".to_string(),
+        })
+        .await;
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(
+            received,
+            DeletionStatistics::DeleteComplete { .. }
+        ));
+    }
+
+    #[test]
+    fn mock_storage_set_warning_sets_has_warning_flag() {
+        use std::sync::atomic::Ordering;
+
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = MockStorage {
+            stats_sender,
+            has_warning: has_warning.clone(),
+        };
+        assert!(!has_warning.load(Ordering::SeqCst));
+        mock.set_warning();
+        assert!(has_warning.load(Ordering::SeqCst));
     }
 }

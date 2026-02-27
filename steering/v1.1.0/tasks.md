@@ -10,15 +10,15 @@
 ## Status Summary
 
 - Total tasks: 8
-- Completed: 0
+- Completed: 1
 - In progress: 0
-- Pending: 8
+- Pending: 7
 
 ## Tasks
 
 ### Core Implementation
 
-- [ ] 1. CLI argument definition
+- [x] 1. CLI argument definition
   - Add `--keep-latest-only` flag to `CLIArgs` in `src/config/args/mod.rs`
   - Place under `help_heading = "General"`
   - Add `requires = "delete_all_versions"` (mandatory when using this flag)

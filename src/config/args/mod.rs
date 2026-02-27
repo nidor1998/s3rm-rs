@@ -62,6 +62,7 @@ const DEFAULT_ALLOW_LUA_UNSAFE_VM: bool = false;
 #[allow(dead_code)]
 const DEFAULT_LUA_VM_MEMORY_LIMIT: &str = "64MiB";
 const DEFAULT_DELETE_ALL_VERSIONS: bool = false;
+const DEFAULT_KEEP_LATEST_ONLY: bool = false;
 const DEFAULT_FORCE: bool = false;
 
 // ---------------------------------------------------------------------------
@@ -137,6 +138,29 @@ pub struct CLIArgs {
     /// Stop deleting after this many objects have been deleted
     #[arg(long, env, value_parser = clap::value_parser!(u64).range(1..), help_heading = "General")]
     pub max_delete: Option<u64>,
+
+    /// Keep only the latest version of each object, deleting all older versions
+    #[arg(
+        long,
+        env,
+        default_value_t = DEFAULT_KEEP_LATEST_ONLY,
+        requires = "delete_all_versions",
+        conflicts_with_all = [
+            "filter_include_content_type_regex",
+            "filter_exclude_content_type_regex",
+            "filter_include_metadata_regex",
+            "filter_exclude_metadata_regex",
+            "filter_include_tag_regex",
+            "filter_exclude_tag_regex",
+            "filter_larger_size",
+            "filter_smaller_size",
+            "filter_mtime_before",
+            "filter_mtime_after",
+            "filter_callback_lua_script",
+        ],
+        help_heading = "General",
+    )]
+    pub keep_latest_only: bool,
 
     // -----------------------------------------------------------------------
     // Filter options (same as s3sync)

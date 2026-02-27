@@ -470,7 +470,10 @@ mod tests {
             _key: &str,
             _version_id: Option<String>,
         ) -> anyhow::Result<GetObjectTaggingOutput> {
-            Ok(GetObjectTaggingOutput::builder().build().unwrap())
+            Ok(GetObjectTaggingOutput::builder()
+                .set_tag_set(Some(vec![]))
+                .build()
+                .unwrap())
         }
         async fn delete_object(
             &self,
@@ -544,7 +547,10 @@ mod tests {
             _key: &str,
             _version_id: Option<String>,
         ) -> anyhow::Result<GetObjectTaggingOutput> {
-            Ok(GetObjectTaggingOutput::builder().build().unwrap())
+            Ok(GetObjectTaggingOutput::builder()
+                .set_tag_set(Some(vec![]))
+                .build()
+                .unwrap())
         }
         async fn delete_object(
             &self,
@@ -581,5 +587,256 @@ mod tests {
             let _ = self.stats_sender.send(stats).await;
         }
         fn set_warning(&self) {}
+    }
+
+    // -----------------------------------------------------------------------
+    // RecordingMockStorage method verification tests
+    // -----------------------------------------------------------------------
+
+    fn make_recording_mock() -> (
+        RecordingMockStorage,
+        async_channel::Receiver<DeletionStatistics>,
+    ) {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let mock = RecordingMockStorage {
+            stats_sender,
+            recorded_if_match: Arc::new(Mutex::new(None)),
+        };
+        (mock, stats_receiver)
+    }
+
+    #[test]
+    fn recording_mock_is_express_onezone_returns_false() {
+        let (mock, _) = make_recording_mock();
+        assert!(!mock.is_express_onezone_storage());
+    }
+
+    #[tokio::test]
+    async fn recording_mock_list_objects_returns_ok() {
+        let (mock, _) = make_recording_mock();
+        let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_objects(&sender, 1000).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn recording_mock_list_object_versions_returns_ok() {
+        let (mock, _) = make_recording_mock();
+        let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_object_versions(&sender, 1000).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn recording_mock_head_object_returns_ok() {
+        let (mock, _) = make_recording_mock();
+        assert!(mock.head_object("key", None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn recording_mock_get_object_tagging_returns_ok() {
+        let (mock, _) = make_recording_mock();
+        let result = mock.get_object_tagging("key", None).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().tag_set().is_empty());
+    }
+
+    #[tokio::test]
+    async fn recording_mock_delete_object_records_if_match() {
+        let (mock, _) = make_recording_mock();
+        let result = mock
+            .delete_object("key", None, Some("etag-123".to_string()))
+            .await;
+        assert!(result.is_ok());
+        let recorded = mock.recorded_if_match.lock().unwrap();
+        assert_eq!(*recorded, Some(Some("etag-123".to_string())));
+    }
+
+    #[tokio::test]
+    async fn recording_mock_delete_object_records_none_if_match() {
+        let (mock, _) = make_recording_mock();
+        let result = mock.delete_object("key", None, None).await;
+        assert!(result.is_ok());
+        let recorded = mock.recorded_if_match.lock().unwrap();
+        assert_eq!(*recorded, Some(None));
+    }
+
+    #[tokio::test]
+    async fn recording_mock_delete_objects_returns_deleted_keys() {
+        let (mock, _) = make_recording_mock();
+        let idents = vec![
+            ObjectIdentifier::builder().key("a.txt").build().unwrap(),
+            ObjectIdentifier::builder().key("b.txt").build().unwrap(),
+        ];
+        let result = mock.delete_objects(idents).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        let deleted: Vec<&str> = output.deleted().iter().filter_map(|d| d.key()).collect();
+        assert_eq!(deleted, vec!["a.txt", "b.txt"]);
+    }
+
+    #[tokio::test]
+    async fn recording_mock_is_versioning_enabled_returns_false() {
+        let (mock, _) = make_recording_mock();
+        assert!(!mock.is_versioning_enabled().await.unwrap());
+    }
+
+    #[test]
+    fn recording_mock_get_client_returns_none() {
+        let (mock, _) = make_recording_mock();
+        assert!(mock.get_client().is_none());
+    }
+
+    #[tokio::test]
+    async fn recording_mock_get_stats_sender_works() {
+        let (mock, stats_receiver) = make_recording_mock();
+        let sender = mock.get_stats_sender();
+        sender
+            .send(DeletionStatistics::DeleteBytes(42))
+            .await
+            .unwrap();
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(received, DeletionStatistics::DeleteBytes(42)));
+    }
+
+    #[tokio::test]
+    async fn recording_mock_send_stats_delivers_stat() {
+        let (mock, stats_receiver) = make_recording_mock();
+        mock.send_stats(DeletionStatistics::DeleteComplete {
+            key: "k".to_string(),
+        })
+        .await;
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(
+            received,
+            DeletionStatistics::DeleteComplete { .. }
+        ));
+    }
+
+    #[test]
+    fn recording_mock_set_warning_is_callable() {
+        let (mock, _) = make_recording_mock();
+        mock.set_warning(); // no-op, just verify no panic
+    }
+
+    // -----------------------------------------------------------------------
+    // BatchRecordingMockStorage method verification tests
+    // -----------------------------------------------------------------------
+
+    fn make_batch_recording_mock() -> (
+        BatchRecordingMockStorage,
+        async_channel::Receiver<DeletionStatistics>,
+    ) {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let mock = BatchRecordingMockStorage {
+            stats_sender,
+            recorded_identifiers: Arc::new(Mutex::new(Vec::new())),
+        };
+        (mock, stats_receiver)
+    }
+
+    #[test]
+    fn batch_recording_mock_is_express_onezone_returns_false() {
+        let (mock, _) = make_batch_recording_mock();
+        assert!(!mock.is_express_onezone_storage());
+    }
+
+    #[tokio::test]
+    async fn batch_recording_mock_list_objects_returns_ok() {
+        let (mock, _) = make_batch_recording_mock();
+        let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_objects(&sender, 1000).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn batch_recording_mock_list_object_versions_returns_ok() {
+        let (mock, _) = make_batch_recording_mock();
+        let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_object_versions(&sender, 1000).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn batch_recording_mock_head_object_returns_ok() {
+        let (mock, _) = make_batch_recording_mock();
+        assert!(mock.head_object("key", None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn batch_recording_mock_get_object_tagging_returns_ok() {
+        let (mock, _) = make_batch_recording_mock();
+        let result = mock.get_object_tagging("key", None).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().tag_set().is_empty());
+    }
+
+    #[tokio::test]
+    async fn batch_recording_mock_delete_object_returns_ok() {
+        let (mock, _) = make_batch_recording_mock();
+        assert!(mock.delete_object("key", None, None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn batch_recording_mock_delete_objects_records_and_returns() {
+        let (mock, _) = make_batch_recording_mock();
+        let idents = vec![
+            ObjectIdentifier::builder().key("x.txt").build().unwrap(),
+            ObjectIdentifier::builder().key("y.txt").build().unwrap(),
+            ObjectIdentifier::builder().key("z.txt").build().unwrap(),
+        ];
+        let result = mock.delete_objects(idents).await;
+        assert!(result.is_ok());
+
+        // Verify recording
+        let recorded = mock.recorded_identifiers.lock().unwrap();
+        assert_eq!(recorded.len(), 1);
+        let keys: Vec<&str> = recorded[0].iter().map(|i| i.key()).collect();
+        assert_eq!(keys, vec!["x.txt", "y.txt", "z.txt"]);
+
+        // Verify output contains deleted keys
+        let output = result.unwrap();
+        let deleted: Vec<&str> = output.deleted().iter().filter_map(|d| d.key()).collect();
+        assert_eq!(deleted, vec!["x.txt", "y.txt", "z.txt"]);
+    }
+
+    #[tokio::test]
+    async fn batch_recording_mock_is_versioning_enabled_returns_false() {
+        let (mock, _) = make_batch_recording_mock();
+        assert!(!mock.is_versioning_enabled().await.unwrap());
+    }
+
+    #[test]
+    fn batch_recording_mock_get_client_returns_none() {
+        let (mock, _) = make_batch_recording_mock();
+        assert!(mock.get_client().is_none());
+    }
+
+    #[tokio::test]
+    async fn batch_recording_mock_get_stats_sender_works() {
+        let (mock, stats_receiver) = make_batch_recording_mock();
+        let sender = mock.get_stats_sender();
+        sender
+            .send(DeletionStatistics::DeleteBytes(99))
+            .await
+            .unwrap();
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(received, DeletionStatistics::DeleteBytes(99)));
+    }
+
+    #[tokio::test]
+    async fn batch_recording_mock_send_stats_delivers_stat() {
+        let (mock, stats_receiver) = make_batch_recording_mock();
+        mock.send_stats(DeletionStatistics::DeleteComplete {
+            key: "k".to_string(),
+        })
+        .await;
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(
+            received,
+            DeletionStatistics::DeleteComplete { .. }
+        ));
+    }
+
+    #[test]
+    fn batch_recording_mock_set_warning_is_callable() {
+        let (mock, _) = make_batch_recording_mock();
+        mock.set_warning(); // no-op, just verify no panic
     }
 }

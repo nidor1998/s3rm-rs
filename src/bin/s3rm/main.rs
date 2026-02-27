@@ -65,7 +65,7 @@ fn start_tracing_if_necessary(config: &Config) -> bool {
     true
 }
 
-async fn run(mut config: Config) -> Result<()> {
+fn register_user_defined_callbacks(config: &mut Config) {
     // Note: Each type of callback is registered only once.
     // The user-defined event callback is disabled by default.
     let mut user_defined_event_callback = UserDefinedEventCallback::new();
@@ -96,6 +96,10 @@ async fn run(mut config: Config) -> Result<()> {
             .filter_manager
             .register_callback(user_defined_filter_callback);
     }
+}
+
+async fn run(mut config: Config) -> Result<()> {
+    register_user_defined_callbacks(&mut config);
 
     #[allow(unused_assignments)]
     let mut has_warning = false;
@@ -205,5 +209,44 @@ mod tests {
             let config = Config::try_from(parse_from_args(args).unwrap()).unwrap();
             assert!(!start_tracing_if_necessary(&config));
         }
+    }
+
+    #[test]
+    fn register_user_defined_callbacks_enabled() {
+        let args = vec!["s3rm", "-f", "s3://test-bucket/prefix/"];
+        let mut config = Config::try_from(parse_from_args(args).unwrap()).unwrap();
+        config.test_user_defined_callback = true;
+
+        assert!(!config.event_manager.is_callback_registered());
+        assert!(!config.filter_manager.is_callback_registered());
+
+        register_user_defined_callbacks(&mut config);
+
+        assert!(
+            config.event_manager.is_callback_registered(),
+            "Event callback should be registered when test_user_defined_callback is true"
+        );
+        assert!(
+            config.filter_manager.is_callback_registered(),
+            "Filter callback should be registered when test_user_defined_callback is true"
+        );
+    }
+
+    #[test]
+    fn register_user_defined_callbacks_disabled_by_default() {
+        let args = vec!["s3rm", "-f", "s3://test-bucket/prefix/"];
+        let mut config = Config::try_from(parse_from_args(args).unwrap()).unwrap();
+        assert!(!config.test_user_defined_callback);
+
+        register_user_defined_callbacks(&mut config);
+
+        assert!(
+            !config.event_manager.is_callback_registered(),
+            "Event callback should NOT be registered by default"
+        );
+        assert!(
+            !config.filter_manager.is_callback_registered(),
+            "Filter callback should NOT be registered by default"
+        );
     }
 }

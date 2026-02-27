@@ -1176,7 +1176,7 @@ The following E2E tests specifically verify that bugs in critical code paths wou
 #### Known limitations
 
 - With `batch_size > 1` and multiple workers, the actual deletion count may slightly exceed the threshold because each worker may have already buffered objects before another worker triggers cancellation. Users who need exact enforcement should use `--batch-size 1`.
-- The tool is new (initial release). While test coverage is high (94%+ line coverage, 84 E2E tests against live S3) and the architecture is reused from the established s3sync project, real-world usage over time is the strongest proof of reliability. Tests can only catch the bugs they were written to find.
+- The tool is new. While test coverage is high (95%+ line coverage, 87 E2E tests against live S3) and the architecture is reused from the established s3sync project, real-world usage over time is the strongest proof of reliability. Tests can only catch the bugs they were written to find.
 - Testing cannot prove the absence of bugs. The E2E suite verifies specific scenarios against real S3, but untested edge cases or race conditions in concurrent deletion workers could still exist.
 
 #### Overall assessment

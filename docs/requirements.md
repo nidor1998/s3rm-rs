@@ -52,7 +52,7 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 8. THE Deletion_Engine SHALL minimize memory usage by streaming object lists rather than loading all objects into memory
 9. WHEN batch operations fail, THE Batch_Deleter SHALL extract successfully deleted objects and retry only the failed ones
 10. THE Deletion_Engine SHALL target a performance goal of approximately 3,500 objects per second, which is the practical limit imposed by Amazon S3
-11. WHERE the target is an Express One Zone directory bucket (detected by the `--x-s3` bucket name suffix), THE S3rm_Tool SHALL automatically set batch_size to 1 and disable parallel listing unless explicitly overridden via --allow-parallel-listings-in-express-one-zone
+11. WHERE the target is an Express One Zone directory bucket (detected by the `--x-s3` bucket name suffix), THE S3rm_Tool SHALL automatically set batch_size to 1 unless explicitly overridden via --allow-parallel-listings-in-express-one-zone
 
 ### Requirement 2: Flexible Filtering and Selection
 

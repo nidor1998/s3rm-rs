@@ -20,8 +20,8 @@ use crate::config::Config;
 use crate::deleter::ObjectDeleter;
 use crate::filters::user_defined::UserDefinedFilter;
 use crate::filters::{
-    ExcludeRegexFilter, IncludeRegexFilter, LargerSizeFilter, MtimeAfterFilter, MtimeBeforeFilter,
-    ObjectFilter, SmallerSizeFilter,
+    ExcludeRegexFilter, IncludeRegexFilter, KeepLatestOnlyFilter, LargerSizeFilter,
+    MtimeAfterFilter, MtimeBeforeFilter, ObjectFilter, SmallerSizeFilter,
 };
 use crate::lister::ObjectLister;
 use crate::safety::SafetyChecker;
@@ -231,6 +231,13 @@ impl DeletionPipeline {
         if self.config.delete_all_versions {
             let versioning_enabled = self.target.is_versioning_enabled().await?;
             if !versioning_enabled {
+                // --keep-latest-only requires a versioned bucket; error out.
+                if self.config.filter_config.keep_latest_only {
+                    return Err(anyhow::anyhow!(
+                        "--keep-latest-only requires a versioning-enabled bucket, \
+                         but the target bucket does not have versioning enabled."
+                    ));
+                }
                 self.config.delete_all_versions = false;
             }
         }
@@ -491,6 +498,14 @@ impl DeletionPipeline {
             let (stage, new_receiver) =
                 self.create_spsc_stage(Some(previous_stage_receiver), self.has_warning.clone());
             self.spawn_filter(Box::new(ExcludeRegexFilter::new(stage)));
+            previous_stage_receiver = new_receiver;
+        }
+
+        // KeepLatestOnlyFilter
+        if self.config.filter_config.keep_latest_only {
+            let (stage, new_receiver) =
+                self.create_spsc_stage(Some(previous_stage_receiver), self.has_warning.clone());
+            self.spawn_filter(Box::new(KeepLatestOnlyFilter::new(stage)));
             previous_stage_receiver = new_receiver;
         }
 

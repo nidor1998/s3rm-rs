@@ -10,9 +10,9 @@
 ## Status Summary
 
 - Total tasks: 8
-- Completed: 3
+- Completed: 4
 - In progress: 0
-- Pending: 5
+- Pending: 4
 
 ## Tasks
 
@@ -35,7 +35,7 @@
   - Filter function: pass objects where `object.is_latest() == false` (delete non-latest), skip objects where `object.is_latest() == true` (keep latest)
   - Register module in `src/filters/mod.rs`
 
-- [ ] 4. Pipeline integration
+- [x] 4. Pipeline integration
   - Add `KeepLatestOnlyFilter` to `filter_objects()` in `src/pipeline.rs`
   - Place after `ExcludeRegexFilter`, before `UserDefinedFilter`
   - Gate on `self.config.filter_config.keep_latest_only`

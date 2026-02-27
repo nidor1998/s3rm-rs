@@ -406,6 +406,104 @@ async fn e2e_delete_all_versions_with_parallel_listing() {
 }
 
 // ---------------------------------------------------------------------------
+// Versioned Bucket: Parallel listing pagination within a sub-prefix
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_parallel_version_listing_pagination_within_subprefix() {
+    e2e_timeout!(async {
+        // Purpose: Exercise the pagination continuation path inside
+        //          list_object_versions_with_parallel (lines that set
+        //          key_marker / version_id_marker when the response is
+        //          truncated). By using a very small --max-keys value, even
+        //          a modest number of versions under a single sub-prefix will
+        //          produce truncated responses that require multiple pages.
+        // Setup:   Create a versioned bucket with 2 top-level prefixes, each
+        //          containing 6 objects overwritten once (= 12 versions per
+        //          prefix). With --max-keys 2, each sub-prefix listing paginates
+        //          multiple times.
+        //          Total: 2 prefixes × 6 keys × 2 versions = 24 versions.
+        // Expected: All 24 versions deleted; pagination within the parallel
+        //           lister works correctly; no versions remain.
+        //
+        // Validates: Requirements 1.5, 1.6, 1.7, 5.2 (parallel listing pagination)
+
+        const PREFIXES: usize = 2;
+        const OBJECTS_PER_PREFIX: usize = 6;
+        const VERSIONS_PER_OBJECT: usize = 2;
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        // Upload initial versions
+        let objects: Vec<(String, Vec<u8>)> = (0..PREFIXES)
+            .flat_map(|p| {
+                (0..OBJECTS_PER_PREFIX)
+                    .map(move |i| (format!("group{p}/file{i:02}.dat"), vec![b'v'; 100]))
+            })
+            .collect();
+        helper.put_objects_parallel(&bucket, objects.clone()).await;
+
+        // Overwrite every object to create a second version
+        let overwrites: Vec<(String, Vec<u8>)> = objects
+            .iter()
+            .map(|(k, _)| (k.clone(), vec![b'w'; 200]))
+            .collect();
+        helper.put_objects_parallel(&bucket, overwrites).await;
+
+        let expected_versions =
+            (PREFIXES * OBJECTS_PER_PREFIX * VERSIONS_PER_OBJECT) as u64; // 24
+
+        // Verify version count before deletion
+        let pre_versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(
+            pre_versions.len() as u64,
+            expected_versions,
+            "Should have {expected_versions} total versions before deletion"
+        );
+
+        // --max-keys 2 forces pagination within each sub-prefix listing;
+        // --max-parallel-listings 2 enables the parallel code path;
+        // --max-parallel-listing-max-depth 1 fans out at the first "/" level.
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/"),
+            "--delete-all-versions",
+            "--max-parallel-listings",
+            "2",
+            "--max-parallel-listing-max-depth",
+            "1",
+            "--max-keys",
+            "2",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error, "Pipeline should complete without errors");
+        assert_eq!(
+            result.stats.stats_deleted_objects, expected_versions,
+            "Should delete all {expected_versions} versions"
+        );
+        assert_eq!(
+            result.stats.stats_failed_objects, 0,
+            "No objects should fail"
+        );
+
+        // Verify nothing remains
+        let post_versions = helper.list_object_versions(&bucket).await;
+        assert!(
+            post_versions.is_empty(),
+            "No versions or delete markers should remain; found {}",
+            post_versions.len()
+        );
+
+        guard.cleanup().await;
+    });
+}
+
+// ---------------------------------------------------------------------------
 // 29.23 Delete All Versions on Unversioned Bucket Error
 // ---------------------------------------------------------------------------
 

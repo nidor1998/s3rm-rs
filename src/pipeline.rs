@@ -3447,4 +3447,132 @@ mod tests {
         mock.set_warning();
         assert!(has_warning.load(std::sync::atomic::Ordering::SeqCst));
     }
+
+    // -----------------------------------------------------------------------
+    // spawn_filter error / panic handling tests (lines 371, 377)
+    // -----------------------------------------------------------------------
+
+    /// A filter that returns an error.
+    struct ErrorFilter;
+
+    #[async_trait]
+    impl ObjectFilter for ErrorFilter {
+        async fn filter(&self) -> Result<()> {
+            Err(anyhow::anyhow!("simulated filter error"))
+        }
+    }
+
+    /// A filter that panics.
+    struct PanickingFilter;
+
+    #[async_trait]
+    impl ObjectFilter for PanickingFilter {
+        async fn filter(&self) -> Result<()> {
+            panic!("simulated filter panic");
+        }
+    }
+
+    #[tokio::test]
+    async fn spawn_filter_error_sets_has_error_and_records_error() {
+        init_dummy_tracing_subscriber();
+
+        let (stats_sender, _stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage = create_mock_storage(stats_sender, has_warning.clone());
+        let config = create_test_config();
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token: cancellation_token.clone(),
+            stats_receiver: async_channel::unbounded().1,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        pipeline.spawn_filter(Box::new(ErrorFilter));
+
+        // Allow the spawned task to complete
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        assert!(
+            pipeline.has_error(),
+            "has_error should be set after filter error"
+        );
+        assert!(
+            !pipeline.has_panic(),
+            "has_panic should NOT be set for a normal error"
+        );
+        assert!(
+            cancellation_token.is_cancelled(),
+            "cancellation_token should be cancelled"
+        );
+
+        let errors = pipeline.errors.lock().unwrap();
+        assert_eq!(errors.len(), 1);
+        let msg = errors[0].to_string();
+        assert!(
+            msg.contains("simulated filter error"),
+            "Error message should contain the filter error, got: {}",
+            msg
+        );
+    }
+
+    #[tokio::test]
+    async fn spawn_filter_panic_sets_has_error_and_has_panic() {
+        init_dummy_tracing_subscriber();
+
+        let (stats_sender, _stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage = create_mock_storage(stats_sender, has_warning.clone());
+        let config = create_test_config();
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token: cancellation_token.clone(),
+            stats_receiver: async_channel::unbounded().1,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        pipeline.spawn_filter(Box::new(PanickingFilter));
+
+        // Allow the spawned task to complete
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        assert!(
+            pipeline.has_error(),
+            "has_error should be set after filter panic"
+        );
+        assert!(
+            pipeline.has_panic(),
+            "has_panic should be set after filter panic"
+        );
+        assert!(
+            cancellation_token.is_cancelled(),
+            "cancellation_token should be cancelled"
+        );
+
+        let errors = pipeline.errors.lock().unwrap();
+        assert_eq!(errors.len(), 1);
+        let msg = errors[0].to_string();
+        assert!(
+            msg.contains("filter task panicked"),
+            "Error message should mention filter panic, got: {}",
+            msg
+        );
+    }
 }

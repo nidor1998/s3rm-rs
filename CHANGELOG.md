@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - E2E test for prefix boundary respect on versioned buckets
 - E2E test for parallel `list_object_versions` with multi-level nested prefixes
 - Unit tests for `S3Object::new` and `S3Object::new_versioned` constructors
+- E2E test for parallel version listing pagination within sub-prefixes
 
 ## [v1.0.0] - 2026-02-25
 

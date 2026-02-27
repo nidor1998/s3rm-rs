@@ -18,6 +18,7 @@ This option enables a feature for buckets with versioning enabled that retains o
 - Only `--filter-include-regex` and `--filter-exclude-regex` can be specified simultaneously as filtering options. Specifying other filtering options should result in a command-line error (to be implemented at clap startup).
 - When specifying `--keep-latest-only`, `--delete-all-versions` is mandatory (to be implemented at clap startup).
 - Implement `--keep-latest-only` as a filter, and implement it as the next filter after `--filter-exclude-regex`.
+- When `--keep-latest-only` is specified, if the target bucket does not have versioning enabled, the tool must return a command-line error.
 
 ### Implementation Requirements
 

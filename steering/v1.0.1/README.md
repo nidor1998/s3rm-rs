@@ -1,6 +1,6 @@
 # Phase: v1.0.1
 
-**Status: IN PROGRESS**
+**Status: COMPLETE**
 
 ## Description
 

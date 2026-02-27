@@ -925,6 +925,7 @@ mod tests {
         ) -> Result<aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput> {
             Ok(
                 aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput::builder()
+                    .set_tag_set(Some(vec![]))
                     .build()
                     .unwrap(),
             )
@@ -1810,6 +1811,7 @@ mod tests {
         ) -> Result<aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput> {
             Ok(
                 aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput::builder()
+                    .set_tag_set(Some(vec![]))
                     .build()
                     .unwrap(),
             )
@@ -2015,6 +2017,7 @@ mod tests {
         ) -> Result<aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput> {
             Ok(
                 aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput::builder()
+                    .set_tag_set(Some(vec![]))
                     .build()
                     .unwrap(),
             )
@@ -2239,6 +2242,7 @@ mod tests {
         ) -> Result<aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput> {
             Ok(
                 aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput::builder()
+                    .set_tag_set(Some(vec![]))
                     .build()
                     .unwrap(),
             )
@@ -3229,5 +3233,1498 @@ mod tests {
             stats.stats_deleted_objects
         );
         assert_eq!(stats.stats_deleted_bytes, 50);
+    }
+
+    // -----------------------------------------------------------------------
+    // Lister panic handling test (line 419)
+    // -----------------------------------------------------------------------
+
+    /// Mock storage whose list_objects panics to test panic recovery.
+    #[derive(Clone)]
+    struct PanickingListerMockStorage {
+        stats_sender: async_channel::Sender<DeletionStatistics>,
+        has_warning: Arc<AtomicBool>,
+    }
+
+    #[async_trait]
+    impl StorageTrait for PanickingListerMockStorage {
+        fn is_express_onezone_storage(&self) -> bool {
+            false
+        }
+
+        async fn list_objects(
+            &self,
+            _sender: &async_channel::Sender<S3Object>,
+            _max_keys: i32,
+        ) -> Result<()> {
+            panic!("simulated lister panic");
+        }
+
+        async fn list_object_versions(
+            &self,
+            _sender: &async_channel::Sender<S3Object>,
+            _max_keys: i32,
+        ) -> Result<()> {
+            panic!("simulated lister panic");
+        }
+
+        async fn head_object(
+            &self,
+            _relative_key: &str,
+            _version_id: Option<String>,
+        ) -> Result<aws_sdk_s3::operation::head_object::HeadObjectOutput> {
+            unimplemented!()
+        }
+
+        async fn get_object_tagging(
+            &self,
+            _relative_key: &str,
+            _version_id: Option<String>,
+        ) -> Result<aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput> {
+            unimplemented!()
+        }
+
+        async fn delete_object(
+            &self,
+            _relative_key: &str,
+            _version_id: Option<String>,
+            _if_match: Option<String>,
+        ) -> Result<aws_sdk_s3::operation::delete_object::DeleteObjectOutput> {
+            unimplemented!()
+        }
+
+        async fn delete_objects(
+            &self,
+            _objects: Vec<aws_sdk_s3::types::ObjectIdentifier>,
+        ) -> Result<aws_sdk_s3::operation::delete_objects::DeleteObjectsOutput> {
+            unimplemented!()
+        }
+
+        async fn is_versioning_enabled(&self) -> Result<bool> {
+            Ok(false)
+        }
+
+        fn get_client(&self) -> Option<Arc<aws_sdk_s3::Client>> {
+            None
+        }
+
+        fn get_stats_sender(&self) -> async_channel::Sender<DeletionStatistics> {
+            self.stats_sender.clone()
+        }
+
+        async fn send_stats(&self, stats: DeletionStatistics) {
+            let _ = self.stats_sender.send(stats).await;
+        }
+
+        fn set_warning(&self) {
+            self.has_warning
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn list_target_panic_sets_has_error_and_has_panic() {
+        init_dummy_tracing_subscriber();
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage: Box<dyn StorageTrait + Send + Sync> = Box::new(PanickingListerMockStorage {
+            stats_sender,
+            has_warning: has_warning.clone(),
+        });
+
+        let mut config = create_test_config();
+        config.force = true;
+        config.worker_size = 1;
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let mut pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token,
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: true,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        pipeline.run().await;
+
+        assert!(
+            pipeline.has_error(),
+            "Pipeline should have error after lister panic"
+        );
+        assert!(pipeline.has_panic(), "Pipeline should have panic flag set");
+
+        let errors = pipeline.errors.lock().unwrap();
+        assert_eq!(errors.len(), 1);
+        let msg = errors[0].to_string();
+        assert!(
+            msg.contains("object lister task panicked"),
+            "Error should mention lister panic, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn panicking_lister_mock_is_express_onezone_returns_false() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = PanickingListerMockStorage {
+            stats_sender,
+            has_warning,
+        };
+        assert!(!mock.is_express_onezone_storage());
+    }
+
+    #[tokio::test]
+    async fn panicking_lister_mock_is_versioning_enabled_returns_false() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = PanickingListerMockStorage {
+            stats_sender,
+            has_warning,
+        };
+        assert!(!mock.is_versioning_enabled().await.unwrap());
+    }
+
+    #[test]
+    fn panicking_lister_mock_get_client_returns_none() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = PanickingListerMockStorage {
+            stats_sender,
+            has_warning,
+        };
+        assert!(mock.get_client().is_none());
+    }
+
+    #[tokio::test]
+    async fn panicking_lister_mock_get_stats_sender_works() {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = PanickingListerMockStorage {
+            stats_sender,
+            has_warning,
+        };
+        let sender = mock.get_stats_sender();
+        sender
+            .send(DeletionStatistics::DeleteBytes(55))
+            .await
+            .unwrap();
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(received, DeletionStatistics::DeleteBytes(55)));
+    }
+
+    #[tokio::test]
+    async fn panicking_lister_mock_send_stats_delivers_stat() {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = PanickingListerMockStorage {
+            stats_sender,
+            has_warning,
+        };
+        mock.send_stats(DeletionStatistics::DeleteComplete {
+            key: "k".to_string(),
+        })
+        .await;
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(
+            received,
+            DeletionStatistics::DeleteComplete { .. }
+        ));
+    }
+
+    #[test]
+    fn panicking_lister_mock_set_warning_sets_flag() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = PanickingListerMockStorage {
+            stats_sender,
+            has_warning: has_warning.clone(),
+        };
+        assert!(!has_warning.load(std::sync::atomic::Ordering::SeqCst));
+        mock.set_warning();
+        assert!(has_warning.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    // -----------------------------------------------------------------------
+    // spawn_filter error / panic handling tests (lines 371, 377)
+    // -----------------------------------------------------------------------
+
+    /// A filter that returns an error.
+    struct ErrorFilter;
+
+    #[async_trait]
+    impl ObjectFilter for ErrorFilter {
+        async fn filter(&self) -> Result<()> {
+            Err(anyhow::anyhow!("simulated filter error"))
+        }
+    }
+
+    /// A filter that panics.
+    struct PanickingFilter;
+
+    #[async_trait]
+    impl ObjectFilter for PanickingFilter {
+        async fn filter(&self) -> Result<()> {
+            panic!("simulated filter panic");
+        }
+    }
+
+    #[tokio::test]
+    async fn spawn_filter_error_sets_has_error_and_records_error() {
+        init_dummy_tracing_subscriber();
+
+        let (stats_sender, _stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage = create_mock_storage(stats_sender, has_warning.clone());
+        let config = create_test_config();
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token: cancellation_token.clone(),
+            stats_receiver: async_channel::unbounded().1,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        pipeline.spawn_filter(Box::new(ErrorFilter));
+
+        // Allow the spawned task to complete
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        assert!(
+            pipeline.has_error(),
+            "has_error should be set after filter error"
+        );
+        assert!(
+            !pipeline.has_panic(),
+            "has_panic should NOT be set for a normal error"
+        );
+        assert!(
+            cancellation_token.is_cancelled(),
+            "cancellation_token should be cancelled"
+        );
+
+        let errors = pipeline.errors.lock().unwrap();
+        assert_eq!(errors.len(), 1);
+        let msg = errors[0].to_string();
+        assert!(
+            msg.contains("simulated filter error"),
+            "Error message should contain the filter error, got: {}",
+            msg
+        );
+    }
+
+    #[tokio::test]
+    async fn spawn_filter_panic_sets_has_error_and_has_panic() {
+        init_dummy_tracing_subscriber();
+
+        let (stats_sender, _stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage = create_mock_storage(stats_sender, has_warning.clone());
+        let config = create_test_config();
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token: cancellation_token.clone(),
+            stats_receiver: async_channel::unbounded().1,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        pipeline.spawn_filter(Box::new(PanickingFilter));
+
+        // Allow the spawned task to complete
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        assert!(
+            pipeline.has_error(),
+            "has_error should be set after filter panic"
+        );
+        assert!(
+            pipeline.has_panic(),
+            "has_panic should be set after filter panic"
+        );
+        assert!(
+            cancellation_token.is_cancelled(),
+            "cancellation_token should be cancelled"
+        );
+
+        let errors = pipeline.errors.lock().unwrap();
+        assert_eq!(errors.len(), 1);
+        let msg = errors[0].to_string();
+        assert!(
+            msg.contains("filter task panicked"),
+            "Error message should mention filter panic, got: {}",
+            msg
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // UserDefinedFilter panic handling test (line 522)
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn user_defined_filter_panic_sets_has_error_and_has_panic() {
+        init_dummy_tracing_subscriber();
+
+        let objects = vec![S3Object::NotVersioning(
+            Object::builder()
+                .key("trigger-panic.txt")
+                .size(100)
+                .last_modified(DateTime::from_secs(0))
+                .build(),
+        )];
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage: Storage = Box::new(ListingMockStorage {
+            objects,
+            stats_sender,
+            has_warning: has_warning.clone(),
+        });
+
+        struct PanickingFilterCallback;
+
+        #[async_trait]
+        impl crate::types::filter_callback::FilterCallback for PanickingFilterCallback {
+            async fn filter(&mut self, _object: &S3Object) -> Result<bool> {
+                panic!("simulated user defined filter panic");
+            }
+        }
+
+        let mut config = create_test_config();
+        config.force = true;
+        config.worker_size = 1;
+        config
+            .filter_manager
+            .register_callback(PanickingFilterCallback);
+        config.test_user_defined_callback = true;
+
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let mut pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token: cancellation_token.clone(),
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: true,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        pipeline.run().await;
+
+        assert!(
+            pipeline.has_error(),
+            "has_error should be set after user defined filter panic"
+        );
+        assert!(
+            pipeline.has_panic(),
+            "has_panic should be set after user defined filter panic"
+        );
+
+        let errors = pipeline.errors.lock().unwrap();
+        let panic_error = errors.iter().find(|e| {
+            let msg = e.to_string();
+            msg.contains("user defined filter panicked")
+        });
+        assert!(
+            panic_error.is_some(),
+            "Should contain 'user defined filter panicked' error, got: {:?}",
+            errors.iter().map(|e| e.to_string()).collect::<Vec<_>>()
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // delete_objects worker error / panic handling tests (lines 576, 587)
+    // -----------------------------------------------------------------------
+
+    /// Mock storage whose delete_objects returns an error.
+    #[derive(Clone)]
+    struct ErrorDeleteMockStorage {
+        objects: Vec<S3Object>,
+        stats_sender: async_channel::Sender<DeletionStatistics>,
+        has_warning: Arc<AtomicBool>,
+    }
+
+    #[async_trait]
+    impl StorageTrait for ErrorDeleteMockStorage {
+        fn is_express_onezone_storage(&self) -> bool {
+            false
+        }
+
+        async fn list_objects(
+            &self,
+            sender: &async_channel::Sender<S3Object>,
+            _max_keys: i32,
+        ) -> Result<()> {
+            for obj in &self.objects {
+                sender.send(obj.clone()).await.unwrap();
+            }
+            Ok(())
+        }
+
+        async fn list_object_versions(
+            &self,
+            _sender: &async_channel::Sender<S3Object>,
+            _max_keys: i32,
+        ) -> Result<()> {
+            Ok(())
+        }
+
+        async fn head_object(
+            &self,
+            _relative_key: &str,
+            _version_id: Option<String>,
+        ) -> Result<aws_sdk_s3::operation::head_object::HeadObjectOutput> {
+            Ok(aws_sdk_s3::operation::head_object::HeadObjectOutput::builder().build())
+        }
+
+        async fn get_object_tagging(
+            &self,
+            _relative_key: &str,
+            _version_id: Option<String>,
+        ) -> Result<aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput> {
+            Ok(
+                aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput::builder()
+                    .set_tag_set(Some(vec![]))
+                    .build()
+                    .unwrap(),
+            )
+        }
+
+        async fn delete_object(
+            &self,
+            _relative_key: &str,
+            _version_id: Option<String>,
+            _if_match: Option<String>,
+        ) -> Result<aws_sdk_s3::operation::delete_object::DeleteObjectOutput> {
+            Err(anyhow::anyhow!("simulated delete error"))
+        }
+
+        async fn delete_objects(
+            &self,
+            _objects: Vec<aws_sdk_s3::types::ObjectIdentifier>,
+        ) -> Result<aws_sdk_s3::operation::delete_objects::DeleteObjectsOutput> {
+            Err(anyhow::anyhow!("simulated batch delete error"))
+        }
+
+        async fn is_versioning_enabled(&self) -> Result<bool> {
+            Ok(false)
+        }
+
+        fn get_client(&self) -> Option<Arc<aws_sdk_s3::Client>> {
+            None
+        }
+
+        fn get_stats_sender(&self) -> async_channel::Sender<DeletionStatistics> {
+            self.stats_sender.clone()
+        }
+
+        async fn send_stats(&self, stats: DeletionStatistics) {
+            let _ = self.stats_sender.send(stats).await;
+        }
+
+        fn set_warning(&self) {
+            self.has_warning
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    /// Mock storage whose delete_objects panics.
+    #[derive(Clone)]
+    struct PanickingDeleteMockStorage {
+        objects: Vec<S3Object>,
+        stats_sender: async_channel::Sender<DeletionStatistics>,
+        has_warning: Arc<AtomicBool>,
+    }
+
+    #[async_trait]
+    impl StorageTrait for PanickingDeleteMockStorage {
+        fn is_express_onezone_storage(&self) -> bool {
+            false
+        }
+
+        async fn list_objects(
+            &self,
+            sender: &async_channel::Sender<S3Object>,
+            _max_keys: i32,
+        ) -> Result<()> {
+            for obj in &self.objects {
+                sender.send(obj.clone()).await.unwrap();
+            }
+            Ok(())
+        }
+
+        async fn list_object_versions(
+            &self,
+            _sender: &async_channel::Sender<S3Object>,
+            _max_keys: i32,
+        ) -> Result<()> {
+            Ok(())
+        }
+
+        async fn head_object(
+            &self,
+            _relative_key: &str,
+            _version_id: Option<String>,
+        ) -> Result<aws_sdk_s3::operation::head_object::HeadObjectOutput> {
+            Ok(aws_sdk_s3::operation::head_object::HeadObjectOutput::builder().build())
+        }
+
+        async fn get_object_tagging(
+            &self,
+            _relative_key: &str,
+            _version_id: Option<String>,
+        ) -> Result<aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput> {
+            Ok(
+                aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput::builder()
+                    .set_tag_set(Some(vec![]))
+                    .build()
+                    .unwrap(),
+            )
+        }
+
+        async fn delete_object(
+            &self,
+            _relative_key: &str,
+            _version_id: Option<String>,
+            _if_match: Option<String>,
+        ) -> Result<aws_sdk_s3::operation::delete_object::DeleteObjectOutput> {
+            panic!("simulated delete worker panic");
+        }
+
+        async fn delete_objects(
+            &self,
+            _objects: Vec<aws_sdk_s3::types::ObjectIdentifier>,
+        ) -> Result<aws_sdk_s3::operation::delete_objects::DeleteObjectsOutput> {
+            panic!("simulated batch delete worker panic");
+        }
+
+        async fn is_versioning_enabled(&self) -> Result<bool> {
+            Ok(false)
+        }
+
+        fn get_client(&self) -> Option<Arc<aws_sdk_s3::Client>> {
+            None
+        }
+
+        fn get_stats_sender(&self) -> async_channel::Sender<DeletionStatistics> {
+            self.stats_sender.clone()
+        }
+
+        async fn send_stats(&self, stats: DeletionStatistics) {
+            let _ = self.stats_sender.send(stats).await;
+        }
+
+        fn set_warning(&self) {
+            self.has_warning
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn delete_worker_error_sets_has_error() {
+        init_dummy_tracing_subscriber();
+
+        let objects = vec![S3Object::NotVersioning(
+            Object::builder()
+                .key("error-obj.txt")
+                .size(100)
+                .last_modified(DateTime::from_secs(0))
+                .build(),
+        )];
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage: Storage = Box::new(ErrorDeleteMockStorage {
+            objects,
+            stats_sender,
+            has_warning: has_warning.clone(),
+        });
+
+        let mut config = create_test_config();
+        config.force = true;
+        config.worker_size = 1;
+        // Use batch_size > 1 so BatchDeleter is selected; BatchDeleter propagates
+        // the delete_objects error via ?, hitting Ok(Err(e)) at line 576.
+        config.batch_size = 1000;
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let mut pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token: cancellation_token.clone(),
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: true,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        pipeline.run().await;
+
+        assert!(
+            pipeline.has_error(),
+            "has_error should be set after delete worker error"
+        );
+        assert!(
+            !pipeline.has_panic(),
+            "has_panic should NOT be set for a normal error"
+        );
+
+        let errors = pipeline.errors.lock().unwrap();
+        assert!(!errors.is_empty(), "Should have recorded an error");
+    }
+
+    #[tokio::test]
+    async fn delete_worker_panic_sets_has_error_and_has_panic() {
+        init_dummy_tracing_subscriber();
+
+        let objects = vec![S3Object::NotVersioning(
+            Object::builder()
+                .key("panic-obj.txt")
+                .size(100)
+                .last_modified(DateTime::from_secs(0))
+                .build(),
+        )];
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage: Storage = Box::new(PanickingDeleteMockStorage {
+            objects,
+            stats_sender,
+            has_warning: has_warning.clone(),
+        });
+
+        let mut config = create_test_config();
+        config.force = true;
+        config.worker_size = 1;
+        // Use batch_size > 1 so BatchDeleter is selected; the panic in
+        // delete_objects is caught by the double-spawn at line 587.
+        config.batch_size = 1000;
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let mut pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token: cancellation_token.clone(),
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: true,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        pipeline.run().await;
+
+        assert!(
+            pipeline.has_error(),
+            "has_error should be set after delete worker panic"
+        );
+        assert!(
+            pipeline.has_panic(),
+            "has_panic should be set after delete worker panic"
+        );
+
+        let errors = pipeline.errors.lock().unwrap();
+        let panic_error = errors.iter().find(|e| {
+            let msg = e.to_string();
+            msg.contains("delete worker panicked")
+        });
+        assert!(
+            panic_error.is_some(),
+            "Should contain 'delete worker panicked' error, got: {:?}",
+            errors.iter().map(|e| e.to_string()).collect::<Vec<_>>()
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // ErrorDeleteMockStorage method tests
+    // -----------------------------------------------------------------------
+
+    fn make_error_delete_mock() -> (
+        ErrorDeleteMockStorage,
+        async_channel::Receiver<DeletionStatistics>,
+    ) {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = ErrorDeleteMockStorage {
+            objects: vec![],
+            stats_sender,
+            has_warning,
+        };
+        (mock, stats_receiver)
+    }
+
+    #[test]
+    fn error_delete_mock_is_express_onezone_returns_false() {
+        let (mock, _) = make_error_delete_mock();
+        assert!(!mock.is_express_onezone_storage());
+    }
+
+    #[tokio::test]
+    async fn error_delete_mock_list_objects_returns_ok() {
+        let (mock, _) = make_error_delete_mock();
+        let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_objects(&sender, 1000).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn error_delete_mock_list_object_versions_returns_ok() {
+        let (mock, _) = make_error_delete_mock();
+        let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_object_versions(&sender, 1000).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn error_delete_mock_head_object_returns_ok() {
+        let (mock, _) = make_error_delete_mock();
+        assert!(mock.head_object("key", None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn error_delete_mock_get_object_tagging_returns_ok() {
+        let (mock, _) = make_error_delete_mock();
+        assert!(mock.get_object_tagging("key", None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn error_delete_mock_delete_object_returns_err() {
+        let (mock, _) = make_error_delete_mock();
+        let result = mock.delete_object("key", None, None).await;
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("simulated delete error")
+        );
+    }
+
+    #[tokio::test]
+    async fn error_delete_mock_delete_objects_returns_err() {
+        let (mock, _) = make_error_delete_mock();
+        let result = mock.delete_objects(vec![]).await;
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("simulated batch delete error")
+        );
+    }
+
+    #[tokio::test]
+    async fn error_delete_mock_is_versioning_enabled_returns_false() {
+        let (mock, _) = make_error_delete_mock();
+        assert!(!mock.is_versioning_enabled().await.unwrap());
+    }
+
+    #[test]
+    fn error_delete_mock_get_client_returns_none() {
+        let (mock, _) = make_error_delete_mock();
+        assert!(mock.get_client().is_none());
+    }
+
+    #[tokio::test]
+    async fn error_delete_mock_get_stats_sender_works() {
+        let (mock, stats_receiver) = make_error_delete_mock();
+        let sender = mock.get_stats_sender();
+        sender
+            .send(DeletionStatistics::DeleteBytes(10))
+            .await
+            .unwrap();
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(received, DeletionStatistics::DeleteBytes(10)));
+    }
+
+    #[tokio::test]
+    async fn error_delete_mock_send_stats_delivers_stat() {
+        let (mock, stats_receiver) = make_error_delete_mock();
+        mock.send_stats(DeletionStatistics::DeleteComplete {
+            key: "k".to_string(),
+        })
+        .await;
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(
+            received,
+            DeletionStatistics::DeleteComplete { .. }
+        ));
+    }
+
+    #[test]
+    fn error_delete_mock_set_warning_sets_flag() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = ErrorDeleteMockStorage {
+            objects: vec![],
+            stats_sender,
+            has_warning: has_warning.clone(),
+        };
+        assert!(!has_warning.load(std::sync::atomic::Ordering::SeqCst));
+        mock.set_warning();
+        assert!(has_warning.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    // -----------------------------------------------------------------------
+    // PanickingDeleteMockStorage method tests
+    // -----------------------------------------------------------------------
+
+    fn make_panicking_delete_mock() -> (
+        PanickingDeleteMockStorage,
+        async_channel::Receiver<DeletionStatistics>,
+    ) {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = PanickingDeleteMockStorage {
+            objects: vec![],
+            stats_sender,
+            has_warning,
+        };
+        (mock, stats_receiver)
+    }
+
+    #[test]
+    fn panicking_delete_mock_is_express_onezone_returns_false() {
+        let (mock, _) = make_panicking_delete_mock();
+        assert!(!mock.is_express_onezone_storage());
+    }
+
+    #[tokio::test]
+    async fn panicking_delete_mock_list_objects_returns_ok() {
+        let (mock, _) = make_panicking_delete_mock();
+        let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_objects(&sender, 1000).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn panicking_delete_mock_list_object_versions_returns_ok() {
+        let (mock, _) = make_panicking_delete_mock();
+        let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_object_versions(&sender, 1000).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn panicking_delete_mock_head_object_returns_ok() {
+        let (mock, _) = make_panicking_delete_mock();
+        assert!(mock.head_object("key", None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn panicking_delete_mock_get_object_tagging_returns_ok() {
+        let (mock, _) = make_panicking_delete_mock();
+        assert!(mock.get_object_tagging("key", None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn panicking_delete_mock_is_versioning_enabled_returns_false() {
+        let (mock, _) = make_panicking_delete_mock();
+        assert!(!mock.is_versioning_enabled().await.unwrap());
+    }
+
+    #[test]
+    fn panicking_delete_mock_get_client_returns_none() {
+        let (mock, _) = make_panicking_delete_mock();
+        assert!(mock.get_client().is_none());
+    }
+
+    #[tokio::test]
+    async fn panicking_delete_mock_get_stats_sender_works() {
+        let (mock, stats_receiver) = make_panicking_delete_mock();
+        let sender = mock.get_stats_sender();
+        sender
+            .send(DeletionStatistics::DeleteBytes(20))
+            .await
+            .unwrap();
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(received, DeletionStatistics::DeleteBytes(20)));
+    }
+
+    #[tokio::test]
+    async fn panicking_delete_mock_send_stats_delivers_stat() {
+        let (mock, stats_receiver) = make_panicking_delete_mock();
+        mock.send_stats(DeletionStatistics::DeleteComplete {
+            key: "k".to_string(),
+        })
+        .await;
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(
+            received,
+            DeletionStatistics::DeleteComplete { .. }
+        ));
+    }
+
+    #[test]
+    fn panicking_delete_mock_set_warning_sets_flag() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = PanickingDeleteMockStorage {
+            objects: vec![],
+            stats_sender,
+            has_warning: has_warning.clone(),
+        };
+        assert!(!has_warning.load(std::sync::atomic::Ordering::SeqCst));
+        mock.set_warning();
+        assert!(has_warning.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    // -----------------------------------------------------------------------
+    // ListingMockStorage method verification tests
+    // -----------------------------------------------------------------------
+
+    fn make_listing_mock() -> (
+        ListingMockStorage,
+        async_channel::Receiver<DeletionStatistics>,
+    ) {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = ListingMockStorage {
+            objects: vec![],
+            stats_sender,
+            has_warning,
+        };
+        (mock, stats_receiver)
+    }
+
+    #[test]
+    fn listing_mock_is_express_onezone_returns_false() {
+        let (mock, _) = make_listing_mock();
+        assert!(!mock.is_express_onezone_storage());
+    }
+
+    #[tokio::test]
+    async fn listing_mock_list_objects_sends_objects() {
+        let obj = S3Object::NotVersioning(
+            Object::builder()
+                .key("a.txt")
+                .size(10)
+                .last_modified(DateTime::from_secs(0))
+                .build(),
+        );
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = ListingMockStorage {
+            objects: vec![obj],
+            stats_sender,
+            has_warning,
+        };
+        let (sender, receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_objects(&sender, 1000).await.is_ok());
+        let received = receiver.try_recv().unwrap();
+        assert_eq!(received.key(), "a.txt");
+    }
+
+    #[tokio::test]
+    async fn listing_mock_list_object_versions_returns_ok() {
+        let (mock, _) = make_listing_mock();
+        let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_object_versions(&sender, 1000).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn listing_mock_head_object_returns_ok() {
+        let (mock, _) = make_listing_mock();
+        assert!(mock.head_object("key", None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn listing_mock_get_object_tagging_returns_ok() {
+        let (mock, _) = make_listing_mock();
+        let result = mock.get_object_tagging("key", None).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().tag_set().is_empty());
+    }
+
+    #[tokio::test]
+    async fn listing_mock_delete_object_returns_ok() {
+        let (mock, _) = make_listing_mock();
+        assert!(mock.delete_object("key", None, None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn listing_mock_delete_objects_returns_deleted_keys() {
+        let (mock, _) = make_listing_mock();
+        let idents = vec![
+            aws_sdk_s3::types::ObjectIdentifier::builder()
+                .key("x.txt")
+                .build()
+                .unwrap(),
+            aws_sdk_s3::types::ObjectIdentifier::builder()
+                .key("y.txt")
+                .build()
+                .unwrap(),
+        ];
+        let result = mock.delete_objects(idents).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        let deleted: Vec<&str> = output.deleted().iter().filter_map(|d| d.key()).collect();
+        assert_eq!(deleted, vec!["x.txt", "y.txt"]);
+    }
+
+    #[tokio::test]
+    async fn listing_mock_is_versioning_enabled_returns_false() {
+        let (mock, _) = make_listing_mock();
+        assert!(!mock.is_versioning_enabled().await.unwrap());
+    }
+
+    #[test]
+    fn listing_mock_get_client_returns_none() {
+        let (mock, _) = make_listing_mock();
+        assert!(mock.get_client().is_none());
+    }
+
+    #[tokio::test]
+    async fn listing_mock_get_stats_sender_works() {
+        let (mock, stats_receiver) = make_listing_mock();
+        let sender = mock.get_stats_sender();
+        sender
+            .send(DeletionStatistics::DeleteBytes(55))
+            .await
+            .unwrap();
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(received, DeletionStatistics::DeleteBytes(55)));
+    }
+
+    #[tokio::test]
+    async fn listing_mock_send_stats_delivers_stat() {
+        let (mock, stats_receiver) = make_listing_mock();
+        mock.send_stats(DeletionStatistics::DeleteComplete {
+            key: "k".to_string(),
+        })
+        .await;
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(
+            received,
+            DeletionStatistics::DeleteComplete { .. }
+        ));
+    }
+
+    #[test]
+    fn listing_mock_set_warning_sets_flag() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = ListingMockStorage {
+            objects: vec![],
+            stats_sender,
+            has_warning: has_warning.clone(),
+        };
+        assert!(!has_warning.load(std::sync::atomic::Ordering::SeqCst));
+        mock.set_warning();
+        assert!(has_warning.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    // -----------------------------------------------------------------------
+    // PartialFailureMockStorage method verification tests
+    // -----------------------------------------------------------------------
+
+    fn make_partial_failure_mock() -> (
+        PartialFailureMockStorage,
+        async_channel::Receiver<DeletionStatistics>,
+    ) {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = PartialFailureMockStorage {
+            objects: vec![],
+            stats_sender,
+            has_warning,
+            fail_in_batch: Arc::new(vec!["fail.txt".to_string()]),
+        };
+        (mock, stats_receiver)
+    }
+
+    #[test]
+    fn partial_failure_mock_is_express_onezone_returns_false() {
+        let (mock, _) = make_partial_failure_mock();
+        assert!(!mock.is_express_onezone_storage());
+    }
+
+    #[tokio::test]
+    async fn partial_failure_mock_list_objects_returns_ok() {
+        let (mock, _) = make_partial_failure_mock();
+        let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_objects(&sender, 1000).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn partial_failure_mock_list_object_versions_returns_ok() {
+        let (mock, _) = make_partial_failure_mock();
+        let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_object_versions(&sender, 1000).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn partial_failure_mock_head_object_returns_ok() {
+        let (mock, _) = make_partial_failure_mock();
+        assert!(mock.head_object("key", None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn partial_failure_mock_get_object_tagging_returns_ok() {
+        let (mock, _) = make_partial_failure_mock();
+        let result = mock.get_object_tagging("key", None).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().tag_set().is_empty());
+    }
+
+    #[tokio::test]
+    async fn partial_failure_mock_delete_object_returns_ok() {
+        let (mock, _) = make_partial_failure_mock();
+        assert!(mock.delete_object("key", None, None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn partial_failure_mock_delete_objects_partial_failure() {
+        let (mock, _) = make_partial_failure_mock();
+        let idents = vec![
+            aws_sdk_s3::types::ObjectIdentifier::builder()
+                .key("ok.txt")
+                .build()
+                .unwrap(),
+            aws_sdk_s3::types::ObjectIdentifier::builder()
+                .key("fail.txt")
+                .build()
+                .unwrap(),
+        ];
+        let result = mock.delete_objects(idents).await.unwrap();
+        assert_eq!(result.deleted().len(), 1);
+        assert_eq!(result.deleted()[0].key(), Some("ok.txt"));
+        assert_eq!(result.errors().len(), 1);
+        assert_eq!(result.errors()[0].key(), Some("fail.txt"));
+        assert_eq!(result.errors()[0].code(), Some("InternalError"));
+    }
+
+    #[tokio::test]
+    async fn partial_failure_mock_is_versioning_enabled_returns_false() {
+        let (mock, _) = make_partial_failure_mock();
+        assert!(!mock.is_versioning_enabled().await.unwrap());
+    }
+
+    #[test]
+    fn partial_failure_mock_get_client_returns_none() {
+        let (mock, _) = make_partial_failure_mock();
+        assert!(mock.get_client().is_none());
+    }
+
+    #[tokio::test]
+    async fn partial_failure_mock_get_stats_sender_works() {
+        let (mock, stats_receiver) = make_partial_failure_mock();
+        let sender = mock.get_stats_sender();
+        sender
+            .send(DeletionStatistics::DeleteBytes(33))
+            .await
+            .unwrap();
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(received, DeletionStatistics::DeleteBytes(33)));
+    }
+
+    #[tokio::test]
+    async fn partial_failure_mock_send_stats_delivers_stat() {
+        let (mock, stats_receiver) = make_partial_failure_mock();
+        mock.send_stats(DeletionStatistics::DeleteComplete {
+            key: "k".to_string(),
+        })
+        .await;
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(
+            received,
+            DeletionStatistics::DeleteComplete { .. }
+        ));
+    }
+
+    #[test]
+    fn partial_failure_mock_set_warning_sets_flag() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = PartialFailureMockStorage {
+            objects: vec![],
+            stats_sender,
+            has_warning: has_warning.clone(),
+            fail_in_batch: Arc::new(vec![]),
+        };
+        assert!(!has_warning.load(std::sync::atomic::Ordering::SeqCst));
+        mock.set_warning();
+        assert!(has_warning.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    // -----------------------------------------------------------------------
+    // FailingListerStorage method verification tests
+    // -----------------------------------------------------------------------
+
+    fn make_failing_lister_mock() -> (
+        FailingListerStorage,
+        async_channel::Receiver<DeletionStatistics>,
+    ) {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = FailingListerStorage {
+            stats_sender,
+            has_warning,
+        };
+        (mock, stats_receiver)
+    }
+
+    #[test]
+    fn failing_lister_mock_is_express_onezone_returns_false() {
+        let (mock, _) = make_failing_lister_mock();
+        assert!(!mock.is_express_onezone_storage());
+    }
+
+    #[tokio::test]
+    async fn failing_lister_mock_list_objects_returns_err() {
+        let (mock, _) = make_failing_lister_mock();
+        let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+        let result = mock.list_objects(&sender, 1000).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("AccessDenied"));
+    }
+
+    #[tokio::test]
+    async fn failing_lister_mock_list_object_versions_returns_err() {
+        let (mock, _) = make_failing_lister_mock();
+        let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+        let result = mock.list_object_versions(&sender, 1000).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn failing_lister_mock_head_object_returns_ok() {
+        let (mock, _) = make_failing_lister_mock();
+        assert!(mock.head_object("key", None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn failing_lister_mock_get_object_tagging_returns_ok() {
+        let (mock, _) = make_failing_lister_mock();
+        let result = mock.get_object_tagging("key", None).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().tag_set().is_empty());
+    }
+
+    #[tokio::test]
+    async fn failing_lister_mock_delete_object_returns_ok() {
+        let (mock, _) = make_failing_lister_mock();
+        assert!(mock.delete_object("key", None, None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn failing_lister_mock_delete_objects_returns_ok() {
+        let (mock, _) = make_failing_lister_mock();
+        assert!(mock.delete_objects(vec![]).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn failing_lister_mock_is_versioning_enabled_returns_false() {
+        let (mock, _) = make_failing_lister_mock();
+        assert!(!mock.is_versioning_enabled().await.unwrap());
+    }
+
+    #[test]
+    fn failing_lister_mock_get_client_returns_none() {
+        let (mock, _) = make_failing_lister_mock();
+        assert!(mock.get_client().is_none());
+    }
+
+    #[tokio::test]
+    async fn failing_lister_mock_get_stats_sender_works() {
+        let (mock, stats_receiver) = make_failing_lister_mock();
+        let sender = mock.get_stats_sender();
+        sender
+            .send(DeletionStatistics::DeleteBytes(11))
+            .await
+            .unwrap();
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(received, DeletionStatistics::DeleteBytes(11)));
+    }
+
+    #[tokio::test]
+    async fn failing_lister_mock_send_stats_delivers_stat() {
+        let (mock, stats_receiver) = make_failing_lister_mock();
+        mock.send_stats(DeletionStatistics::DeleteComplete {
+            key: "k".to_string(),
+        })
+        .await;
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(
+            received,
+            DeletionStatistics::DeleteComplete { .. }
+        ));
+    }
+
+    #[test]
+    fn failing_lister_mock_set_warning_sets_flag() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = FailingListerStorage {
+            stats_sender,
+            has_warning: has_warning.clone(),
+        };
+        assert!(!has_warning.load(std::sync::atomic::Ordering::SeqCst));
+        mock.set_warning();
+        assert!(has_warning.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    // -----------------------------------------------------------------------
+    // NonRetryableFailureMockStorage method verification tests
+    // -----------------------------------------------------------------------
+
+    fn make_non_retryable_failure_mock() -> (
+        NonRetryableFailureMockStorage,
+        async_channel::Receiver<DeletionStatistics>,
+    ) {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = NonRetryableFailureMockStorage {
+            objects: vec![],
+            stats_sender,
+            has_warning,
+            fail_in_batch: Arc::new(vec!["denied.txt".to_string()]),
+        };
+        (mock, stats_receiver)
+    }
+
+    #[test]
+    fn non_retryable_failure_mock_is_express_onezone_returns_false() {
+        let (mock, _) = make_non_retryable_failure_mock();
+        assert!(!mock.is_express_onezone_storage());
+    }
+
+    #[tokio::test]
+    async fn non_retryable_failure_mock_list_objects_returns_ok() {
+        let (mock, _) = make_non_retryable_failure_mock();
+        let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_objects(&sender, 1000).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn non_retryable_failure_mock_list_object_versions_returns_ok() {
+        let (mock, _) = make_non_retryable_failure_mock();
+        let (sender, _receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_object_versions(&sender, 1000).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn non_retryable_failure_mock_head_object_returns_ok() {
+        let (mock, _) = make_non_retryable_failure_mock();
+        assert!(mock.head_object("key", None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn non_retryable_failure_mock_get_object_tagging_returns_ok() {
+        let (mock, _) = make_non_retryable_failure_mock();
+        let result = mock.get_object_tagging("key", None).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().tag_set().is_empty());
+    }
+
+    #[tokio::test]
+    async fn non_retryable_failure_mock_delete_object_returns_ok() {
+        let (mock, _) = make_non_retryable_failure_mock();
+        assert!(mock.delete_object("key", None, None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn non_retryable_failure_mock_delete_objects_access_denied() {
+        let (mock, _) = make_non_retryable_failure_mock();
+        let idents = vec![
+            aws_sdk_s3::types::ObjectIdentifier::builder()
+                .key("ok.txt")
+                .build()
+                .unwrap(),
+            aws_sdk_s3::types::ObjectIdentifier::builder()
+                .key("denied.txt")
+                .build()
+                .unwrap(),
+        ];
+        let result = mock.delete_objects(idents).await.unwrap();
+        assert_eq!(result.deleted().len(), 1);
+        assert_eq!(result.deleted()[0].key(), Some("ok.txt"));
+        assert_eq!(result.errors().len(), 1);
+        assert_eq!(result.errors()[0].key(), Some("denied.txt"));
+        assert_eq!(result.errors()[0].code(), Some("AccessDenied"));
+    }
+
+    #[tokio::test]
+    async fn non_retryable_failure_mock_is_versioning_enabled_returns_false() {
+        let (mock, _) = make_non_retryable_failure_mock();
+        assert!(!mock.is_versioning_enabled().await.unwrap());
+    }
+
+    #[test]
+    fn non_retryable_failure_mock_get_client_returns_none() {
+        let (mock, _) = make_non_retryable_failure_mock();
+        assert!(mock.get_client().is_none());
+    }
+
+    #[tokio::test]
+    async fn non_retryable_failure_mock_get_stats_sender_works() {
+        let (mock, stats_receiver) = make_non_retryable_failure_mock();
+        let sender = mock.get_stats_sender();
+        sender
+            .send(DeletionStatistics::DeleteBytes(77))
+            .await
+            .unwrap();
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(received, DeletionStatistics::DeleteBytes(77)));
+    }
+
+    #[tokio::test]
+    async fn non_retryable_failure_mock_send_stats_delivers_stat() {
+        let (mock, stats_receiver) = make_non_retryable_failure_mock();
+        mock.send_stats(DeletionStatistics::DeleteComplete {
+            key: "k".to_string(),
+        })
+        .await;
+        let received = stats_receiver.recv().await.unwrap();
+        assert!(matches!(
+            received,
+            DeletionStatistics::DeleteComplete { .. }
+        ));
+    }
+
+    #[test]
+    fn non_retryable_failure_mock_set_warning_sets_flag() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = NonRetryableFailureMockStorage {
+            objects: vec![],
+            stats_sender,
+            has_warning: has_warning.clone(),
+            fail_in_batch: Arc::new(vec![]),
+        };
+        assert!(!has_warning.load(std::sync::atomic::Ordering::SeqCst));
+        mock.set_warning();
+        assert!(has_warning.load(std::sync::atomic::Ordering::SeqCst));
     }
 }

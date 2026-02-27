@@ -1950,7 +1950,7 @@ macro_rules! e2e_timeout {
 | `tests/e2e_deletion.rs` | 7 | Basic deletion, batch mode, single mode, dry-run, force flag |
 | `tests/e2e_filter.rs` | 24 | Regex, size, time, content-type, metadata, tag, and combined filters |
 | `tests/e2e_safety.rs` | 3 | Safety feature tests - dry-run, max-delete |
-| `tests/e2e_versioning.rs` | 3 | Delete markers, all-versions deletion, versioned dry-run |
+| `tests/e2e_versioning.rs` | 6 | Delete markers, all-versions deletion, prefix boundary versioned, parallel version listing, unversioned bucket fallback |
 | `tests/e2e_callback.rs` | 7 | Lua filter/event callbacks, Rust event callbacks, event data validation |
 | `tests/e2e_optimistic.rs` | 3 | If-Match conditional deletion, ETag mismatch handling |
 | `tests/e2e_performance.rs` | 5 | Worker scaling, batch throughput, rate limiting, large object counts |
@@ -2008,7 +2008,7 @@ async fn test_batch_deletion_with_partial_failure() {
 - **Property Coverage**: 49 of 49 properties tested
 - **Critical Path Coverage**: 100% (deletion logic, safety checks, error handling)
 
-**Note**: Coverage includes unit tests (522 lib, 26 binary) and E2E tests (84 tests across 14 files). The remaining uncovered code is primarily in runtime paths that require live AWS infrastructure (S3 API calls, network error handlers).
+**Note**: Coverage includes unit tests (676 lib, 30 binary) and E2E tests (87 tests across 14 files). The remaining uncovered code is primarily in runtime paths that require live AWS infrastructure (S3 API calls, network error handlers).
 
 ### Continuous Integration
 

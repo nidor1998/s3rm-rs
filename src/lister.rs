@@ -403,6 +403,72 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn mock_storage_list_objects_sends_objects_and_increments_counter() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let objects = make_test_objects();
+        let mock = MockStorage::new(objects, vec![], stats_sender);
+
+        let (sender, receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_objects(&sender, 1000).await.is_ok());
+
+        assert_eq!(mock.list_objects_called.load(Ordering::SeqCst), 1);
+
+        let mut received = Vec::new();
+        while let Ok(obj) = receiver.try_recv() {
+            received.push(obj);
+        }
+        assert_eq!(received.len(), 2);
+        assert_eq!(received[0].key(), "file1.txt");
+        assert_eq!(received[1].key(), "file2.txt");
+    }
+
+    #[tokio::test]
+    async fn mock_storage_list_objects_empty() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let mock = MockStorage::new(vec![], vec![], stats_sender);
+
+        let (sender, receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_objects(&sender, 1000).await.is_ok());
+
+        assert_eq!(mock.list_objects_called.load(Ordering::SeqCst), 1);
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn mock_storage_list_object_versions_sends_versioned_objects_and_increments_counter() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let versioned = make_test_versioned_objects();
+        let mock = MockStorage::new(vec![], versioned, stats_sender);
+
+        let (sender, receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_object_versions(&sender, 1000).await.is_ok());
+
+        assert_eq!(mock.list_object_versions_called.load(Ordering::SeqCst), 1);
+
+        let mut received = Vec::new();
+        while let Ok(obj) = receiver.try_recv() {
+            received.push(obj);
+        }
+        assert_eq!(received.len(), 2);
+        assert_eq!(received[0].key(), "file1.txt");
+        assert_eq!(received[0].version_id(), Some("v1"));
+        assert_eq!(received[1].key(), "file1.txt");
+        assert_eq!(received[1].version_id(), Some("v2"));
+    }
+
+    #[tokio::test]
+    async fn mock_storage_list_object_versions_empty() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let mock = MockStorage::new(vec![], vec![], stats_sender);
+
+        let (sender, receiver) = async_channel::bounded::<S3Object>(10);
+        assert!(mock.list_object_versions(&sender, 1000).await.is_ok());
+
+        assert_eq!(mock.list_object_versions_called.load(Ordering::SeqCst), 1);
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[tokio::test]
     async fn list_target_respects_max_keys_parameter() {
         init_dummy_tracing_subscriber();
 

@@ -4,7 +4,7 @@ s3rm-rs is an Amazon S3 object deletion tool designed for bulk deletion operatio
 
 ## Key Features
 
-- Bulk deletion up to ~3,500 objects/second (the S3 API limit)
+- Bulk deletion up to ~3,500 objects/second for standard buckets (~34,000 objects/second for Express One Zone with --worker-size 256)
 - Batch deletion using S3's DeleteObjects API (up to 1000 objects per request)
 - Parallel processing with configurable worker pools (1-65,535 workers)
 - Comprehensive filtering: regex patterns, size, time, content-type, metadata, tags, Lua callbacks

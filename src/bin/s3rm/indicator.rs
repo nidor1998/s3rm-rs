@@ -270,4 +270,86 @@ mod tests {
             .expect("indicator should complete within timeout")
             .expect("indicator task should not panic");
     }
+
+    /// Exercises line 142: moving-average update after the refresh interval
+    /// elapses with `dry_run = false`.
+    #[tokio::test]
+    async fn show_indicator_moving_average_updated_after_refresh_interval() {
+        let (sender, receiver) = async_channel::unbounded();
+
+        // Send stats before starting the indicator
+        sender
+            .send(DeletionStatistics::DeleteComplete {
+                key: "obj1".to_string(),
+            })
+            .await
+            .unwrap();
+        sender
+            .send(DeletionStatistics::DeleteBytes(100))
+            .await
+            .unwrap();
+
+        // Start indicator with dry_run=false so line 142 executes
+        let handle = show_indicator(receiver, false, false, false);
+
+        // Keep sender alive beyond REFRESH_INTERVAL (1.0s) so the inner loop
+        // breaks on the elapsed check rather than the channel-closed check.
+        tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+        drop(sender);
+
+        let summary = tokio::time::timeout(std::time::Duration::from_secs(5), handle)
+            .await
+            .expect("indicator should complete within timeout")
+            .expect("indicator task should not panic");
+
+        assert_eq!(summary.total_delete_count, 1);
+        assert_eq!(summary.total_delete_bytes, 100);
+    }
+
+    /// Exercises line 146: progress text update after the refresh interval
+    /// elapses with `show_progress = true`.
+    #[tokio::test]
+    async fn show_indicator_progress_text_updated_after_refresh_interval() {
+        let (sender, receiver) = async_channel::unbounded();
+
+        sender
+            .send(DeletionStatistics::DeleteComplete {
+                key: "obj1".to_string(),
+            })
+            .await
+            .unwrap();
+        sender
+            .send(DeletionStatistics::DeleteBytes(256))
+            .await
+            .unwrap();
+        sender
+            .send(DeletionStatistics::DeleteError {
+                key: "obj2".to_string(),
+            })
+            .await
+            .unwrap();
+        sender
+            .send(DeletionStatistics::DeleteSkip {
+                key: "obj3".to_string(),
+            })
+            .await
+            .unwrap();
+
+        // Start indicator with show_progress=true so line 146 executes
+        let handle = show_indicator(receiver, true, false, false);
+
+        // Keep sender alive beyond REFRESH_INTERVAL (1.0s)
+        tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+        drop(sender);
+
+        let summary = tokio::time::timeout(std::time::Duration::from_secs(5), handle)
+            .await
+            .expect("indicator should complete within timeout")
+            .expect("indicator task should not panic");
+
+        assert_eq!(summary.total_delete_count, 1);
+        assert_eq!(summary.total_delete_bytes, 256);
+        assert_eq!(summary.total_error_count, 1);
+        assert_eq!(summary.total_skip_count, 1);
+    }
 }

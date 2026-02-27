@@ -180,7 +180,7 @@ cargo fmt
 
 ### Steering (Active Phase)
 - steering/init_build/tasks.md - Implementation task list
-- steering/init_build/e2e_test_plan.md - E2E test plan (Task 29: 84 test functions across 14 test files, complete)
+- steering/init_build/e2e_test_plan.md - E2E test plan (Task 29: 87 test functions across 14 test files, complete)
 
 ### Source Code
 - `src/lib.rs` - Library entry point and public API
@@ -198,7 +198,7 @@ cargo fmt
 - `src/property_tests/` - Property-based tests (proptest, 14 files)
 - `src/bin/s3rm/indicator_properties.rs` - Binary crate property tests (Property 31)
 - `src/**/tests.rs` and `#[cfg(test)]` modules - Unit tests
-- `tests/e2e_*.rs` - End-to-end integration tests (14 files, 84 tests)
+- `tests/e2e_*.rs` - End-to-end integration tests (14 files, 87 tests)
 
 ## Architecture Overview
 

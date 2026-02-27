@@ -337,7 +337,7 @@ async fn e2e_delete_all_versions_with_parallel_listing() {
 
         let guard = helper.bucket_guard(&bucket);
 
-        // Upload objects across nested prefixes: level1/level2/fileN.dat
+        // Upload objects across nested prefixes: area{t}/sub{s}/file{i:02}.dat
         let mut all_keys: Vec<String> = Vec::new();
         let objects: Vec<(String, Vec<u8>)> = (0..TOP_PREFIXES)
             .flat_map(|t| {

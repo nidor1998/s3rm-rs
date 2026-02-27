@@ -368,7 +368,7 @@ async fn e2e_delete_all_versions_with_parallel_listing() {
         assert_eq!(
             pre_versions.len() as u64,
             expected_versions,
-            "Should have {expected_versions} total versions before deletion"
+            "Should have {} total versions before deletion", expected_versions
         );
 
         // Run with --delete-all-versions AND parallel listing enabled
@@ -386,7 +386,7 @@ async fn e2e_delete_all_versions_with_parallel_listing() {
         assert!(!result.has_error, "Pipeline should complete without errors");
         assert_eq!(
             result.stats.stats_deleted_objects, expected_versions,
-            "Should delete all {expected_versions} versions"
+            "Should delete all {} versions", expected_versions
         );
         assert_eq!(
             result.stats.stats_failed_objects, 0,
@@ -461,7 +461,7 @@ async fn e2e_parallel_version_listing_pagination_within_subprefix() {
         assert_eq!(
             pre_versions.len() as u64,
             expected_versions,
-            "Should have {expected_versions} total versions before deletion"
+            "Should have {} total versions before deletion", expected_versions
         );
 
         // --max-keys 2 forces pagination within each sub-prefix listing;
@@ -483,7 +483,7 @@ async fn e2e_parallel_version_listing_pagination_within_subprefix() {
         assert!(!result.has_error, "Pipeline should complete without errors");
         assert_eq!(
             result.stats.stats_deleted_objects, expected_versions,
-            "Should delete all {expected_versions} versions"
+            "Should delete all {} versions", expected_versions
         );
         assert_eq!(
             result.stats.stats_failed_objects, 0,

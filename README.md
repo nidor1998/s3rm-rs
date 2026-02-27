@@ -1101,20 +1101,20 @@ No human wrote a single line of source code in this project. Every line of sourc
 
 Human engineers authored the requirements, design specifications, and s3sync reference architecture. They thoroughly reviewed and verified the design, all source code, and all tests. All features of the initial build binary have been manually tested and verified by humans. All E2E test scenarios have been thoroughly verified by humans against live AWS S3. The development followed a spec-driven process: requirements and design documents were written first, and the AI generated code to match those specifications under continuous human oversight.
 
-### Quality verification (by AI self-assessment, initial build)
+### Quality verification (by AI self-assessment, v1.0.1)
 
 | Metric | Value |
 |---|---|
-| Production code | 14,247 lines of Rust (46 source files) |
-| Test code | 18,037 lines (1.27x production code) |
-| Unit & property tests | 548 passing (522 lib + 26 binary), 0 failing |
+| Production code | 14,458 lines of Rust (46 source files) |
+| Test code | 18,449 lines (1.28x production code) |
+| Unit & property tests | 579 passing (553 lib + 26 binary), 0 failing |
 | Property-based tests (proptest) | 49 correctness properties across 19 test files |
-| E2E integration tests | 84 tests across 14 test files, all verified against live AWS S3 |
-| Code coverage (llvm-cov) | 94.57% regions, 88.02% functions, 94.43% lines |
+| E2E integration tests | 87 tests across 14 test files, all verified against live AWS S3 |
+| Code coverage (llvm-cov) | 95.40% regions, 89.94% functions, 95.39% lines |
 | Static analysis (clippy) | 0 warnings |
 | Dependency audit (cargo-deny) | advisories ok, bans ok, licenses ok, sources ok |
 | Security review (Claude Code) | No issues found |
-| Development | 7 days (2026-02-18 to 2026-02-24), 357 commits, 25 PRs |
+| Development | 396 commits, 27 PRs |
 | Code reuse from [s3sync](https://github.com/nidor1998/s3sync) | ~90% of architecture |
 
 The codebase was built through spec-driven development: 30 tasks executed sequentially, each as a separate PR with human oversight. Every pull request is reviewed by two AI tools ([GitHub Copilot](https://github.com/features/copilot) and [CodeRabbit](https://www.coderabbit.ai/)) and by a human reviewer before merging. Audit checkpoints verified implementation against specifications at multiple stages. Property-based testing (proptest) exercises correctness properties across randomized inputs, complementing deterministic unit tests and live-AWS end-to-end tests.

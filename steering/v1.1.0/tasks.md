@@ -10,9 +10,9 @@
 ## Status Summary
 
 - Total tasks: 8
-- Completed: 4
+- Completed: 5
 - In progress: 0
-- Pending: 4
+- Pending: 3
 
 ## Tasks
 
@@ -42,7 +42,7 @@
 
 ### Testing
 
-- [ ] 5. Unit tests
+- [x] 5. Unit tests
   - Unit tests for the `KeepLatestOnlyFilter` filter function (latest passes through, non-latest filtered, delete markers filtered, non-versioned objects)
   - Unit tests for CLI arg validation (requires `--delete-all-versions`, conflicts with disallowed filter options)
 

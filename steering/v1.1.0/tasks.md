@@ -10,9 +10,9 @@
 ## Status Summary
 
 - Total tasks: 8
-- Completed: 1
+- Completed: 2
 - In progress: 0
-- Pending: 7
+- Pending: 6
 
 ## Tasks
 
@@ -25,7 +25,7 @@
   - Add `conflicts_with_all` for all filtering options except `filter_include_regex` and `filter_exclude_regex` (i.e., conflicts with: `filter_include_content_type_regex`, `filter_exclude_content_type_regex`, `filter_include_metadata_regex`, `filter_exclude_metadata_regex`, `filter_include_tag_regex`, `filter_exclude_tag_regex`, `larger_size`, `smaller_size`, `filter_before_time`, `filter_after_time`)
   - Add corresponding default constant `DEFAULT_KEEP_LATEST_ONLY`
 
-- [ ] 2. Config integration
+- [x] 2. Config integration
   - Add `keep_latest_only: bool` field to `FilterConfig` in `src/config/mod.rs`
   - Wire through `TryFrom<CLIArgs>` to populate the new field
 

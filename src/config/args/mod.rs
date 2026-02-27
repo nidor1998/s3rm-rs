@@ -563,6 +563,7 @@ impl CLIArgs {
                 .filter_smaller_size
                 .as_deref()
                 .map(|s| parse_human_bytes(s).unwrap() as u64),
+            keep_latest_only: self.keep_latest_only,
         }
     }
 

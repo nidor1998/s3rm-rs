@@ -141,7 +141,7 @@ Objects stream through the pipeline one stage at a time. The lister fetches keys
 ### High performance
 
 s3rm is implemented in Rust and uses the AWS SDK for Rust, which supports multithreaded asynchronous I/O.
-The default configuration (`--worker-size 16`, `--batch-size 200`) achieves approximately 3,500 objects per second, which approaches the practical throughput guideline of Amazon S3.
+The default configuration (`--worker-size 16`, `--batch-size 200`) achieves approximately 3,500 objects per second for standard S3 buckets, which approaches the practical throughput guideline of Amazon S3. Express One Zone directory buckets can achieve approximately 34,000 deletions per second with `--worker-size 256`.
 
 - **Batch deletion** using S3's `DeleteObjects` API — up to 1,000 objects per request
 - **Parallel workers** — up to 65,535 concurrent deletion workers

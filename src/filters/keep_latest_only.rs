@@ -1,8 +1,8 @@
 //! Keep-latest-only filter stage.
 //!
-//! Passes objects whose `is_latest()` returns `false` (i.e., non-latest versions
-//! that should be deleted). Filters out (skips) objects where `is_latest()` is `true`,
-//! preserving only the latest version of each object.
+//! Only passes objects whose `is_latest` is explicitly `Some(false)` (i.e.,
+//! confirmed non-latest versions that should be deleted). Filters out (keeps)
+//! everything else: `Some(true)`, `None`, and `NotVersioning` objects.
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -38,11 +38,17 @@ impl ObjectFilter for KeepLatestOnlyFilter<'_> {
 }
 
 fn is_not_latest(object: &S3Object, _config: &FilterConfig) -> bool {
-    // Defensive: treat non-versioned objects as "latest" to prevent accidental
-    // deletion if a bug introduces NotVersioning objects into the pipeline.
-    // In normal operation this is a no-op because --keep-latest-only requires
-    // --delete-all-versions, which uses list_object_versions (never NotVersioning).
-    if object.is_latest() || matches!(object, S3Object::NotVersioning(_)) {
+    // Only delete objects that are explicitly marked as non-latest (Some(false)).
+    // Keep everything else: latest (Some(true)), unknown (None), and non-versioned.
+    // This prevents accidental deletion when is_latest is missing from the S3
+    // response or when NotVersioning objects are introduced by a bug.
+    let explicitly_non_latest = match object {
+        S3Object::Versioning(v) => v.is_latest() == Some(false),
+        S3Object::DeleteMarker(dm) => dm.is_latest() == Some(false),
+        S3Object::NotVersioning(_) => false,
+    };
+
+    if !explicitly_non_latest {
         let key = object.key();
         let delete_marker = object.is_delete_marker();
         let version_id = object.version_id();
@@ -52,7 +58,7 @@ fn is_not_latest(object: &S3Object, _config: &FilterConfig) -> bool {
             key = key,
             delete_marker = delete_marker,
             version_id = version_id,
-            "object filtered (is_latest=true or non-versioned, keeping)."
+            "object filtered (not explicitly non-latest, keeping)."
         );
 
         return false;
@@ -161,6 +167,44 @@ pub(crate) mod tests {
         // Defensive: non-versioned objects are treated as "latest" and kept,
         // preventing accidental deletion if a bug introduces them into the pipeline.
         let object = S3Object::NotVersioning(Object::builder().key("test-key").build());
+        assert!(!is_not_latest(&object, &config));
+    }
+
+    #[test]
+    fn versioned_object_with_none_is_latest_is_filtered_out() {
+        init_dummy_tracing_subscriber();
+
+        let config = FilterConfig {
+            keep_latest_only: true,
+            ..Default::default()
+        };
+
+        // is_latest omitted (None) — must be kept, not deleted.
+        let object = S3Object::Versioning(
+            ObjectVersion::builder()
+                .key("test-key")
+                .version_id("v-none")
+                .build(),
+        );
+        assert!(!is_not_latest(&object, &config));
+    }
+
+    #[test]
+    fn delete_marker_with_none_is_latest_is_filtered_out() {
+        init_dummy_tracing_subscriber();
+
+        let config = FilterConfig {
+            keep_latest_only: true,
+            ..Default::default()
+        };
+
+        // is_latest omitted (None) — must be kept, not deleted.
+        let object = S3Object::DeleteMarker(
+            DeleteMarkerEntry::builder()
+                .key("test-key")
+                .version_id("dm-none")
+                .build(),
+        );
         assert!(!is_not_latest(&object, &config));
     }
 }

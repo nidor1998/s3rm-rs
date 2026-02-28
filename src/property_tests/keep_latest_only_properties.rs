@@ -45,6 +45,28 @@ mod tests {
         )
     }
 
+    /// Generate a versioned S3Object (ObjectVersion) with is_latest omitted (None).
+    fn arbitrary_versioned_object_none_is_latest(key: String, version_id: String) -> S3Object {
+        S3Object::Versioning(
+            ObjectVersion::builder()
+                .key(key)
+                .version_id(version_id)
+                .size(100)
+                .last_modified(DateTime::from_secs(1_700_000_000))
+                .build(),
+        )
+    }
+
+    /// Generate a delete marker S3Object with is_latest omitted (None).
+    fn arbitrary_delete_marker_none_is_latest(key: String, version_id: String) -> S3Object {
+        S3Object::DeleteMarker(
+            DeleteMarkerEntry::builder()
+                .key(key)
+                .version_id(version_id)
+                .build(),
+        )
+    }
+
     /// Generate a non-versioned S3Object.
     fn arbitrary_non_versioned_object(key: String) -> S3Object {
         S3Object::NotVersioning(
@@ -152,6 +174,41 @@ mod tests {
             let passes = crate::filters::keep_latest_only::tests::test_is_not_latest(&object, &config);
 
             prop_assert!(!passes, "Non-versioned object should be filtered out (kept)");
+        }
+
+        // -----------------------------------------------------------------------
+        // Property: Versioned objects with is_latest=None are always kept.
+        //
+        // Defensive: if S3 omits the is_latest field, the object must not be
+        // deleted. Only explicit Some(false) is treated as deletable.
+        // -----------------------------------------------------------------------
+        #[test]
+        fn versioned_objects_with_none_is_latest_are_always_kept(
+            key in arbitrary_key(),
+            version_id in arbitrary_version_id(),
+        ) {
+            let config = keep_latest_only_config();
+            let object = arbitrary_versioned_object_none_is_latest(key, version_id);
+
+            let passes = crate::filters::keep_latest_only::tests::test_is_not_latest(&object, &config);
+
+            prop_assert!(!passes, "Versioned object with is_latest=None should be filtered out (kept)");
+        }
+
+        // -----------------------------------------------------------------------
+        // Property: Delete markers with is_latest=None are always kept.
+        // -----------------------------------------------------------------------
+        #[test]
+        fn delete_markers_with_none_is_latest_are_always_kept(
+            key in arbitrary_key(),
+            version_id in arbitrary_version_id(),
+        ) {
+            let config = keep_latest_only_config();
+            let object = arbitrary_delete_marker_none_is_latest(key, version_id);
+
+            let passes = crate::filters::keep_latest_only::tests::test_is_not_latest(&object, &config);
+
+            prop_assert!(!passes, "Delete marker with is_latest=None should be filtered out (kept)");
         }
 
         // -----------------------------------------------------------------------

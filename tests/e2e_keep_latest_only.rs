@@ -602,3 +602,594 @@ async fn e2e_keep_latest_only_rejects_non_versioned_bucket() {
         guard.cleanup().await;
     });
 }
+
+// ---------------------------------------------------------------------------
+// Keep Latest Only: Single version per key (nothing to delete)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_keep_latest_only_single_version_per_key() {
+    e2e_timeout!(async {
+        // Purpose: Verify that --keep-latest-only deletes nothing when every
+        //          object has only a single version (which is always the latest).
+        // Setup:   Create versioned bucket; upload 5 objects with one version each.
+        // Expected: 0 deletions; all 5 versions remain with their original IDs.
+
+        const NUM_OBJECTS: usize = 5;
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        // Upload one version per object (all are latest)
+        let mut version_ids = Vec::new();
+        for i in 0..NUM_OBJECTS {
+            let vid = put_object_versioned(
+                &helper,
+                &bucket,
+                &format!("data/file{i}.dat"),
+                vec![b'a'; 100],
+            )
+            .await;
+            version_ids.push(vid);
+        }
+
+        let pre_versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(
+            pre_versions.len(),
+            NUM_OBJECTS,
+            "Should have {} versions before pipeline",
+            NUM_OBJECTS
+        );
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--keep-latest-only",
+            "--delete-all-versions",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error, "Pipeline should complete without errors");
+        assert_eq!(
+            result.stats.stats_deleted_objects, 0,
+            "Should delete 0 objects (all are latest)"
+        );
+
+        // Verify: all original version IDs still present
+        let post_versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(
+            post_versions.len(),
+            NUM_OBJECTS,
+            "All {} versions should remain",
+            NUM_OBJECTS
+        );
+
+        let remaining_vids: Vec<&str> = post_versions.iter().map(|(_, vid)| vid.as_str()).collect();
+        for (i, vid) in version_ids.iter().enumerate() {
+            assert!(
+                remaining_vids.contains(&vid.as_str()),
+                "Version ID for file{i}.dat ({vid}) should still exist"
+            );
+        }
+
+        guard.cleanup().await;
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Keep Latest Only: Many versions per key (>2)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_keep_latest_only_many_versions_per_key() {
+    e2e_timeout!(async {
+        // Purpose: Verify that --keep-latest-only correctly deletes ALL non-latest
+        //          versions when objects have more than 2 versions each.
+        // Setup:   Create versioned bucket; upload 3 objects with 4 versions each
+        //          (12 total). Only the 4th version of each key is latest.
+        // Expected: 9 old versions deleted; 3 latest versions remain.
+
+        const NUM_OBJECTS: usize = 3;
+        const VERSIONS_PER_OBJECT: usize = 4;
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        // Upload 4 versions per object, track all IDs
+        let mut old_version_ids: Vec<String> = Vec::new();
+        let mut latest_version_ids: Vec<String> = Vec::new();
+
+        for i in 0..NUM_OBJECTS {
+            let key = format!("data/file{i}.dat");
+            for v in 0..VERSIONS_PER_OBJECT {
+                let vid = put_object_versioned(
+                    &helper,
+                    &bucket,
+                    &key,
+                    vec![b'a' + v as u8; 100 * (v + 1)],
+                )
+                .await;
+                if v < VERSIONS_PER_OBJECT - 1 {
+                    old_version_ids.push(vid);
+                } else {
+                    latest_version_ids.push(vid);
+                }
+            }
+        }
+
+        let pre_versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(
+            pre_versions.len(),
+            NUM_OBJECTS * VERSIONS_PER_OBJECT,
+            "Should have {} versions before pipeline",
+            NUM_OBJECTS * VERSIONS_PER_OBJECT
+        );
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--keep-latest-only",
+            "--delete-all-versions",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error, "Pipeline should complete without errors");
+        assert_eq!(
+            result.stats.stats_deleted_objects,
+            (NUM_OBJECTS * (VERSIONS_PER_OBJECT - 1)) as u64,
+            "Should delete {} old versions",
+            NUM_OBJECTS * (VERSIONS_PER_OBJECT - 1)
+        );
+
+        let post_versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(
+            post_versions.len(),
+            NUM_OBJECTS,
+            "Should have {} versions remaining (one per key)",
+            NUM_OBJECTS
+        );
+
+        let remaining_vids: Vec<&str> = post_versions.iter().map(|(_, vid)| vid.as_str()).collect();
+
+        // Verify: latest version IDs retained
+        for (i, vid) in latest_version_ids.iter().enumerate() {
+            assert!(
+                remaining_vids.contains(&vid.as_str()),
+                "Latest version ID for file{i}.dat ({vid}) should be retained"
+            );
+        }
+
+        // Verify: ALL old version IDs gone
+        for (idx, vid) in old_version_ids.iter().enumerate() {
+            assert!(
+                !remaining_vids.contains(&vid.as_str()),
+                "Old version ID #{idx} ({vid}) should have been deleted"
+            );
+        }
+
+        guard.cleanup().await;
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Keep Latest Only: Dry-run mode composition
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_keep_latest_only_dry_run() {
+    e2e_timeout!(async {
+        // Purpose: Verify that --dry-run with --keep-latest-only simulates
+        //          deletions without actually removing any versions.
+        // Setup:   Create versioned bucket; upload 5 objects with 2 versions each.
+        // Expected: Stats report 5 simulated deletions; all 10 versions remain
+        //           with their original version IDs.
+
+        const NUM_OBJECTS: usize = 5;
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        let mut all_version_ids = Vec::new();
+        for i in 0..NUM_OBJECTS {
+            let key = format!("data/file{i}.dat");
+            let v1 = put_object_versioned(&helper, &bucket, &key, vec![b'v'; 100]).await;
+            all_version_ids.push(v1);
+            let v2 = put_object_versioned(&helper, &bucket, &key, vec![b'w'; 200]).await;
+            all_version_ids.push(v2);
+        }
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--keep-latest-only",
+            "--delete-all-versions",
+            "--dry-run",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(
+            !result.has_error,
+            "Dry-run pipeline should complete without errors"
+        );
+        assert_eq!(
+            result.stats.stats_deleted_objects, NUM_OBJECTS as u64,
+            "Dry-run stats should report {} simulated deletions",
+            NUM_OBJECTS
+        );
+
+        // Verify: ALL versions still exist (dry-run made no actual deletions)
+        let post_versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(
+            post_versions.len(),
+            NUM_OBJECTS * 2,
+            "All {} versions must still exist after dry-run",
+            NUM_OBJECTS * 2
+        );
+
+        let remaining_vids: Vec<&str> = post_versions.iter().map(|(_, vid)| vid.as_str()).collect();
+        for vid in &all_version_ids {
+            assert!(
+                remaining_vids.contains(&vid.as_str()),
+                "Version ID {vid} must still exist after dry-run"
+            );
+        }
+
+        guard.cleanup().await;
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Keep Latest Only: --max-delete interaction
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_keep_latest_only_max_delete() {
+    e2e_timeout!(async {
+        // Purpose: Verify that --max-delete correctly limits the number of
+        //          non-latest versions deleted by --keep-latest-only.
+        // Setup:   Create versioned bucket; upload 10 objects with 2 versions each
+        //          (10 non-latest versions). Set --max-delete 5 with --batch-size 1
+        //          for deterministic enforcement.
+        // Expected: Exactly 5 non-latest versions deleted; pipeline stops at limit.
+
+        const NUM_OBJECTS: usize = 10;
+        const MAX_DELETE: u64 = 5;
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..NUM_OBJECTS {
+            let key = format!("data/file{i}.dat");
+            put_object_versioned(&helper, &bucket, &key, vec![b'v'; 100]).await;
+            put_object_versioned(&helper, &bucket, &key, vec![b'w'; 200]).await;
+        }
+
+        let pre_versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(
+            pre_versions.len(),
+            NUM_OBJECTS * 2,
+            "Should have 20 versions before pipeline"
+        );
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--keep-latest-only",
+            "--delete-all-versions",
+            "--max-delete",
+            &MAX_DELETE.to_string(),
+            "--batch-size",
+            "1",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert_eq!(
+            result.stats.stats_deleted_objects, MAX_DELETE,
+            "Exactly {MAX_DELETE} objects should be deleted (batch-size=1 ensures precise enforcement)"
+        );
+
+        // Verify: at least (total - max_delete) versions remain
+        let post_versions = helper.list_object_versions(&bucket).await;
+        assert!(
+            post_versions.len() >= (NUM_OBJECTS * 2 - MAX_DELETE as usize),
+            "At least {} versions should remain; got {}",
+            NUM_OBJECTS * 2 - MAX_DELETE as usize,
+            post_versions.len()
+        );
+
+        guard.cleanup().await;
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Keep Latest Only: Empty prefix (bucket-wide)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_keep_latest_only_bucket_wide() {
+    e2e_timeout!(async {
+        // Purpose: Verify that --keep-latest-only works at bucket scope
+        //          (no prefix) and processes objects across all prefixes.
+        // Setup:   Create versioned bucket; upload objects under varied prefixes
+        //          (a/, b/, root-level); overwrite each once.
+        // Expected: All old versions across all prefixes deleted; latest retained.
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        let mut old_vids = Vec::new();
+        let mut latest_vids = Vec::new();
+
+        // Upload objects across varied prefixes with 2 versions each
+        let keys: Vec<String> = (0..3)
+            .map(|i| format!("a/file{i}.dat"))
+            .chain((0..3).map(|i| format!("b/file{i}.dat")))
+            .chain((0..2).map(|i| format!("root-file{i}.dat")))
+            .collect();
+
+        for key in &keys {
+            let old_vid = put_object_versioned(&helper, &bucket, key, vec![b'x'; 100]).await;
+            old_vids.push(old_vid);
+            let latest_vid = put_object_versioned(&helper, &bucket, key, vec![b'y'; 200]).await;
+            latest_vids.push(latest_vid);
+        }
+
+        let total_keys = keys.len();
+        let pre_versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(
+            pre_versions.len(),
+            total_keys * 2,
+            "Should have {} versions before pipeline",
+            total_keys * 2
+        );
+
+        // Target the entire bucket (no trailing slash, matching existing pattern)
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}"),
+            "--keep-latest-only",
+            "--delete-all-versions",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error, "Pipeline should complete without errors");
+        assert_eq!(
+            result.stats.stats_deleted_objects, total_keys as u64,
+            "Should delete {} old versions",
+            total_keys
+        );
+
+        let post_versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(
+            post_versions.len(),
+            total_keys,
+            "Should have {} versions remaining (one per key)",
+            total_keys
+        );
+
+        let remaining_vids: Vec<&str> = post_versions.iter().map(|(_, vid)| vid.as_str()).collect();
+
+        for (i, vid) in latest_vids.iter().enumerate() {
+            assert!(
+                remaining_vids.contains(&vid.as_str()),
+                "Latest version ID for {} ({vid}) should be retained",
+                keys[i]
+            );
+        }
+        for (i, vid) in old_vids.iter().enumerate() {
+            assert!(
+                !remaining_vids.contains(&vid.as_str()),
+                "Old version ID for {} ({vid}) should have been deleted",
+                keys[i]
+            );
+        }
+
+        guard.cleanup().await;
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Keep Latest Only: --if-match with versioned deletion fails gracefully
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_keep_latest_only_with_if_match() {
+    e2e_timeout!(async {
+        // Purpose: Verify the interaction between --keep-latest-only and --if-match.
+        //          S3's DeleteObject API does not support If-Match conditional
+        //          headers when deleting a specific version by version_id. All
+        //          versioned deletions with If-Match fail at the API level.
+        // Setup:   Create versioned bucket; upload 5 objects with 2 versions each.
+        //          Use --if-match --batch-size 1.
+        // Expected: All 5 conditional deletion attempts fail (stats_failed_objects=5);
+        //           0 actual deletions; all 10 versions remain untouched.
+
+        const NUM_OBJECTS: usize = 5;
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        let mut all_vids = Vec::new();
+        for i in 0..NUM_OBJECTS {
+            let key = format!("data/file{i}.dat");
+            let old_vid = put_object_versioned(&helper, &bucket, &key, vec![b'v'; 100]).await;
+            all_vids.push(old_vid);
+            let latest_vid = put_object_versioned(&helper, &bucket, &key, vec![b'w'; 200]).await;
+            all_vids.push(latest_vid);
+        }
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--keep-latest-only",
+            "--delete-all-versions",
+            "--if-match",
+            "--batch-size",
+            "1",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        // All conditional deletion attempts fail at the S3 API level
+        assert_eq!(
+            result.stats.stats_deleted_objects, 0,
+            "No objects should be deleted (If-Match fails for versioned deletes)"
+        );
+        assert_eq!(
+            result.stats.stats_failed_objects, NUM_OBJECTS as u64,
+            "All {} conditional deletion attempts should fail",
+            NUM_OBJECTS
+        );
+
+        // Verify: all versions remain untouched
+        let post_versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(
+            post_versions.len(),
+            NUM_OBJECTS * 2,
+            "All {} versions should remain (no deletions occurred)",
+            NUM_OBJECTS * 2
+        );
+
+        let remaining_vids: Vec<&str> = post_versions.iter().map(|(_, vid)| vid.as_str()).collect();
+        for vid in &all_vids {
+            assert!(
+                remaining_vids.contains(&vid.as_str()),
+                "Version ID {vid} should still exist (deletion failed)"
+            );
+        }
+
+        guard.cleanup().await;
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Keep Latest Only: 1000 objects across multiple workers
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_keep_latest_only_1000_objects_multi_worker() {
+    // Use a longer timeout for the large-scale test (3 minutes)
+    tokio::time::timeout(std::time::Duration::from_secs(180), async {
+        // Purpose: Verify that --keep-latest-only correctly handles 1000 objects
+        //          distributed across multiple workers. This tests concurrency
+        //          safety and batch processing at scale.
+        // Setup:   Create versioned bucket; upload 1000 objects with 2 versions each
+        //          (2000 total). Use --worker-size 8 for parallel deletion.
+        // Expected: 1000 old versions deleted; 1000 latest versions remain;
+        //           every latest version ID retained, every old version ID gone.
+
+        const NUM_OBJECTS: usize = 1000;
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        // Upload old versions in parallel for speed
+        let old_objects: Vec<(String, Vec<u8>)> = (0..NUM_OBJECTS)
+            .map(|i| (format!("data/file{i:04}.dat"), vec![b'v'; 100]))
+            .collect();
+        helper.put_objects_parallel(&bucket, old_objects).await;
+
+        // Capture old version IDs
+        let old_versions = helper.list_object_versions(&bucket).await;
+        let old_vids: std::collections::HashSet<String> =
+            old_versions.iter().map(|(_, vid)| vid.clone()).collect();
+        assert_eq!(
+            old_vids.len(),
+            NUM_OBJECTS,
+            "Should have {NUM_OBJECTS} old version IDs"
+        );
+
+        // Upload latest versions in parallel
+        let latest_objects: Vec<(String, Vec<u8>)> = (0..NUM_OBJECTS)
+            .map(|i| (format!("data/file{i:04}.dat"), vec![b'w'; 200]))
+            .collect();
+        helper.put_objects_parallel(&bucket, latest_objects).await;
+
+        // Capture latest version IDs (new ones that weren't in old_vids)
+        let all_versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(
+            all_versions.len(),
+            NUM_OBJECTS * 2,
+            "Should have {} versions before pipeline",
+            NUM_OBJECTS * 2
+        );
+        let latest_vids: std::collections::HashSet<String> = all_versions
+            .iter()
+            .map(|(_, vid)| vid.clone())
+            .filter(|vid| !old_vids.contains(vid))
+            .collect();
+        assert_eq!(
+            latest_vids.len(),
+            NUM_OBJECTS,
+            "Should have {NUM_OBJECTS} latest version IDs"
+        );
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--keep-latest-only",
+            "--delete-all-versions",
+            "--worker-size",
+            "8",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error, "Pipeline should complete without errors");
+        assert_eq!(
+            result.stats.stats_deleted_objects, NUM_OBJECTS as u64,
+            "Should delete {} old versions",
+            NUM_OBJECTS
+        );
+
+        let post_versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(
+            post_versions.len(),
+            NUM_OBJECTS,
+            "Should have {} versions remaining (one per key)",
+            NUM_OBJECTS
+        );
+
+        let remaining_vids: std::collections::HashSet<String> =
+            post_versions.iter().map(|(_, vid)| vid.clone()).collect();
+
+        // Verify: all latest version IDs retained
+        for vid in &latest_vids {
+            assert!(
+                remaining_vids.contains(vid),
+                "Latest version ID {vid} should be retained"
+            );
+        }
+
+        // Verify: all old version IDs gone
+        for vid in &old_vids {
+            assert!(
+                !remaining_vids.contains(vid),
+                "Old version ID {vid} should have been deleted"
+            );
+        }
+
+        guard.cleanup().await;
+    })
+    .await
+    .expect("1000-object test timed out (3 min limit)");
+}

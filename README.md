@@ -1,8 +1,8 @@
 # s3rm
 
 [![Crates.io](https://img.shields.io/crates/v/s3rm-rs.svg)](https://crates.io/crates/s3rm-rs)
-![](https://img.shields.io/crates/d/s3rm-rs?label=downloads%20%28crates.io%29)
-![](https://img.shields.io/github/downloads/nidor1998/s3rm-rs/total?label=downloads%20%28GitHub%29)
+[![Crates.io](https://img.shields.io/crates/d/s3rm-rs?label=downloads%20%28crates.io%29)](https://crates.io/crates/s3rm-rs)
+[![GitHub](https://img.shields.io/github/downloads/nidor1998/s3rm-rs/total?label=downloads%20%28GitHub%29)](https://github.com/nidor1998/s3rm-rs)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 ![MSRV](https://img.shields.io/badge/msrv-1.91.0-red)
 ![CI](https://github.com/nidor1998/s3rm-rs/actions/workflows/ci.yml/badge.svg?branch=main)
@@ -1119,16 +1119,16 @@ No human wrote a single line of source code in this project. Every line of sourc
 
 Human engineers authored the requirements, design specifications, and s3sync reference architecture. They thoroughly reviewed and verified the design, all source code, and all tests. All features of the initial build binary have been manually tested and verified by humans. All E2E test scenarios have been thoroughly verified by humans against live AWS S3. The development followed a spec-driven process: requirements and design documents were written first, and the AI generated code to match those specifications under continuous human oversight.
 
-### Quality verification (by AI self-assessment, v1.0.2)
+### Quality verification (by AI self-assessment, v1.1.0)
 
 | Metric | Value |
 |---|---|
 | Production code | 16,146 lines of Rust (46 source files) |
 | Test code | 25,343 lines (1.57x production code) |
-| Unit & property tests | 706 passing (676 lib + 30 binary), 0 failing |
+| Unit & property tests | 744 passing (714 lib + 30 binary), 0 failing |
 | Property-based tests (proptest) | 49 correctness properties across 19 test files |
-| E2E integration tests | 87 tests across 14 test files, all verified against live AWS S3 |
-| Code coverage (llvm-cov) | 97.39% regions, 96.55% functions, 97.90% lines |
+| E2E integration tests | 106 tests across 15 test files, all verified against live AWS S3 |
+| Code coverage (llvm-cov) | 97.45% regions, 96.69% functions, 97.95% lines |
 | Static analysis (clippy) | 0 warnings |
 | Dependency audit (cargo-deny) | advisories ok, bans ok, licenses ok, sources ok |
 | Security review (Claude Code) | No issues found |
@@ -1194,7 +1194,7 @@ The following E2E tests specifically verify that bugs in critical code paths wou
 #### Known limitations
 
 - With `batch_size > 1` and multiple workers, the actual deletion count may slightly exceed the threshold because each worker may have already buffered objects before another worker triggers cancellation. Users who need exact enforcement should use `--batch-size 1`.
-- The tool is new. While test coverage is high (97%+ line coverage, 87 E2E tests against live S3) and the architecture is reused from the established s3sync project, real-world usage over time is the strongest proof of reliability. Tests can only catch the bugs they were written to find.
+- The tool is new. While test coverage is high (97%+ line coverage, 106 E2E tests against live S3) and the architecture is reused from the established s3sync project, real-world usage over time is the strongest proof of reliability. Tests can only catch the bugs they were written to find.
 - Testing cannot prove the absence of bugs. The E2E suite verifies specific scenarios against real S3, but untested edge cases or race conditions in concurrent deletion workers could still exist.
 
 #### Overall assessment

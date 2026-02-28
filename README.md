@@ -60,6 +60,7 @@ This demo shows Express One Zone deleting approximately 34,000 objects per secon
     * [Delete by modified time](#delete-by-modified-time)
     * [Combined filters](#combined-filters)
     * [Delete all versions](#delete-all-versions)
+    * [Keep only latest versions](#keep-only-latest-versions)
     * [Set a deletion limit](#set-a-deletion-limit)
     * [Custom endpoint](#custom-endpoint)
     * [Specify credentials](#specify-credentials)
@@ -163,10 +164,11 @@ All filters are combined with logical AND — an object must pass every active f
 
 ### S3 versioning
 
-S3 versioned buckets store multiple versions of each object. s3rm handles both scenarios:
+S3 versioned buckets store multiple versions of each object. s3rm handles all scenarios:
 
 - **Default behavior** — creates delete markers (objects appear deleted but previous versions are preserved)
 - **`--delete-all-versions`** — permanently removes every version of matching objects, including delete markers
+- **`--keep-latest-only`** — retains only the latest version of each object, deleting all older versions (requires `--delete-all-versions`)
 
 ### S3 Express One Zone support
 
@@ -528,6 +530,16 @@ On versioned buckets, delete every version of every object under a prefix:
 s3rm --delete-all-versions --force s3://my-bucket/old-data/
 ```
 
+### Keep only latest versions
+
+On versioned buckets, delete all older versions while keeping only the latest version of each object:
+
+```bash
+s3rm --keep-latest-only --delete-all-versions --force s3://my-bucket/data/
+```
+
+This is useful for enforcing version retention policies — it cleans up old versions while preserving the current state of every object. Can be combined with `--filter-include-regex` or `--filter-exclude-regex` to target specific keys.
+
 ### Set a deletion limit
 
 Stop after deleting 1,000 objects (safety net for large buckets):
@@ -612,13 +624,14 @@ s3rm filters objects in the following order:
 4. `--filter-larger-size`
 5. `--filter-include-regex`
 6. `--filter-exclude-regex`
-7. `FilterCallback (--filter-callback-lua-script / UserDefinedFilterCallback)`
-8. `--filter-include-content-type-regex`
-9. `--filter-exclude-content-type-regex`
-10. `--filter-include-metadata-regex`
-11. `--filter-exclude-metadata-regex`
-12. `--filter-include-tag-regex`
-13. `--filter-exclude-tag-regex`
+7. `--keep-latest-only`
+8. `FilterCallback (--filter-callback-lua-script / UserDefinedFilterCallback)`
+9. `--filter-include-content-type-regex`
+10. `--filter-exclude-content-type-regex`
+11. `--filter-include-metadata-regex`
+12. `--filter-exclude-metadata-regex`
+13. `--filter-include-tag-regex`
+14. `--filter-exclude-tag-regex`
 
 Filters that require additional API calls (content type, metadata, tags) are applied last to minimize unnecessary requests.
 
@@ -657,6 +670,8 @@ Without `--delete-all-versions`, deleting from a versioned bucket creates delete
 
 With `--delete-all-versions`, s3rm uses `ListObjectVersions` instead of `ListObjectsV2` to enumerate every version of every object (including delete markers), and permanently deletes them all. Each version counts as a separate object in progress statistics.
 
+With `--keep-latest-only --delete-all-versions`, s3rm lists all versions but only deletes the non-latest ones, keeping the latest version of each object intact. This is useful for enforcing version retention policies. The target bucket must have versioning enabled; otherwise s3rm returns an error.
+
 ### Optimistic locking detail
 
 With `--if-match`, s3rm uses each object's ETag (obtained during listing) to include the `If-Match` header in deletion requests.
@@ -664,6 +679,8 @@ With `--if-match`, s3rm uses each object's ETag (obtained during listing) to inc
 This serves as optimistic locking — it prevents s3rm from deleting an object that has been modified by another process after s3rm listed it. If the ETag has changed, the deletion is skipped and a warning is logged.
 
 Note: `--if-match` uses single-object `DeleteObject` API calls (not batch deletion), which may reduce throughput. Use this option when correctness in concurrent environments matters more than raw speed.
+
+Note: `--if-match` cannot be used with `--delete-all-versions`. S3 does not support If-Match conditional headers when deleting by version ID (returns `NotImplemented`).
 
 It is a challenging topic to understand, please refer to [AWS documentation](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-requests.html).
 
@@ -830,6 +847,7 @@ For more information, see `s3rm -h`.
 | `--force` | `-f` | `false` | Skip confirmation prompt |
 | `--show-no-progress` | | `false` | Hide the progress bar |
 | `--delete-all-versions` | | `false` | Delete all versions including delete markers |
+| `--keep-latest-only` | | `false` | Keep only the latest version, delete older versions (requires `--delete-all-versions`) |
 | `--max-delete` | | | Stop after deleting this many objects |
 
 ### Filtering
@@ -1088,7 +1106,7 @@ RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_deletion
 RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_deletion -- e2e_basic_prefix_deletion
 ```
 
-Available test files: `e2e_deletion`, `e2e_filter`, `e2e_versioning`, `e2e_safety`, `e2e_callback`, `e2e_optimistic`, `e2e_performance`, `e2e_tracing`, `e2e_retry`, `e2e_error`, `e2e_aws_config`, `e2e_combined`, `e2e_stats`, `e2e_express_one_zone`.
+Available test files: `e2e_deletion`, `e2e_filter`, `e2e_versioning`, `e2e_safety`, `e2e_callback`, `e2e_optimistic`, `e2e_performance`, `e2e_tracing`, `e2e_retry`, `e2e_error`, `e2e_aws_config`, `e2e_combined`, `e2e_stats`, `e2e_express_one_zone`, `e2e_keep_latest_only`.
 
 Express One Zone tests require the `S3RM_E2E_AZ_ID` environment variable (defaults to `apne1-az4` if unset).
 

@@ -101,6 +101,7 @@ This demo shows Express One Zone deleting approximately 34,000 objects per secon
 - [Fully AI-generated (human-verified) software](#fully-ai-generated-human-verified-software)
     * [Quality verification (by AI self-assessment, initial build)](#quality-verification-by-ai-self-assessment-initial-build)
     * [AI assessment of safety and correctness (by Claude, Anthropic)](#ai-assessment-of-safety-and-correctness-by-claude-anthropic)
+    * [AI assessment of safety and correctness (by Codex)](#ai-assessment-of-safety-and-correctness-by-codex)
 - [Recommendation](#recommendation)
 - [AI Evaluation Notice](#ai-evaluation-notice)
 - [License](#license)
@@ -1200,6 +1201,55 @@ The following E2E tests specifically verify that bugs in critical code paths wou
 #### Overall assessment
 
 The safety features provide reasonable protection against user mistakes. For software trustworthiness, the E2E test suite verifies critical deletion behaviors against real AWS S3 — not mocks — with explicit before/after state assertions. Each test is designed so that a specific category of bug (filter leaks, dry-run data loss, prefix boundary violations, stale deletions) would cause a concrete, detectable test failure. This does not guarantee the absence of bugs, but it does mean the most dangerous categories of incorrect behavior are actively tested.
+
+</details>
+
+### AI assessment of safety and correctness (by Codex)
+
+<details>
+<summary>Click to expand the full AI assessment</summary>
+
+> Assessment date: February 28, 2026
+>
+> Assessed version: s3rm-rs v1.1.0
+>
+> Basis: repository-wide source/test scan, focused review of critical paths (pipeline, deleter, safety, storage/s3, config/args, types, lua), recent commit history (451 commits total), and the provided full test + coverage run.
+
+#### Overall verdict
+
+I did not find a critical safety/correctness defect that would indicate systemic over-deletion risk in the current v1.1.0 code.
+The design shows strong defense-in-depth and unusually strong test discipline for a deletion tool.
+
+#### Evidence supporting this verdict
+
+- Safety controls are layered and explicit:
+    - exact "yes" confirmation for destructive runs
+    - --force / --dry-run gating
+    - non-interactive + JSON logging guard without --force
+    - runtime guardrails for library users (keep_latest_only and if_match incompatibilities checked in pipeline, not only CLI)
+- Dry-run implementation is correctly separated (simulated delete results; no delete API path in dry-run branch).
+- Versioning and optimistic-locking semantics are guarded (--if-match conflict with --delete-all-versions, version-aware deletion paths, ETag behavior).
+- Test signal is very strong:
+    - 744 unit/property tests (all passing)
+    - 106 E2E tests against live AWS S3 (all passing)
+    - 850 total passing tests
+- Coverage is high:
+    - 97.45% regions, 96.69% functions, 97.95% lines (from provided cargo llvm-cov --all-features run)
+
+#### Residual risks / limitations
+
+- --max-delete is cancellation-based and can still allow slight overshoot in concurrent/batched scenarios (known behavior; mitigated by --batch-size 1 when strictness is needed).
+- Some lower-covered production areas remain, notably:
+    - src/safety/mod.rs (~76.7% regions)
+    - src/bin/s3rm/main.rs (~81.4% regions)
+    - src/storage/s3/mod.rs (~84.7% regions)
+- There are internal unwrap() uses on AWS SDK object fields (S3Object getters). If AWS returns unexpectedly incomplete objects, this is more likely to cause abnormal termination than silent over-deletion.
+- --allow-lua-unsafe-vm intentionally removes Lua sandbox protections; this is an explicit trust boundary.
+
+#### Final assessment
+
+For an S3 deletion tool, this codebase is well-defended and highly tested, with no critical flaw found in current analysis.
+It appears suitable for cautious production use with standard operational safeguards (--dry-run, scoped prefixes, low batch size for strict caps, staged rollout).
 
 </details>
 

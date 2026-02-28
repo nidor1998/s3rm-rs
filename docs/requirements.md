@@ -200,6 +200,7 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 2. WHEN an If-Match condition fails (ETag mismatch, indicating the object was modified since listing), THE S3rm_Tool SHALL log the failure and skip the object
 3. THE S3rm_Tool SHALL support enabling If-Match via a boolean command-line flag (--if-match)
 4. WHEN using If-Match with batch deletions, THE Batch_Deleter SHALL include per-object ETags in the DeleteObjects request and handle conditional deletion failures appropriately
+5. WHERE --delete-all-versions is enabled, THE S3rm_Tool SHALL reject --if-match because S3 does not support If-Match conditional headers when deleting by version ID (returns NotImplemented)
 
 ### Requirement 12: Library API Support
 

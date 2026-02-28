@@ -156,9 +156,12 @@ pub struct CLIArgs {
             "filter_smaller_size",
             "filter_mtime_before",
             "filter_mtime_after",
-            "filter_callback_lua_script",
         ],
         help_heading = "General",
+    )]
+    #[cfg_attr(
+        feature = "lua_support",
+        arg(conflicts_with = "filter_callback_lua_script")
     )]
     pub keep_latest_only: bool,
 

@@ -318,7 +318,7 @@ graph LR
     F4 -->|Channel| F5[IncludeRegexFilter]
     F5 -->|Channel| F6[ExcludeRegexFilter]
     F6 -->|Channel| F7[UserDefinedFilter]
-@    F7 -->|Channel| F8[KeepLatestOnlyFilter]
+    F7 -->|Channel| F8[KeepLatestOnlyFilter]
     F8 -->|MPMC Channel| D1[ObjectDeleter Worker 1]
     F8 -->|MPMC Channel| D2[ObjectDeleter Worker 2]
     F8 -->|MPMC Channel| D3[ObjectDeleter Worker N]

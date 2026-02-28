@@ -102,6 +102,7 @@ This demo shows Express One Zone deleting approximately 34,000 objects per secon
     * [Quality verification (by AI self-assessment, initial build)](#quality-verification-by-ai-self-assessment-initial-build)
     * [AI assessment of safety and correctness (by Claude, Anthropic)](#ai-assessment-of-safety-and-correctness-by-claude-anthropic)
     * [AI assessment of safety and correctness (by Codex)](#ai-assessment-of-safety-and-correctness-by-codex)
+    * [AI assessment of safety and correctness (by Gemini)](#ai-assessment-of-safety-and-correctness-by-gemini)
 - [Recommendation](#recommendation)
 - [AI Evaluation Notice](#ai-evaluation-notice)
 - [License](#license)
@@ -1273,6 +1274,56 @@ The design shows strong defense-in-depth and unusually strong test discipline fo
 
 For an S3 deletion tool, this codebase is well-defended and highly tested, with no critical flaw found in current analysis.
 It appears suitable for cautious production use with standard operational safeguards (--dry-run, scoped prefixes, low batch size for strict caps, staged rollout).
+
+</details>
+
+### AI assessment of safety and correctness (by Gemini)
+
+<details>
+<summary>Click to expand the full AI assessment</summary>
+
+> Assessment date: February 28, 2026
+>
+> Assessed version: s3rm-rs v1.1.0
+>
+> Analysis Basis: Comprehensive review of the streaming pipeline architecture, safety-critical modules (safety, deleter, lister), Lua sandbox implementation, and a data-driven evaluation of the 850+ test cases (unit, property, and live-S3 E2E) and 97.95% line coverage.
+
+#### 1. Architectural Integrity and Correctness
+
+The s3rm-rs project employs a sophisticated, asynchronous streaming pipeline (List → Filter → Delete → Terminate) that is fundamentally sound for high-concurrency operations.
+
+- **Memory Efficiency**: By utilizing bounded async channels (async-channel) and a stage-based architecture, the tool maintains constant memory usage regardless of the bucket size. This is a critical correctness property for a tool intended to handle millions of objects.
+- **Concurrency Model**: The use of an MPMC (Multi-Producer, Multi-Consumer) pattern for deletion workers ensures optimal throughput while the Terminator stage guarantees a graceful shutdown. The "double-spawn" pattern used in the orchestrator is an advanced Rust idiom that correctly captures and reports panics in worker tasks, preventing silent failures.
+- **Robust Deletion Semantics**: The BatchDeleter implementation is particularly impressive. It doesn't just call the S3 API; it implements a robust two-layer retry logic. The application-level fallback from failed batch deletions to individual DeleteObject calls for retryable error codes (InternalError, SlowDown, etc.) significantly enhances reliability in unstable network conditions or under heavy throttling.
+
+#### 2. Safety and Defense-in-Depth
+
+Safety is not treated as an afterthought but is integrated into the core pipeline logic.
+
+- **Verification-First Workflow**: The SafetyChecker enforces a strict validation sequence. The requirement for an exact "yes" (case-sensitive) and the automated detection of non-interactive environments (Non-TTY/JSON logging) are excellent safeguards against accidental execution in CI/CD pipelines.
+- **Dry-Run Fidelity**: The dry-run implementation is clean; it follows the exact same listing and filtering paths as a destructive run, diverging only at the final API call. This ensures that the "preview" is an accurate representation of reality.
+- **Versioning Safeguards**: The tool handles S3 versioning with precision. It correctly differentiates between "standard" deletion (creating delete markers) and permanent deletion (--delete-all-versions). The runtime validation that --keep-latest-only requires --delete-all-versions protects library users from logically inconsistent configurations.
+- **Optimistic Locking**: The implementation of --if-match (ETag-based conditional deletion) is a high-water mark for correctness in distributed systems, preventing race conditions where an object is modified between the listing and deletion phases.
+
+#### 3. Testing and Validation Quality
+
+The testing discipline in this project is exceptional.
+
+- **Test Density**: With a test-to-code ratio of approximately 1.57x and 97.95% line coverage, the codebase is among the most thoroughly verified open-source S3 tools.
+- **Property-Based Testing**: The use of proptest for 49 correctness properties is a superior approach to standard unit testing. It allows the tool to be verified against thousands of randomized edge-case inputs (e.g., unusual S3 keys, edge-case timestamps, and complex filter combinations) that a human might never consider.
+- **Live S3 Validation**: The 106 E2E tests running against live AWS S3 (not mocks) provide the ultimate proof of correctness. These tests verify critical behaviors like prefix boundary enforcement, max-delete threshold accuracy, and partial failure recovery under real-world conditions.
+
+#### 4. Technical Observations & Residual Risks
+
+- **Max-Delete Precision**: The --max-delete threshold is enforced via a cancellation token. In highly concurrent batch modes, a slight overshoot (deleting a few more objects than the limit) is theoretically possible due to the time it takes for a cancellation signal to propagate to all workers. This is a standard trade-off for performance in distributed systems and is mitigated by setting --batch-size 1 for strict enforcement.
+- **Lua Sandbox**: The Lua environment is properly sandboxed by default, removing OS and IO libraries. The provision of --allow-lua-unsafe-vm is a "power-user" feature that shifts the security responsibility to the operator, which is a reasonable design choice for a professional tool.
+- **AI-Generated Integrity**: Despite being 100% AI-generated, the resulting Rust code is idiomatic, type-safe, and follows senior-level engineering patterns. The human-verification layer appears to have been rigorous, as evidenced by the high-quality documentation and comprehensive test suite.
+
+#### Final Verdict
+
+s3rm-rs is a high-reliability, production-grade tool. The combination of a streaming architecture, multi-layered safety checks, and an exhaustive test suite (specifically the property-based and live E2E tests) makes it significantly safer and more robust than standard alternatives like `aws s3 rm --recursive`.
+
+**Gemini Assessment: S (Superior / Safe for Production Use)**
 
 </details>
 

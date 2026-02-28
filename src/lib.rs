@@ -77,7 +77,9 @@ async fn main() {
 }
 ```
 
-Or build a [`Config`] programmatically with [`Config::for_target`]:
+You can also build a [`Config`] with [`Config::for_target`], but note that
+**command-line validation checks are not performed** (e.g. conflicting flags,
+rate-limit vs batch-size). Prefer [`build_config_from_args`] when possible:
 
 ```no_run
 # use s3rm_rs::Config;

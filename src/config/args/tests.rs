@@ -250,7 +250,6 @@ fn config_from_full_args() {
         "--delete-all-versions",
         "--max-delete",
         "10000",
-        "--if-match",
         "--filter-include-regex",
         ".*\\.log$",
     ];
@@ -263,7 +262,6 @@ fn config_from_full_args() {
     assert_eq!(config.worker_size, 50);
     assert!(config.delete_all_versions);
     assert_eq!(config.max_delete, Some(10000));
-    assert!(config.if_match);
     assert!(config.filter_config.include_regex.is_some());
 }
 
@@ -1019,4 +1017,15 @@ fn config_keep_latest_only_defaults_to_false() {
     let cli = parse_from_args(args).unwrap();
     let config = Config::try_from(cli).unwrap();
     assert!(!config.filter_config.keep_latest_only);
+}
+
+#[test]
+fn parse_if_match_conflicts_with_delete_all_versions() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--if-match",
+        "--delete-all-versions",
+    ];
+    assert!(parse_from_args(args).is_err());
 }

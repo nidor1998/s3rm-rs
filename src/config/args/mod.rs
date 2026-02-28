@@ -468,7 +468,7 @@ Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
     // Advanced options (same as s3sync)
     // -----------------------------------------------------------------------
     /// Use ETag-based conditional deletion to prevent race conditions
-    #[arg(long, env, default_value_t = DEFAULT_IF_MATCH, help_heading = "Advanced")]
+    #[arg(long, env, default_value_t = DEFAULT_IF_MATCH, conflicts_with = "delete_all_versions", help_heading = "Advanced")]
     pub if_match: bool,
 
     /// Treat warnings as errors (exit code 1 instead of 3)

@@ -235,6 +235,17 @@ impl DeletionPipeline {
             ));
         }
 
+        // --if-match is incompatible with --delete-all-versions. S3 does not
+        // support If-Match conditional headers when deleting by version_id
+        // (returns NotImplemented). The CLI enforces this via clap's
+        // `conflicts_with`, but validate at runtime for library API users.
+        if self.config.if_match && self.config.delete_all_versions {
+            return Err(anyhow::anyhow!(
+                "--if-match cannot be used with --delete-all-versions. \
+                 S3 does not support If-Match conditional headers when deleting by version ID."
+            ));
+        }
+
         // If delete_all_versions is set but the bucket is not versioned:
         //   - With --keep-latest-only: error out (versioning required).
         //   - Otherwise: silently clear the flag and proceed with normal deletion
@@ -1549,6 +1560,48 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("--keep-latest-only requires --delete-all-versions")
+        );
+    }
+
+    #[tokio::test]
+    async fn pipeline_if_match_with_delete_all_versions_errors() {
+        init_dummy_tracing_subscriber();
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage: Storage = Box::new(ListingMockStorage {
+            objects: vec![],
+            stats_sender,
+            has_warning: has_warning.clone(),
+        });
+
+        let mut config = create_test_config();
+        config.force = true;
+        config.if_match = true;
+        config.delete_all_versions = true;
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let mut pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token,
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        let result = pipeline.check_prerequisites().await;
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("--if-match cannot be used with --delete-all-versions")
         );
     }
 

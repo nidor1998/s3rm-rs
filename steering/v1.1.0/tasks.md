@@ -10,9 +10,9 @@
 ## Status Summary
 
 - Total tasks: 8
-- Completed: 6
+- Completed: 7
 - In progress: 0
-- Pending: 2
+- Pending: 1
 
 ## Tasks
 
@@ -50,7 +50,7 @@
   - Property tests for `KeepLatestOnlyFilter` behavior across generated `S3Object` variants
   - Add to `src/property_tests/` following existing patterns
 
-- [ ] 7. E2E tests
+- [x] 7. E2E tests
   - Create `tests/e2e_keep_latest_only.rs` with versioned bucket scenarios
   - Test cases: keep-latest-only deletes old versions and retains latest; works with include/exclude regex; rejects disallowed filter combinations; requires `--delete-all-versions`
 

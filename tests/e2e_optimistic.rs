@@ -255,3 +255,57 @@ async fn e2e_if_match_etag_mismatch_skips_modified_objects() {
         guard.cleanup().await;
     });
 }
+
+// ---------------------------------------------------------------------------
+// Library API: Runtime guard rejects if_match + delete_all_versions
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_library_runtime_guard_if_match_delete_all_versions() {
+    e2e_timeout!(async {
+        // Purpose: Verify that the library API's runtime guard (in
+        //          check_prerequisites) rejects the combination of
+        //          if_match=true and delete_all_versions=true. This guard
+        //          exists for library API users who bypass CLI validation.
+        // Setup:   Build a config with only --force (valid), then manually
+        //          override if_match and delete_all_versions fields.
+        // Expected: pipeline.run() records an error containing
+        //           "if-match" and "delete-all-versions".
+        //
+        // Validates: Requirement 11.5
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        // Build a valid config, then manually enable the conflicting flags
+        let mut config = TestHelper::build_config(vec![&format!("s3://{bucket}/"), "--force"]);
+        config.if_match = true;
+        config.delete_all_versions = true;
+
+        let token = s3rm_rs::create_pipeline_cancellation_token();
+        let mut pipeline = s3rm_rs::DeletionPipeline::new(config, token).await;
+        pipeline.close_stats_sender();
+
+        // check_prerequisites should reject this combination
+        let result = pipeline.check_prerequisites().await;
+        assert!(
+            result.is_err(),
+            "check_prerequisites should reject if_match + delete_all_versions"
+        );
+
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("if-match") || err_msg.contains("if_match"),
+            "Error should mention if-match; got: {err_msg}"
+        );
+        assert!(
+            err_msg.contains("delete-all-versions") || err_msg.contains("delete_all_versions"),
+            "Error should mention delete-all-versions; got: {err_msg}"
+        );
+
+        guard.cleanup().await;
+    });
+}

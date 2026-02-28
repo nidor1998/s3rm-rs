@@ -7,7 +7,9 @@
 
 mod common;
 
-use common::TestHelper;
+use common::{CollectingEventCallback, TestHelper};
+use s3rm_rs::EventType;
+use std::sync::{Arc, Mutex};
 
 /// Helper: put an object and return its version ID.
 async fn put_object_versioned(
@@ -1138,4 +1140,316 @@ async fn e2e_keep_latest_only_1000_objects_multi_worker() {
     })
     .await
     .expect("1000-object test timed out (3 min limit)");
+}
+
+// ---------------------------------------------------------------------------
+// Keep Latest Only: Deep delete markers (3 old versions + latest delete marker)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_keep_latest_only_deep_delete_markers() {
+    e2e_timeout!(async {
+        // Purpose: Verify that --keep-latest-only correctly handles a key whose
+        //          latest version is a delete marker with 3 older object versions
+        //          underneath. The delete marker (latest) should be retained, and
+        //          the 3 old object versions should be deleted.
+        // Setup:   Create versioned bucket; upload object 3 times (v1, v2, v3),
+        //          then delete_object to create a delete marker on top.
+        //          Total: 3 object versions + 1 delete marker = 4 versions.
+        // Expected: 3 old object versions deleted, delete marker retained.
+        //           list_object_versions shows only 1 entry (the delete marker).
+        //
+        // **Validates: Requirements 14.1, 14.7**
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        let key = "deep-dm/object.dat";
+
+        // Upload 3 versions
+        let _v1 = put_object_versioned(&helper, &bucket, key, vec![b'1'; 100]).await;
+        let _v2 = put_object_versioned(&helper, &bucket, key, vec![b'2'; 200]).await;
+        let _v3 = put_object_versioned(&helper, &bucket, key, vec![b'3'; 300]).await;
+
+        // Create delete marker on top (makes the delete marker the "latest")
+        helper
+            .client()
+            .delete_object()
+            .bucket(&bucket)
+            .key(key)
+            .send()
+            .await
+            .unwrap_or_else(|e| panic!("Failed to create delete marker: {e}"));
+
+        // Verify pre-state: 3 object versions + 1 delete marker = 4 entries
+        let pre_versions = helper.list_object_versions(&bucket).await;
+        let pre_markers = pre_versions
+            .iter()
+            .filter(|(k, _)| k.starts_with("[delete-marker]"))
+            .count();
+        let pre_objects = pre_versions
+            .iter()
+            .filter(|(k, _)| !k.starts_with("[delete-marker]"))
+            .count();
+        assert_eq!(pre_markers, 1, "Should have 1 delete marker before run");
+        assert_eq!(pre_objects, 3, "Should have 3 object versions before run");
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/deep-dm/"),
+            "--keep-latest-only",
+            "--delete-all-versions",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error, "Pipeline should complete without errors");
+        assert_eq!(
+            result.stats.stats_deleted_objects, 3,
+            "Should delete 3 old object versions"
+        );
+
+        // Verify: only 1 entry remains — the delete marker
+        let post_versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(
+            post_versions.len(),
+            1,
+            "Only the delete marker should remain; found {}",
+            post_versions.len()
+        );
+        assert!(
+            post_versions[0].0.starts_with("[delete-marker]"),
+            "Remaining entry should be a delete marker, got: {}",
+            post_versions[0].0
+        );
+
+        guard.cleanup().await;
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Keep Latest Only: Empty versioned bucket (no objects)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_keep_latest_only_empty_versioned_bucket() {
+    e2e_timeout!(async {
+        // Purpose: Verify that --keep-latest-only on an empty versioned bucket
+        //          completes successfully with 0 deletions and no errors.
+        // Setup:   Create versioned bucket, upload nothing.
+        // Expected: Pipeline succeeds, 0 deletions, no errors.
+        //
+        // **Validates: Requirement 14.1**
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/"),
+            "--keep-latest-only",
+            "--delete-all-versions",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(
+            !result.has_error,
+            "Pipeline should complete without errors on empty bucket"
+        );
+        assert_eq!(
+            result.stats.stats_deleted_objects, 0,
+            "No objects to delete in empty bucket"
+        );
+        assert_eq!(result.stats.stats_failed_objects, 0, "No failures expected");
+
+        guard.cleanup().await;
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Keep Latest Only: --filter-exclude-regex + --keep-latest-only
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_keep_latest_only_with_exclude_regex() {
+    e2e_timeout!(async {
+        // Purpose: Verify that --filter-exclude-regex combined with --keep-latest-only
+        //          excludes matching keys from processing entirely. Excluded keys
+        //          should retain ALL their versions (latest + old), while non-excluded
+        //          keys should have only their latest version retained.
+        // Setup:   Create versioned bucket; upload 3 keys under logs/ (2 versions each)
+        //          and 3 keys under data/ (2 versions each). Total: 12 versions.
+        //          Run with --filter-exclude-regex "^logs/" to exclude logs/ keys.
+        // Expected: data/ old versions deleted (3), latest retained (3);
+        //           logs/ completely untouched (all 6 versions remain).
+        //
+        // **Validates: Requirements 14.4, 14.1**
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        // Upload logs/ keys with 2 versions each
+        for i in 0..3 {
+            let key = format!("logs/log{i}.txt");
+            let _v1 = put_object_versioned(&helper, &bucket, &key, vec![b'L'; 100]).await;
+            let _v2 = put_object_versioned(&helper, &bucket, &key, vec![b'L'; 200]).await;
+        }
+
+        // Upload data/ keys with 2 versions each
+        for i in 0..3 {
+            let key = format!("data/dat{i}.txt");
+            let _v1 = put_object_versioned(&helper, &bucket, &key, vec![b'D'; 100]).await;
+            let _v2 = put_object_versioned(&helper, &bucket, &key, vec![b'D'; 200]).await;
+        }
+
+        // Verify pre-state: 12 versions total
+        let pre_versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(pre_versions.len(), 12, "Should start with 12 versions");
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/"),
+            "--keep-latest-only",
+            "--delete-all-versions",
+            "--filter-exclude-regex",
+            "^logs/",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error, "Pipeline should complete without errors");
+        assert_eq!(
+            result.stats.stats_deleted_objects, 3,
+            "Should delete 3 old data/ versions"
+        );
+
+        // Verify logs/ untouched: all 6 versions remain
+        let post_versions = helper.list_object_versions(&bucket).await;
+        let logs_versions: Vec<_> = post_versions
+            .iter()
+            .filter(|(k, _)| {
+                let key = k.strip_prefix("[delete-marker]").unwrap_or(k.as_str());
+                key.starts_with("logs/")
+            })
+            .collect();
+        assert_eq!(
+            logs_versions.len(),
+            6,
+            "All 6 logs/ versions should remain untouched"
+        );
+
+        // Verify data/: only 3 latest versions remain
+        let data_versions: Vec<_> = post_versions
+            .iter()
+            .filter(|(k, _)| {
+                let key = k.strip_prefix("[delete-marker]").unwrap_or(k.as_str());
+                key.starts_with("data/")
+            })
+            .collect();
+        assert_eq!(
+            data_versions.len(),
+            3,
+            "Only 3 latest data/ versions should remain"
+        );
+
+        guard.cleanup().await;
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Keep Latest Only: Event callback receives deletion events
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_keep_latest_only_event_callback() {
+    e2e_timeout!(async {
+        // Purpose: Verify that event callbacks receive deletion events when
+        //          --keep-latest-only is used. The callback should capture
+        //          DELETE_COMPLETE events for each old version deleted.
+        // Setup:   Create versioned bucket; upload 3 objects, overwrite each once
+        //          (6 versions total). Register CollectingEventCallback.
+        //          Run with --keep-latest-only --delete-all-versions --force.
+        // Expected: 3 old versions deleted; at least 3 DELETE_COMPLETE events
+        //           received by the callback.
+        //
+        // **Validates: Requirements 14.1, 7.6**
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..3 {
+            let key = format!("evt/file{i}.dat");
+            let _v1 = put_object_versioned(&helper, &bucket, &key, vec![b'O'; 100]).await;
+            let _v2 = put_object_versioned(&helper, &bucket, &key, vec![b'N'; 200]).await;
+        }
+
+        let collected_events = Arc::new(Mutex::new(Vec::new()));
+        let event_callback = CollectingEventCallback {
+            events: Arc::clone(&collected_events),
+        };
+
+        let mut config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/evt/"),
+            "--keep-latest-only",
+            "--delete-all-versions",
+            "--force",
+        ]);
+        config
+            .event_manager
+            .register_callback(EventType::ALL_EVENTS, event_callback, false);
+
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error, "Pipeline should complete without errors");
+        assert_eq!(
+            result.stats.stats_deleted_objects, 3,
+            "Should delete 3 old versions"
+        );
+
+        // Verify event callback received DELETE_COMPLETE events
+        {
+            let events = collected_events.lock().unwrap();
+            let delete_completes: Vec<_> = events
+                .iter()
+                .filter(|e| e.event_type == EventType::DELETE_COMPLETE)
+                .collect();
+            assert!(
+                delete_completes.len() >= 3,
+                "Should receive at least 3 DELETE_COMPLETE events; got {}",
+                delete_completes.len()
+            );
+
+            // Verify PIPELINE_START and PIPELINE_END are also present
+            let starts = events
+                .iter()
+                .filter(|e| e.event_type == EventType::PIPELINE_START)
+                .count();
+            let ends = events
+                .iter()
+                .filter(|e| e.event_type == EventType::PIPELINE_END)
+                .count();
+            assert_eq!(starts, 1, "Should have exactly 1 PIPELINE_START");
+            assert!(ends >= 1, "Should have at least 1 PIPELINE_END");
+        }
+
+        // Verify only latest versions remain
+        let post_versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(
+            post_versions.len(),
+            3,
+            "Only 3 latest versions should remain"
+        );
+
+        guard.cleanup().await;
+    });
 }

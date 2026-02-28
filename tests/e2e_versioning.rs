@@ -550,3 +550,44 @@ async fn e2e_delete_all_versions_unversioned_bucket_succeeds() {
         guard.cleanup().await;
     });
 }
+
+// ---------------------------------------------------------------------------
+// Delete All Versions: Empty versioned bucket (no objects)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_delete_all_versions_empty_versioned_bucket() {
+    e2e_timeout!(async {
+        // Purpose: Verify that --delete-all-versions on an empty versioned bucket
+        //          completes successfully with 0 deletions and no errors.
+        // Setup:   Create versioned bucket, upload nothing.
+        // Expected: Pipeline succeeds, 0 deletions, no errors.
+        //
+        // Validates: Requirement 5.2
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/"),
+            "--delete-all-versions",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(
+            !result.has_error,
+            "Pipeline should complete without errors on empty versioned bucket"
+        );
+        assert_eq!(
+            result.stats.stats_deleted_objects, 0,
+            "No objects to delete in empty bucket"
+        );
+        assert_eq!(result.stats.stats_failed_objects, 0, "No failures expected");
+
+        guard.cleanup().await;
+    });
+}

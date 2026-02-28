@@ -174,3 +174,82 @@ async fn e2e_force_flag_skips_confirmation() {
         guard.cleanup().await;
     });
 }
+
+// ---------------------------------------------------------------------------
+// Max Delete + Delete All Versions: counts each version separately
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_max_delete_counts_versions() {
+    e2e_timeout!(async {
+        // Purpose: Verify that --max-delete combined with --delete-all-versions
+        //          counts each object version as a separate deletion toward the
+        //          max-delete threshold, not each key.
+        // Setup:   Create versioned bucket; upload 5 objects, overwrite each once
+        //          (10 versions total). Run with --delete-all-versions --max-delete 5
+        //          --batch-size 1 --force.
+        // Expected: Exactly 5 versions deleted (max-delete counts versions);
+        //           at least 5 versions remain.
+        //
+        // Validates: Requirements 3.6, 5.4
+
+        const NUM_KEYS: usize = 5;
+        const MAX_DELETE: u64 = 5;
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        // Upload initial versions
+        for i in 0..NUM_KEYS {
+            helper
+                .put_object(&bucket, &format!("data/file{i}.dat"), vec![b'v'; 100])
+                .await;
+        }
+        // Overwrite each object to create a second version (10 versions total)
+        for i in 0..NUM_KEYS {
+            helper
+                .put_object(&bucket, &format!("data/file{i}.dat"), vec![b'w'; 200])
+                .await;
+        }
+
+        // Verify pre-state: 10 versions
+        let pre_versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(
+            pre_versions.len(),
+            NUM_KEYS * 2,
+            "Should start with {} versions",
+            NUM_KEYS * 2
+        );
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--delete-all-versions",
+            "--max-delete",
+            &MAX_DELETE.to_string(),
+            "--batch-size",
+            "1",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        // max-delete should have capped the deletions
+        assert_eq!(
+            result.stats.stats_deleted_objects, MAX_DELETE,
+            "Exactly {MAX_DELETE} versions should be deleted (max-delete enforced per version)"
+        );
+
+        // At least 5 versions should remain
+        let post_versions = helper.list_object_versions(&bucket).await;
+        assert!(
+            post_versions.len() >= NUM_KEYS,
+            "At least {} versions should remain; got {}",
+            NUM_KEYS,
+            post_versions.len()
+        );
+
+        guard.cleanup().await;
+    });
+}

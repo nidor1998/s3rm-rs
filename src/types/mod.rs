@@ -152,7 +152,7 @@ impl S3Object {
     pub fn is_latest(&self) -> bool {
         match &self {
             Self::Versioning(object) => object.is_latest().unwrap_or(false),
-            Self::NotVersioning(_) => false,
+            Self::NotVersioning(_) => true,
             Self::DeleteMarker(marker) => marker.is_latest().unwrap_or(false),
         }
     }
@@ -554,7 +554,7 @@ mod tests {
         assert_eq!(s3_object.e_tag().unwrap(), "my-etag");
         assert_eq!(*s3_object.last_modified(), DateTime::from_secs(777));
         assert!(s3_object.version_id().is_none());
-        assert!(!s3_object.is_latest());
+        assert!(s3_object.is_latest());
         assert!(!s3_object.is_delete_marker());
     }
 
@@ -618,7 +618,7 @@ mod tests {
     fn s3_object_new_is_not_versioning() {
         let obj = S3Object::new("key.txt", 100);
         assert!(obj.version_id().is_none());
-        assert!(!obj.is_latest());
+        assert!(obj.is_latest());
         assert!(!obj.is_delete_marker());
         assert!(matches!(obj, S3Object::NotVersioning(_)));
     }

@@ -151,9 +151,9 @@ impl S3Object {
 
     pub fn is_latest(&self) -> bool {
         match &self {
-            Self::Versioning(object) => object.is_latest().unwrap_or(false),
+            Self::Versioning(object) => object.is_latest().unwrap_or(true),
             Self::NotVersioning(_) => true,
-            Self::DeleteMarker(marker) => marker.is_latest().unwrap_or(false),
+            Self::DeleteMarker(marker) => marker.is_latest().unwrap_or(true),
         }
     }
 

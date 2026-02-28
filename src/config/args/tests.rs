@@ -969,6 +969,7 @@ fn parse_keep_latest_only_conflicts_with_mtime_before() {
     assert!(parse_from_args(args).is_err());
 }
 
+#[cfg(feature = "lua_support")]
 #[test]
 fn parse_keep_latest_only_conflicts_with_filter_callback_lua_script() {
     let args = vec![

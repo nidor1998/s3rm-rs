@@ -230,5 +230,42 @@ mod tests {
             prop_assert_eq!(passes, !is_latest,
                 "Filter result should be the inverse of is_latest");
         }
+
+        // -----------------------------------------------------------------------
+        // Property: Mixed collection of all S3Object variants is correctly
+        // partitioned — only explicit Some(false) objects pass through.
+        // -----------------------------------------------------------------------
+        #[test]
+        fn mixed_variants_are_correctly_partitioned(
+            key in arbitrary_key(),
+            version_id in arbitrary_version_id(),
+            is_latest in proptest::bool::ANY,
+        ) {
+            let config = keep_latest_only_config();
+
+            let objects = vec![
+                arbitrary_versioned_object(key.clone(), version_id.clone(), is_latest),
+                arbitrary_delete_marker(key.clone(), version_id.clone(), is_latest),
+                arbitrary_non_versioned_object(key.clone()),
+                arbitrary_versioned_object_none_is_latest(key.clone(), version_id.clone()),
+                arbitrary_delete_marker_none_is_latest(key, version_id),
+            ];
+
+            for object in &objects {
+                let passes = crate::filters::keep_latest_only::tests::test_is_not_latest(object, &config);
+                let expected = match object {
+                    S3Object::Versioning(v) => v.is_latest() == Some(false),
+                    S3Object::DeleteMarker(dm) => dm.is_latest() == Some(false),
+                    S3Object::NotVersioning(_) => false,
+                };
+                prop_assert_eq!(passes, expected,
+                    "Filter result mismatch for {:?} variant",
+                    match object {
+                        S3Object::Versioning(_) => "Versioning",
+                        S3Object::DeleteMarker(_) => "DeleteMarker",
+                        S3Object::NotVersioning(_) => "NotVersioning",
+                    });
+            }
+        }
     }
 }

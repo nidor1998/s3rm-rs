@@ -122,6 +122,144 @@ async fn e2e_if_match_batch_deletion() {
 }
 
 // ---------------------------------------------------------------------------
+// If-Match on Versioned Bucket with --delete-all-versions — Single Deletion
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_if_match_versioned_bucket_single_deletion() {
+    e2e_timeout!(async {
+        // Purpose: Verify --if-match + --delete-all-versions on a versioned bucket
+        //          with --batch-size 1 (single deleter path). S3's DeleteObject API
+        //          does not support If-Match conditional headers when deleting a
+        //          specific version by version_id. All versioned conditional deletion
+        //          attempts fail at the API level.
+        // Setup:   Create versioned bucket; upload 10 objects (1 version each).
+        // Expected: All 10 conditional deletion attempts fail (stats_failed_objects=10);
+        //           0 actual deletions; all 10 versions remain untouched.
+        //
+        // Validates: Requirements 11.1, 11.2, 11.3
+
+        const NUM_OBJECTS: usize = 10;
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..NUM_OBJECTS {
+            helper
+                .put_object(
+                    &bucket,
+                    &format!("ifmatch-ver-single/file{i:02}.dat"),
+                    vec![b'v'; 150],
+                )
+                .await;
+        }
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/ifmatch-ver-single/"),
+            "--delete-all-versions",
+            "--if-match",
+            "--batch-size",
+            "1",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        // All conditional deletion attempts fail at the S3 API level
+        assert_eq!(
+            result.stats.stats_deleted_objects, 0,
+            "No objects should be deleted (If-Match fails for versioned deletes)"
+        );
+        assert_eq!(
+            result.stats.stats_failed_objects, NUM_OBJECTS as u64,
+            "All {} conditional deletion attempts should fail",
+            NUM_OBJECTS
+        );
+
+        // All versions must remain untouched
+        let versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(
+            versions.len(),
+            NUM_OBJECTS,
+            "All {} versions should remain after failed conditional deletes",
+            NUM_OBJECTS
+        );
+
+        guard.cleanup().await;
+    });
+}
+
+// ---------------------------------------------------------------------------
+// If-Match on Versioned Bucket with --delete-all-versions — Batch Deletion
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_if_match_versioned_bucket_batch_deletion() {
+    e2e_timeout!(async {
+        // Purpose: Verify --if-match + --delete-all-versions on a versioned bucket
+        //          with the default batch size (batch deleter path). S3's DeleteObjects
+        //          API does not support If-Match conditional headers when deleting
+        //          specific versions by version_id. All versioned conditional deletion
+        //          attempts fail at the API level.
+        // Setup:   Create versioned bucket; upload 20 objects (1 version each).
+        // Expected: All 20 conditional deletion attempts fail (stats_failed_objects=20);
+        //           0 actual deletions; all 20 versions remain untouched.
+        //
+        // Validates: Requirements 11.1, 11.2, 11.4
+
+        const NUM_OBJECTS: usize = 20;
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..NUM_OBJECTS {
+            helper
+                .put_object(
+                    &bucket,
+                    &format!("ifmatch-ver-batch/file{i:02}.dat"),
+                    vec![b'b'; 200],
+                )
+                .await;
+        }
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/ifmatch-ver-batch/"),
+            "--delete-all-versions",
+            "--if-match",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        // All conditional deletion attempts fail at the S3 API level
+        assert_eq!(
+            result.stats.stats_deleted_objects, 0,
+            "No objects should be deleted (If-Match fails for versioned deletes)"
+        );
+        assert_eq!(
+            result.stats.stats_failed_objects, NUM_OBJECTS as u64,
+            "All {} conditional deletion attempts should fail",
+            NUM_OBJECTS
+        );
+
+        // All versions must remain untouched
+        let versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(
+            versions.len(),
+            NUM_OBJECTS,
+            "All {} versions should remain after failed conditional deletes",
+            NUM_OBJECTS
+        );
+
+        guard.cleanup().await;
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Helper: Filter callback that modifies objects during filtering
 // ---------------------------------------------------------------------------
 

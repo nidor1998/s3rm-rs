@@ -226,8 +226,10 @@ impl DeletionPipeline {
         let checker = SafetyChecker::new(&self.config);
         checker.check_before_deletion()?;
 
-        // If delete_all_versions is set but the bucket is not versioned,
-        // silently clear the flag and proceed with normal deletion (Requirement 5.6).
+        // If delete_all_versions is set but the bucket is not versioned:
+        //   - With --keep-latest-only: error out (versioning required).
+        //   - Otherwise: silently clear the flag and proceed with normal deletion
+        //     (Requirement 5.6).
         if self.config.delete_all_versions {
             let versioning_enabled = self.target.is_versioning_enabled().await?;
             if !versioning_enabled {

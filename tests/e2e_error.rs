@@ -385,3 +385,79 @@ async fn e2e_rate_limit_less_than_batch_size_rejected() {
         guard.cleanup().await;
     });
 }
+
+// ---------------------------------------------------------------------------
+// --warn-as-error with actual partial failure
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_warn_as_error_with_partial_failure() {
+    e2e_timeout!(async {
+        // Purpose: Verify that --warn-as-error promotes warnings from partial
+        //          batch failures to errors. When some objects are protected by
+        //          a deny policy and others are deletable, the pipeline generates
+        //          warnings for the failures. With --warn-as-error, has_error
+        //          should be true.
+        // Setup:   Create bucket, upload 10 objects under deletable/ and 10 under
+        //          protected/. Apply deny policy on protected/. Run with
+        //          --warn-as-error --force.
+        // Expected: has_error is true (warnings promoted to errors), deletable/
+        //           objects deleted, protected/ objects remain.
+        //
+        // Validates: Requirement 10.5
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        // Upload 10 deletable objects
+        for i in 0..10 {
+            helper
+                .put_object(&bucket, &format!("deletable/file{i}.dat"), vec![b'd'; 100])
+                .await;
+        }
+        // Upload 10 protected objects
+        for i in 0..10 {
+            helper
+                .put_object(&bucket, &format!("protected/file{i}.dat"), vec![b'p'; 100])
+                .await;
+        }
+
+        // Apply deny policy on the "protected/" prefix
+        helper.deny_delete_on_prefix(&bucket, "protected/").await;
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/"),
+            "--warn-as-error",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        // Revert the deny policy so cleanup can delete the protected/ objects.
+        helper.delete_bucket_policy(&bucket).await;
+
+        // With --warn-as-error, the partial failure warnings should be promoted to errors
+        assert!(
+            result.has_error,
+            "Pipeline should report error when --warn-as-error and partial failures occur"
+        );
+
+        // The deletable/ objects should have been deleted
+        let remaining_deletable = helper.count_objects(&bucket, "deletable/").await;
+        assert_eq!(
+            remaining_deletable, 0,
+            "All deletable/ objects should have been deleted"
+        );
+
+        // The protected/ objects should still exist (AccessDenied)
+        let remaining_protected = helper.count_objects(&bucket, "protected/").await;
+        assert_eq!(
+            remaining_protected, 10,
+            "All protected/ objects should remain due to AccessDenied"
+        );
+
+        guard.cleanup().await;
+    });
+}

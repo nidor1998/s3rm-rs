@@ -250,7 +250,6 @@ fn config_from_full_args() {
         "--delete-all-versions",
         "--max-delete",
         "10000",
-        "--if-match",
         "--filter-include-regex",
         ".*\\.log$",
     ];
@@ -263,7 +262,6 @@ fn config_from_full_args() {
     assert_eq!(config.worker_size, 50);
     assert!(config.delete_all_versions);
     assert_eq!(config.max_delete, Some(10000));
-    assert!(config.if_match);
     assert!(config.filter_config.include_regex.is_some());
 }
 
@@ -797,4 +795,281 @@ fn config_target_client_with_session_token() {
     } else {
         panic!("expected S3Credentials::Credentials");
     }
+}
+
+// ---------------------------------------------------------------------------
+// --keep-latest-only CLI validation tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_keep_latest_only_with_delete_all_versions() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--keep-latest-only",
+        "--delete-all-versions",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    assert!(cli.keep_latest_only);
+    assert!(cli.delete_all_versions);
+}
+
+#[test]
+fn parse_keep_latest_only_requires_delete_all_versions() {
+    let args = vec!["s3rm", "s3://bucket/", "--keep-latest-only"];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_keep_latest_only_with_include_regex_allowed() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--keep-latest-only",
+        "--delete-all-versions",
+        "--filter-include-regex",
+        ".*\\.log$",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    assert!(cli.keep_latest_only);
+    assert_eq!(cli.filter_include_regex.as_deref(), Some(".*\\.log$"));
+}
+
+#[test]
+fn parse_keep_latest_only_with_exclude_regex_allowed() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--keep-latest-only",
+        "--delete-all-versions",
+        "--filter-exclude-regex",
+        "^temp/",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    assert!(cli.keep_latest_only);
+    assert_eq!(cli.filter_exclude_regex.as_deref(), Some("^temp/"));
+}
+
+#[test]
+fn parse_keep_latest_only_conflicts_with_include_content_type_regex() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--keep-latest-only",
+        "--delete-all-versions",
+        "--filter-include-content-type-regex",
+        "text/.*",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_keep_latest_only_conflicts_with_exclude_content_type_regex() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--keep-latest-only",
+        "--delete-all-versions",
+        "--filter-exclude-content-type-regex",
+        "image/.*",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_keep_latest_only_conflicts_with_include_metadata_regex() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--keep-latest-only",
+        "--delete-all-versions",
+        "--filter-include-metadata-regex",
+        "key=value",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_keep_latest_only_conflicts_with_exclude_metadata_regex() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--keep-latest-only",
+        "--delete-all-versions",
+        "--filter-exclude-metadata-regex",
+        "key=value",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_keep_latest_only_conflicts_with_include_tag_regex() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--keep-latest-only",
+        "--delete-all-versions",
+        "--filter-include-tag-regex",
+        "env=prod",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_keep_latest_only_conflicts_with_exclude_tag_regex() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--keep-latest-only",
+        "--delete-all-versions",
+        "--filter-exclude-tag-regex",
+        "env=dev",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_keep_latest_only_conflicts_with_size_filter() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--keep-latest-only",
+        "--delete-all-versions",
+        "--filter-larger-size",
+        "1024",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_keep_latest_only_conflicts_with_smaller_size_filter() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--keep-latest-only",
+        "--delete-all-versions",
+        "--filter-smaller-size",
+        "1024",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_keep_latest_only_conflicts_with_mtime_before() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--keep-latest-only",
+        "--delete-all-versions",
+        "--filter-mtime-before",
+        "2023-01-01T00:00:00Z",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[cfg(feature = "lua_support")]
+#[test]
+fn parse_keep_latest_only_conflicts_with_filter_callback_lua_script() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--keep-latest-only",
+        "--delete-all-versions",
+        "--filter-callback-lua-script",
+        "examples/filter.lua",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_keep_latest_only_conflicts_with_mtime_after() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--keep-latest-only",
+        "--delete-all-versions",
+        "--filter-mtime-after",
+        "2023-01-01T00:00:00Z",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn config_keep_latest_only_wired_to_filter_config() {
+    init_dummy_tracing_subscriber();
+
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--keep-latest-only",
+        "--delete-all-versions",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert!(config.filter_config.keep_latest_only);
+}
+
+#[test]
+fn config_keep_latest_only_defaults_to_false() {
+    init_dummy_tracing_subscriber();
+
+    let args = vec!["s3rm", "s3://bucket/"];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert!(!config.filter_config.keep_latest_only);
+}
+
+#[test]
+fn parse_if_match_conflicts_with_delete_all_versions() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--if-match",
+        "--delete-all-versions",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_if_match_conflicts_with_keep_latest_only_via_delete_all_versions() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--if-match",
+        "--keep-latest-only",
+        "--delete-all-versions",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn config_from_full_args_with_if_match() {
+    init_dummy_tracing_subscriber();
+
+    let args = vec![
+        "s3rm",
+        "s3://bucket/prefix/",
+        "--dry-run",
+        "--force",
+        "--batch-size",
+        "500",
+        "--worker-size",
+        "50",
+        "--if-match",
+        "--max-delete",
+        "10000",
+        "--filter-include-regex",
+        ".*\\.log$",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+
+    assert!(config.dry_run);
+    assert!(config.force);
+    assert_eq!(config.batch_size, 500);
+    assert_eq!(config.worker_size, 50);
+    assert!(config.if_match);
+    assert!(!config.delete_all_versions);
+    assert_eq!(config.max_delete, Some(10000));
+    assert!(config.filter_config.include_regex.is_some());
 }

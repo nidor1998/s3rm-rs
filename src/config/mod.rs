@@ -19,7 +19,17 @@ use fancy_regex::Regex;
 ///
 /// # Quick Start
 ///
-/// Use [`Config::for_target`] for a minimal configuration with sensible defaults:
+/// The recommended way to build a `Config` is [`build_config_from_args`](crate::build_config_from_args),
+/// which performs all CLI-level validation (conflicting flags, rate-limit vs batch-size, etc.):
+///
+/// ```no_run
+/// let config = s3rm_rs::build_config_from_args([
+///     "s3rm", "s3://my-bucket/logs/2024/", "--dry-run", "--force",
+/// ]).expect("invalid arguments");
+/// ```
+///
+/// Alternatively, [`Config::for_target`] creates a minimal configuration with sensible
+/// defaults, but **command-line validation checks are not performed**:
 ///
 /// ```
 /// use s3rm_rs::Config;
@@ -95,10 +105,13 @@ pub struct Config {
 impl Config {
     /// Create a `Config` with sensible defaults for the given S3 bucket and prefix.
     ///
-    /// This is the recommended way to construct a `Config` for library usage.
     /// All fields are set to production-ready defaults matching the CLI defaults
     /// (16 workers, batch size 200, etc.). The `force` flag is set to `true` to
     /// skip interactive confirmation prompts, which is appropriate for programmatic use.
+    ///
+    /// **Note:** This bypasses CLI-level validation (conflicting flags, rate-limit
+    /// vs batch-size, etc.). Prefer [`build_config_from_args`](crate::build_config_from_args)
+    /// when possible.
     ///
     /// # Examples
     ///
@@ -253,6 +266,7 @@ pub struct FilterConfig {
     pub exclude_tag_regex: Option<Regex>,
     pub larger_size: Option<u64>,
     pub smaller_size: Option<u64>,
+    pub keep_latest_only: bool,
 }
 
 #[cfg(test)]

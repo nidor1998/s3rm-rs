@@ -25,6 +25,7 @@ use crate::types::{DeletionStatistics, S3Object};
 
 pub mod exclude_regex;
 pub mod include_regex;
+pub mod keep_latest_only;
 pub mod larger_size;
 pub mod mtime_after;
 pub mod mtime_before;
@@ -33,6 +34,7 @@ pub mod user_defined;
 
 pub use exclude_regex::ExcludeRegexFilter;
 pub use include_regex::IncludeRegexFilter;
+pub use keep_latest_only::KeepLatestOnlyFilter;
 pub use larger_size::LargerSizeFilter;
 pub use mtime_after::MtimeAfterFilter;
 pub use mtime_before::MtimeBeforeFilter;

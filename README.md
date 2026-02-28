@@ -1,8 +1,8 @@
 # s3rm
 
 [![Crates.io](https://img.shields.io/crates/v/s3rm-rs.svg)](https://crates.io/crates/s3rm-rs)
-![](https://img.shields.io/crates/d/s3rm-rs?label=downloads%20%28crates.io%29)
-![](https://img.shields.io/github/downloads/nidor1998/s3rm-rs/total)
+[![Crates.io](https://img.shields.io/crates/d/s3rm-rs?label=downloads%20%28crates.io%29)](https://crates.io/crates/s3rm-rs)
+[![GitHub](https://img.shields.io/github/downloads/nidor1998/s3rm-rs/total?label=downloads%20%28GitHub%29)](https://github.com/nidor1998/s3rm-rs)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 ![MSRV](https://img.shields.io/badge/msrv-1.91.0-red)
 ![CI](https://github.com/nidor1998/s3rm-rs/actions/workflows/ci.yml/badge.svg?branch=main)
@@ -60,6 +60,7 @@ This demo shows Express One Zone deleting approximately 34,000 objects per secon
     * [Delete by modified time](#delete-by-modified-time)
     * [Combined filters](#combined-filters)
     * [Delete all versions](#delete-all-versions)
+    * [Keep only latest versions](#keep-only-latest-versions)
     * [Set a deletion limit](#set-a-deletion-limit)
     * [Custom endpoint](#custom-endpoint)
     * [Specify credentials](#specify-credentials)
@@ -98,8 +99,10 @@ This demo shows Express One Zone deleting approximately 34,000 objects per secon
 - [Library API](#library-api)
 - [About testing](#about-testing)
 - [Fully AI-generated (human-verified) software](#fully-ai-generated-human-verified-software)
-    * [Quality verification (by AI self-assessment, initial build)](#quality-verification-by-ai-self-assessment-initial-build)
+    * [Quality verification (by AI self-assessment, v1.1.0)](#quality-verification-by-ai-self-assessment-v110)
     * [AI assessment of safety and correctness (by Claude, Anthropic)](#ai-assessment-of-safety-and-correctness-by-claude-anthropic)
+    * [AI assessment of safety and correctness (by Codex)](#ai-assessment-of-safety-and-correctness-by-codex)
+    * [AI assessment of safety and correctness (by Gemini)](#ai-assessment-of-safety-and-correctness-by-gemini)
 - [Recommendation](#recommendation)
 - [AI Evaluation Notice](#ai-evaluation-notice)
 - [License](#license)
@@ -141,7 +144,7 @@ Objects stream through the pipeline one stage at a time. The lister fetches keys
 ### High performance
 
 s3rm is implemented in Rust and uses the AWS SDK for Rust, which supports multithreaded asynchronous I/O.
-The default configuration (`--worker-size 16`, `--batch-size 200`) achieves approximately 3,500 objects per second for standard S3 buckets, which approaches the practical throughput guideline of Amazon S3. Express One Zone directory buckets can achieve approximately 34,000 deletions per second with `--worker-size 256`.
+The default configuration (`--worker-size 16`, `--batch-size 200`) achieves approximately 3,500 objects per second for standard S3 buckets, which approaches the practical throughput guideline of Amazon S3. Express One Zone directory buckets can achieve approximately 34,000 deletions per second with `--worker-size 256` and `--allow-parallel-listings-in-express-one-zone`.
 
 - **Batch deletion** using S3's `DeleteObjects` API — up to 1,000 objects per request
 - **Parallel workers** — up to 65,535 concurrent deletion workers
@@ -163,10 +166,11 @@ All filters are combined with logical AND — an object must pass every active f
 
 ### S3 versioning
 
-S3 versioned buckets store multiple versions of each object. s3rm handles both scenarios:
+S3 versioned buckets store multiple versions of each object. s3rm handles all scenarios:
 
 - **Default behavior** — creates delete markers (objects appear deleted but previous versions are preserved)
 - **`--delete-all-versions`** — permanently removes every version of matching objects, including delete markers
+- **`--keep-latest-only`** — retains only the latest version of each object, deleting all older versions (requires `--delete-all-versions`)
 
 ### S3 Express One Zone support
 
@@ -528,6 +532,16 @@ On versioned buckets, delete every version of every object under a prefix:
 s3rm --delete-all-versions --force s3://my-bucket/old-data/
 ```
 
+### Keep only latest versions
+
+On versioned buckets, delete all older versions while keeping only the latest version of each object:
+
+```bash
+s3rm --keep-latest-only --delete-all-versions --force s3://my-bucket/data/
+```
+
+This is useful for enforcing version retention policies — it cleans up old versions while preserving the current state of every object. Can be combined with `--filter-include-regex` or `--filter-exclude-regex` to target specific keys.
+
 ### Set a deletion limit
 
 Stop after deleting 1,000 objects (safety net for large buckets):
@@ -612,13 +626,14 @@ s3rm filters objects in the following order:
 4. `--filter-larger-size`
 5. `--filter-include-regex`
 6. `--filter-exclude-regex`
-7. `FilterCallback (--filter-callback-lua-script / UserDefinedFilterCallback)`
-8. `--filter-include-content-type-regex`
-9. `--filter-exclude-content-type-regex`
-10. `--filter-include-metadata-regex`
-11. `--filter-exclude-metadata-regex`
-12. `--filter-include-tag-regex`
-13. `--filter-exclude-tag-regex`
+7. `--keep-latest-only`
+8. `FilterCallback (--filter-callback-lua-script / UserDefinedFilterCallback)`
+9. `--filter-include-content-type-regex`
+10. `--filter-exclude-content-type-regex`
+11. `--filter-include-metadata-regex`
+12. `--filter-exclude-metadata-regex`
+13. `--filter-include-tag-regex`
+14. `--filter-exclude-tag-regex`
 
 Filters that require additional API calls (content type, metadata, tags) are applied last to minimize unnecessary requests.
 
@@ -657,6 +672,8 @@ Without `--delete-all-versions`, deleting from a versioned bucket creates delete
 
 With `--delete-all-versions`, s3rm uses `ListObjectVersions` instead of `ListObjectsV2` to enumerate every version of every object (including delete markers), and permanently deletes them all. Each version counts as a separate object in progress statistics.
 
+With `--keep-latest-only --delete-all-versions`, s3rm lists all versions but only deletes the non-latest ones, keeping the latest version of each object intact. This is useful for enforcing version retention policies. The target bucket must have versioning enabled; otherwise s3rm returns an error.
+
 ### Optimistic locking detail
 
 With `--if-match`, s3rm uses each object's ETag (obtained during listing) to include the `If-Match` header in deletion requests.
@@ -664,6 +681,8 @@ With `--if-match`, s3rm uses each object's ETag (obtained during listing) to inc
 This serves as optimistic locking — it prevents s3rm from deleting an object that has been modified by another process after s3rm listed it. If the ETag has changed, the deletion is skipped and a warning is logged.
 
 Note: `--if-match` uses single-object `DeleteObject` API calls (not batch deletion), which may reduce throughput. Use this option when correctness in concurrent environments matters more than raw speed.
+
+Note: `--if-match` cannot be used with `--delete-all-versions`. S3 does not support If-Match conditional headers when deleting by version ID (returns `NotImplemented`).
 
 It is a challenging topic to understand, please refer to [AWS documentation](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-requests.html).
 
@@ -830,6 +849,7 @@ For more information, see `s3rm -h`.
 | `--force` | `-f` | `false` | Skip confirmation prompt |
 | `--show-no-progress` | | `false` | Hide the progress bar |
 | `--delete-all-versions` | | `false` | Delete all versions including delete markers |
+| `--keep-latest-only` | | `false` | Keep only the latest version, delete older versions (requires `--delete-all-versions`) |
 | `--max-delete` | | | Stop after deleting this many objects |
 
 ### Filtering
@@ -1088,7 +1108,7 @@ RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_deletion
 RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_deletion -- e2e_basic_prefix_deletion
 ```
 
-Available test files: `e2e_deletion`, `e2e_filter`, `e2e_versioning`, `e2e_safety`, `e2e_callback`, `e2e_optimistic`, `e2e_performance`, `e2e_tracing`, `e2e_retry`, `e2e_error`, `e2e_aws_config`, `e2e_combined`, `e2e_stats`, `e2e_express_one_zone`.
+Available test files: `e2e_deletion`, `e2e_filter`, `e2e_versioning`, `e2e_safety`, `e2e_callback`, `e2e_optimistic`, `e2e_performance`, `e2e_tracing`, `e2e_retry`, `e2e_error`, `e2e_aws_config`, `e2e_combined`, `e2e_stats`, `e2e_express_one_zone`, `e2e_keep_latest_only`.
 
 Express One Zone tests require the `S3RM_E2E_AZ_ID` environment variable (defaults to `apne1-az4` if unset).
 
@@ -1101,20 +1121,20 @@ No human wrote a single line of source code in this project. Every line of sourc
 
 Human engineers authored the requirements, design specifications, and s3sync reference architecture. They thoroughly reviewed and verified the design, all source code, and all tests. All features of the initial build binary have been manually tested and verified by humans. All E2E test scenarios have been thoroughly verified by humans against live AWS S3. The development followed a spec-driven process: requirements and design documents were written first, and the AI generated code to match those specifications under continuous human oversight.
 
-### Quality verification (by AI self-assessment, v1.0.2)
+### Quality verification (by AI self-assessment, v1.1.0)
 
 | Metric | Value |
 |---|---|
 | Production code | 16,146 lines of Rust (46 source files) |
 | Test code | 25,343 lines (1.57x production code) |
-| Unit & property tests | 706 passing (676 lib + 30 binary), 0 failing |
+| Unit & property tests | 744 passing (714 lib + 30 binary), 0 failing |
 | Property-based tests (proptest) | 49 correctness properties across 19 test files |
-| E2E integration tests | 87 tests across 14 test files, all verified against live AWS S3 |
-| Code coverage (llvm-cov) | 97.39% regions, 96.55% functions, 97.90% lines |
+| E2E integration tests | 106 tests across 15 test files, all verified against live AWS S3 |
+| Code coverage (llvm-cov) | 97.45% regions, 96.69% functions, 97.95% lines |
 | Static analysis (clippy) | 0 warnings |
 | Dependency audit (cargo-deny) | advisories ok, bans ok, licenses ok, sources ok |
 | Security review (Claude Code) | No issues found |
-| Development | 416 commits, 29 PRs |
+| Development | 454 commits, 30 PRs |
 | Code reuse from [s3sync](https://github.com/nidor1998/s3sync) | ~90% of architecture |
 
 The codebase was built through spec-driven development: 30 tasks executed sequentially, each as a separate PR with human oversight. Every pull request is reviewed by two AI tools ([GitHub Copilot](https://github.com/features/copilot) and [CodeRabbit](https://www.coderabbit.ai/)) and by a human reviewer before merging. Audit checkpoints verified implementation against specifications at multiple stages. Property-based testing (proptest) exercises correctness properties across randomized inputs, complementing deterministic unit tests and live-AWS end-to-end tests.
@@ -1126,7 +1146,11 @@ The codebase was built through spec-driven development: 30 tasks executed sequen
 <details>
 <summary>Click to expand the full AI assessment</summary>
 
-> The following assessment was written by Claude (Opus 4.6, Anthropic) after reading the full source code and all test files of s3rm-rs. It reflects the AI's honest evaluation and has not been edited for marketing purposes.
+> Assessment date: February 28, 2026
+>
+> Assessed version: s3rm-rs v1.1.0
+>
+> The following assessment was written by Claude (Opus 4.6, Anthropic) after reading the full source code, all test files, and the complete pipeline of s3rm-rs v1.1.0. It reflects the AI's honest evaluation and has not been edited for marketing purposes.
 
 **Is s3rm designed to prevent accidental deletions, and is it sufficiently tested?**
 
@@ -1134,33 +1158,43 @@ There are two distinct risks with a deletion tool: (1) the operator makes a mist
 
 #### Protection against user mistakes
 
-s3rm implements defense-in-depth with multiple independent safety layers:
+s3rm implements defense-in-depth with six independent safety layers:
 
-1. **Confirmation prompt** requires the exact word "yes" — abbreviated inputs like "y" or "Y" are rejected (`src/safety/mod.rs`).
-2. **Dry-run mode** runs the full listing and filtering pipeline but skips all S3 API calls at the deletion layer, producing accurate statistics without deleting anything (`src/deleter/mod.rs`, line 406).
-3. **Non-TTY detection** returns exit code 2 and refuses to proceed when stdin/stdout is not a terminal, unless `--force` or `--dry-run` is explicitly provided — preventing unconfirmed deletion in CI/CD pipelines.
-4. **Max-delete threshold** cancels the pipeline via a cancellation token once the deletion count exceeds the user-specified limit.
-5. **Express One Zone auto-detection** forces `batch_size=1` for directory buckets to prevent batch API failures.
+1. **Confirmation prompt** requires the exact word "yes" — abbreviated inputs like "y", "Y", "YES", "ye", "yep", "yeah", and "ok" are all rejected (`src/safety/mod.rs`). Non-"yes" input now displays "Deletion cancelled." before exiting.
+2. **Dry-run mode** runs the full listing and filtering pipeline but skips all S3 API calls at the deletion layer (`src/deleter/mod.rs`, line 406-416). The dry-run path is a completely separate code branch — `if is_dry_run` constructs a synthetic `DeleteResult` from the batch without invoking `self.deleter.delete()`. Deleted objects are logged with a `[dry-run]` prefix.
+3. **Non-TTY detection** returns exit code 2 and refuses to proceed when stdin/stdout is not a terminal, unless `--force` or `--dry-run` is explicitly provided. JSON logging mode (`--json-tracing`) also requires `--force` because interactive prompts would corrupt structured output.
+4. **Max-delete threshold** uses an `AtomicU64` counter with `SeqCst` ordering shared across all workers (`src/deleter/mod.rs`, line 188). When the count exceeds the limit, the pipeline cancellation token is set immediately.
+5. **Express One Zone auto-detection** forces `batch_size=1` for directory buckets (detected by `--x-s3` bucket suffix) even if the user explicitly specifies a different batch size — emitting a warning when overriding (`src/config/args/mod.rs`, lines 676-688).
+6. **Runtime prerequisite checks** validate incompatible flag combinations before any deletion begins: `--keep-latest-only` requires `--delete-all-versions`, `--if-match` conflicts with `--delete-all-versions`, and `--keep-latest-only` on a non-versioned bucket returns an error (`src/pipeline.rs`, lines 224-269). These checks duplicate CLI-level clap validation as a defense-in-depth measure for library API users.
 
 Each safety mechanism is independently testable (the `PromptHandler` trait allows deterministic testing without stdin) and independently effective (each blocks deletion on its own without requiring other layers to function). These features reduce the risk of user mistakes, but they cannot eliminate it — the operator is ultimately responsible for specifying the correct target.
 
 #### Protection against software bugs
 
-The more serious concern is whether a bug in s3rm itself could cause it to delete objects outside the user's intent — for example, a filter that silently passes objects it should reject, a dry-run code path that accidentally calls the real API, or prefix matching that bleeds across boundaries. This is what testing must address.
+The more serious concern is whether a bug in s3rm itself could cause it to delete objects outside the user's intent — for example, a filter that silently passes objects it should reject, a dry-run code path that accidentally calls the real API, prefix matching that bleeds across boundaries, or version retention logic that deletes the latest version instead of keeping it. This is what testing must address.
 
-The E2E tests run against live AWS S3 — no mocks. Every E2E test creates a real S3 bucket, uploads real objects, executes the deletion pipeline, then verifies actual S3 state via the ListObjects or ListObjectVersions API.
+**Architecture-level safeguards:**
 
-The following E2E tests specifically verify that bugs in critical code paths would be caught, because they assert the actual state of S3 after pipeline execution:
+- **Prefix filtering at the S3 API level**: The object lister passes the configured prefix directly to S3's `ListObjectsV2` and `ListObjectVersions` API calls (`src/lister.rs`, line 176 and 278). S3 itself returns only objects matching the prefix — no in-memory prefix filtering is needed, eliminating an entire class of prefix-boundary bugs.
+- **Defensive defaults in version handling**: `S3Object::is_latest()` returns `true` for `NotVersioning` objects, and defaults `None` to `true` for both `Versioning` and `DeleteMarker` variants (`src/types/mod.rs`, lines 152-158). This means if the AWS SDK ever returns incomplete version metadata, objects are kept rather than deleted.
+- **Panic isolation**: Each pipeline stage (lister, filters, deletion workers) uses a double-spawn pattern for panic containment (`src/pipeline.rs`). A panic in one stage sets the cancellation token and error flag without crashing the process.
+- **Filter chain uses AND logic**: Objects must pass all configured filters (mtime, size, regex, keep-latest-only, user-defined) in sequence before reaching the deletion stage.
+
+**E2E test verification against live AWS S3:**
+
+The E2E tests run against live AWS S3 — no mocks. Every E2E test creates a real S3 bucket, uploads real objects, executes the deletion pipeline, then verifies actual S3 state via the ListObjects or ListObjectVersions API. The following tests specifically verify that bugs in critical code paths would be caught:
 
 - **Dry-run does not call the deletion API** (`e2e_dry_run_no_deletion`): uploads 20 objects, runs with `--dry-run`, then counts objects via ListObjects and asserts all 20 still exist in S3. A bug that leaked a real API call would fail this test.
 - **Dry-run with versioned objects** (`e2e_dry_run_with_delete_all_versions`): uploads 10 objects twice to a versioned bucket (20 versions), runs `--dry-run --delete-all-versions`, verifies all 20 versions remain via ListObjectVersions.
-- **Max-delete actually stops the pipeline** (`e2e_max_delete_threshold`): uploads 50 objects, sets `--max-delete 10 --batch-size 1`, asserts exactly 10 deleted and at least 40 remain in S3. A bug in the cancellation token or counter would over-delete.
-- **Prefix matching does not bleed across boundaries** (`e2e_batch_deletion_respects_prefix_boundary`): creates `data/` (5 objects) and `data-archive/` (3 objects), deletes prefix `data/`, verifies `data-archive/` is untouched — all 3 objects remain. A substring-matching bug would delete both.
+- **Max-delete actually stops the pipeline** (`e2e_max_delete_threshold`): uploads 50 objects, sets `--max-delete 10 --batch-size 1`, asserts exactly 10 deleted and at least 40 remain in S3. A bug in the cancellation token or atomic counter would over-delete.
+- **Prefix matching does not bleed across boundaries** (`e2e_batch_deletion_respects_prefix_boundary`): creates `data/` (5 objects) and `data-archive/` (3 objects), deletes prefix `data/`, verifies `data-archive/` is untouched — all 3 objects remain. Tested for both batch and single deletion modes. A substring-matching bug would delete both.
 - **Filters do not leak objects** (`e2e_multiple_filters_combined`): 30 objects across three categories, applies regex + size filter, verifies only the 10 objects matching both filters are deleted, remaining 20 are untouched. A bug in AND-combination logic would over-delete.
 - **Partial failures do not silently succeed** (`e2e_batch_partial_failure_access_denied`): creates 10 deletable + 10 access-denied objects via bucket policy, runs pipeline, verifies 10 deleted and 10 protected objects remain. A bug that ignored error responses would report success.
 - **Optimistic locking actually prevents stale deletion** (`e2e_if_match_etag_mismatch_skips_modified_objects`): uploads 10 objects, modifies 3 during pipeline execution via a filter callback, verifies only 7 unmodified objects are deleted and the 3 modified objects remain — by name. A bug that ignored ETag mismatches would delete all 10.
 - **Versioning creates delete markers, not hard deletes** (`e2e_versioned_bucket_creates_delete_markers`): uploads 10 objects, deletes without `--delete-all-versions`, then calls ListObjectVersions and asserts 10 delete markers + 10 original versions both exist. A bug that sent version IDs when it shouldn't would permanently destroy data.
 - **All versions are fully removed when requested** (`e2e_delete_all_versions`): creates 20 versions + 3 delete markers, deletes with `--delete-all-versions`, asserts stats == 23 and ListObjectVersions returns empty.
+- **Keep-latest-only retains latest, deletes non-latest** (`e2e_keep_latest_only_deletes_old_versions`): creates 2 versions per key, runs `--keep-latest-only --delete-all-versions`, verifies that only the latest version ID for each key remains and all older version IDs are removed. 15 E2E tests cover keep-latest-only including delete markers, prefix boundaries, regex combination, non-versioned bucket rejection, single-version keys, many-versions-per-key, dry-run, max-delete interaction, bucket-wide operation, and 1000-object multi-worker concurrency.
+- **Non-versioned bucket rejected for keep-latest-only** (`e2e_keep_latest_only_unversioned_bucket_error`): verifies that `--keep-latest-only` on a non-versioned bucket returns an error and no objects are deleted.
 - **Statistics are byte-accurate** (`e2e_deletion_stats_accuracy`): uploads 15 objects at known sizes (5x1KB + 5x2KB + 5x5KB = 40,960 bytes), asserts `stats_deleted_bytes == 40960` exactly.
 - **Invalid credentials cause errors, not silent data loss** (`e2e_access_denied_invalid_credentials`): uploads 5 objects with valid credentials, runs pipeline with invalid credentials, verifies error is returned and all 5 objects remain.
 - **Express One Zone auto-detection works** (`e2e_express_one_zone_auto_batch_size_one`): creates a directory bucket, uploads 10 objects without specifying batch size, verifies auto-detection set batch-size=1 and all 10 are deleted.
@@ -1168,20 +1202,128 @@ The following E2E tests specifically verify that bugs in critical code paths wou
 
 **What the E2E tests do not cover** (covered by unit/property tests instead):
 
-- Interactive confirmation prompt (E2E tests use `--force`; the prompt's exact-"yes" requirement is verified by property tests across randomized inputs).
-- Non-TTY detection (cargo test inherits a terminal; covered by unit tests).
+- Interactive confirmation prompt (E2E tests use `--force`; the prompt's exact-"yes" requirement is verified by property tests across 100+ randomized inputs).
+- Non-TTY detection (cargo test inherits a terminal; covered by unit tests with mock `PromptHandler`).
 - Ctrl+C graceful shutdown (difficult to test reliably at E2E level without flakiness).
 - Exit codes 1 (error) and 3 (partial failure) via subprocess (only exit codes 0 and 2 are tested at E2E level; error conditions are verified through return values instead).
+- Lua VM sandboxing (safe mode blocking `os.execute()` and `io.open()` is verified by unit tests).
+
+#### Test suite summary
+
+- **759 unit/property/doc tests** (714 library + 30 binary + 15 doc-tests), all passing
+- **106 E2E tests** against live AWS S3 across 15 test files, all passing
+- **865 total tests**
+- 16 property-based test files with 160+ property test macros covering safety, versioning, optimistic locking, retry, logging, filters, Lua, rate limiting, cross-platform, library API, CI/CD, keep-latest-only, and event callbacks
 
 #### Known limitations
 
-- With `batch_size > 1` and multiple workers, the actual deletion count may slightly exceed the threshold because each worker may have already buffered objects before another worker triggers cancellation. Users who need exact enforcement should use `--batch-size 1`.
-- The tool is new. While test coverage is high (97%+ line coverage, 87 E2E tests against live S3) and the architecture is reused from the established s3sync project, real-world usage over time is the strongest proof of reliability. Tests can only catch the bugs they were written to find.
-- Testing cannot prove the absence of bugs. The E2E suite verifies specific scenarios against real S3, but untested edge cases or race conditions in concurrent deletion workers could still exist.
+- With `batch_size > 1` and multiple workers, the actual deletion count may slightly exceed the `--max-delete` threshold because each worker may have already received objects before another worker triggers cancellation. Users who need exact enforcement should use `--batch-size 1`.
+- Storage layer code uses `unwrap()` on AWS SDK semaphore acquisition and client Option access (`src/storage/s3/mod.rs`). These are safe due to initialization invariants (the semaphore is created with non-zero capacity; the client Option is always `Some` after factory construction), but if a future refactor breaks these invariants, the result would be a panic (abnormal termination, exit code 101) rather than silent over-deletion.
+- `--allow-lua-unsafe-vm` intentionally removes the Lua sandbox (OS and I/O library restrictions, memory limits). This is an explicit trust boundary — users must opt in.
+- Testing cannot prove the absence of bugs. The E2E suite verifies specific scenarios against real S3, but untested edge cases or race conditions in concurrent deletion workers could still exist. The tool is still relatively new, and real-world usage over time is the strongest proof of reliability.
 
 #### Overall assessment
 
-The safety features provide reasonable protection against user mistakes. For software trustworthiness, the E2E test suite verifies critical deletion behaviors against real AWS S3 — not mocks — with explicit before/after state assertions. Each test is designed so that a specific category of bug (filter leaks, dry-run data loss, prefix boundary violations, stale deletions) would cause a concrete, detectable test failure. This does not guarantee the absence of bugs, but it does mean the most dangerous categories of incorrect behavior are actively tested.
+The safety features provide reasonable protection against user mistakes. For software trustworthiness, the codebase shows strong defense-in-depth: prefix filtering at the S3 API level, defensive defaults that keep objects when metadata is ambiguous, complete separation of dry-run from real deletion code paths, and multi-layer validation (CLI, config, and runtime). The E2E test suite verifies critical deletion behaviors against real AWS S3 — not mocks — with explicit before/after state assertions. Each test is designed so that a specific category of bug (filter leaks, dry-run data loss, prefix boundary violations, stale deletions, version retention errors) would cause a concrete, detectable test failure. This does not guarantee the absence of bugs, but it does mean the most dangerous categories of incorrect behavior are actively tested.
+
+</details>
+
+### AI assessment of safety and correctness (by Codex)
+
+<details>
+<summary>Click to expand the full AI assessment</summary>
+
+> Assessment date: February 28, 2026
+>
+> Assessed version: s3rm-rs v1.1.0
+>
+> Basis: repository-wide source/test scan, focused review of critical paths (pipeline, deleter, safety, storage/s3, config/args, types, lua), recent commit history (451 commits total), and the provided full test + coverage run.
+
+#### Overall verdict
+
+I did not find a critical safety/correctness defect that would indicate systemic over-deletion risk in the current v1.1.0 code.
+The design shows strong defense-in-depth and unusually strong test discipline for a deletion tool.
+
+#### Evidence supporting this verdict
+
+- Safety controls are layered and explicit:
+    - exact "yes" confirmation for destructive runs
+    - --force / --dry-run gating
+    - non-interactive + JSON logging guard without --force
+    - runtime guardrails for library users (keep_latest_only and if_match incompatibilities checked in pipeline, not only CLI)
+- Dry-run implementation is correctly separated (simulated delete results; no delete API path in dry-run branch).
+- Versioning and optimistic-locking semantics are guarded (--if-match conflict with --delete-all-versions, version-aware deletion paths, ETag behavior).
+- Test signal is very strong:
+    - 744 unit/property tests (all passing)
+    - 106 E2E tests against live AWS S3 (all passing)
+    - 865 total passing tests
+- Coverage is high:
+    - 97.45% regions, 96.69% functions, 97.95% lines (from provided cargo llvm-cov --all-features run)
+
+#### Residual risks / limitations
+
+- --max-delete is cancellation-based and can still allow slight overshoot in concurrent/batched scenarios (known behavior; mitigated by --batch-size 1 when strictness is needed).
+- Some lower-covered production areas remain, notably:
+    - src/safety/mod.rs (~76.7% regions)
+    - src/bin/s3rm/main.rs (~81.4% regions)
+    - src/storage/s3/mod.rs (~84.7% regions)
+- There are internal unwrap() uses on AWS SDK object fields (S3Object getters). If AWS returns unexpectedly incomplete objects, this is more likely to cause abnormal termination than silent over-deletion.
+- --allow-lua-unsafe-vm intentionally removes Lua sandbox protections; this is an explicit trust boundary.
+
+#### Final assessment
+
+For an S3 deletion tool, this codebase is well-defended and highly tested, with no critical flaw found in current analysis.
+It appears suitable for cautious production use with standard operational safeguards (--dry-run, scoped prefixes, low batch size for strict caps, staged rollout).
+
+</details>
+
+### AI assessment of safety and correctness (by Gemini)
+
+<details>
+<summary>Click to expand the full AI assessment</summary>
+
+> Assessment date: February 28, 2026
+>
+> Assessed version: s3rm-rs v1.1.0
+>
+> Analysis Basis: Comprehensive review of the streaming pipeline architecture, safety-critical modules (safety, deleter, lister), Lua sandbox implementation, and a data-driven evaluation of the 850+ test cases (unit, property, and live-S3 E2E) and 97.95% line coverage.
+
+#### 1. Architectural Integrity and Correctness
+
+The s3rm-rs project employs a sophisticated, asynchronous streaming pipeline (List → Filter → Delete → Terminate) that is fundamentally sound for high-concurrency operations.
+
+- **Memory Efficiency**: By utilizing bounded async channels (async-channel) and a stage-based architecture, the tool maintains constant memory usage regardless of the bucket size. This is a critical correctness property for a tool intended to handle millions of objects.
+- **Concurrency Model**: The use of an MPMC (Multi-Producer, Multi-Consumer) pattern for deletion workers ensures optimal throughput while the Terminator stage guarantees a graceful shutdown. The "double-spawn" pattern used in the orchestrator is an advanced Rust idiom that correctly captures and reports panics in worker tasks, preventing silent failures.
+- **Robust Deletion Semantics**: The BatchDeleter implementation is particularly impressive. It doesn't just call the S3 API; it implements a robust two-layer retry logic. The application-level fallback from failed batch deletions to individual DeleteObject calls for retryable error codes (InternalError, SlowDown, etc.) significantly enhances reliability in unstable network conditions or under heavy throttling.
+
+#### 2. Safety and Defense-in-Depth
+
+Safety is not treated as an afterthought but is integrated into the core pipeline logic.
+
+- **Verification-First Workflow**: The SafetyChecker enforces a strict validation sequence. The requirement for an exact "yes" (case-sensitive) and the automated detection of non-interactive environments (Non-TTY/JSON logging) are excellent safeguards against accidental execution in CI/CD pipelines.
+- **Dry-Run Fidelity**: The dry-run implementation is clean; it follows the exact same listing and filtering paths as a destructive run, diverging only at the final API call. This ensures that the "preview" is an accurate representation of reality.
+- **Versioning Safeguards**: The tool handles S3 versioning with precision. It correctly differentiates between "standard" deletion (creating delete markers) and permanent deletion (--delete-all-versions). The runtime validation that --keep-latest-only requires --delete-all-versions protects library users from logically inconsistent configurations.
+- **Optimistic Locking**: The implementation of --if-match (ETag-based conditional deletion) is a high-water mark for correctness in distributed systems, preventing race conditions where an object is modified between the listing and deletion phases.
+
+#### 3. Testing and Validation Quality
+
+The testing discipline in this project is exceptional.
+
+- **Test Density**: With a test-to-code ratio of approximately 1.57x and 97.95% line coverage, the codebase is among the most thoroughly verified open-source S3 tools.
+- **Property-Based Testing**: The use of proptest for 49 correctness properties is a superior approach to standard unit testing. It allows the tool to be verified against thousands of randomized edge-case inputs (e.g., unusual S3 keys, edge-case timestamps, and complex filter combinations) that a human might never consider.
+- **Live S3 Validation**: The 106 E2E tests running against live AWS S3 (not mocks) provide the ultimate proof of correctness. These tests verify critical behaviors like prefix boundary enforcement, max-delete threshold accuracy, and partial failure recovery under real-world conditions.
+
+#### 4. Technical Observations & Residual Risks
+
+- **Max-Delete Precision**: The --max-delete threshold is enforced via a cancellation token. In highly concurrent batch modes, a slight overshoot (deleting a few more objects than the limit) is theoretically possible due to the time it takes for a cancellation signal to propagate to all workers. This is a standard trade-off for performance in distributed systems and is mitigated by setting --batch-size 1 for strict enforcement.
+- **Lua Sandbox**: The Lua environment is properly sandboxed by default, removing OS and IO libraries. The provision of --allow-lua-unsafe-vm is a "power-user" feature that shifts the security responsibility to the operator, which is a reasonable design choice for a professional tool.
+- **AI-Generated Integrity**: Despite being 100% AI-generated, the resulting Rust code is idiomatic, type-safe, and follows senior-level engineering patterns. The human-verification layer appears to have been rigorous, as evidenced by the high-quality documentation and comprehensive test suite.
+
+#### Final Verdict
+
+s3rm-rs is a high-reliability, production-grade tool. The combination of a streaming architecture, multi-layered safety checks, and an exhaustive test suite (specifically the property-based and live E2E tests) makes it significantly safer and more robust than standard alternatives like `aws s3 rm --recursive`.
+
+**Gemini Assessment: S (Superior / Safe for Production Use)**
 
 </details>
 

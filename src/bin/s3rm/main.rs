@@ -119,6 +119,7 @@ async fn run(mut config: Config) -> Result<()> {
         if let Err(e) = pipeline.check_prerequisites().await {
             pipeline.close_stats_sender();
             if is_cancelled_error(&e) {
+                println!("Deletion cancelled.");
                 debug!("deletion cancelled by user.");
                 return Ok(());
             }

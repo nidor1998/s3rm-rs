@@ -12,7 +12,7 @@
 │   ├── terminator.rs       # Terminator stage
 │   ├── config/             # Configuration and argument parsing
 │   ├── storage/            # Storage trait and S3 implementation
-│   ├── filters/            # Filter stages (regex, size, time, Lua)
+│   ├── filters/            # Filter stages (regex, size, time, keep-latest-only, Lua)
 │   ├── deleter/            # Deletion components (batch, single, worker)
 │   ├── callback/           # Callback managers (event, filter)
 │   ├── safety/             # Safety features (confirmation, dry-run)
@@ -46,16 +46,17 @@
 │   ├── e2e_callback.rs     # Callback tests - Lua and Rust (7 tests)
 │   ├── e2e_combined.rs     # Combined feature tests (7 tests)
 │   ├── e2e_deletion.rs     # Deletion mode tests (7 tests)
-│   ├── e2e_error.rs        # Error handling and exit code tests (6 tests)
+│   ├── e2e_error.rs        # Error handling and exit code tests (7 tests)
 │   ├── e2e_express_one_zone.rs # Express One Zone directory bucket tests (3 tests)
 │   ├── e2e_filter.rs       # Filter tests - regex, size, time, etc. (24 tests)
-│   ├── e2e_optimistic.rs   # Optimistic locking / If-Match tests (3 tests)
+│   ├── e2e_keep_latest_only.rs # Keep-latest-only version retention tests (15 tests)
+│   ├── e2e_optimistic.rs   # Optimistic locking / If-Match tests (4 tests)
 │   ├── e2e_performance.rs  # Performance configuration tests (5 tests)
 │   ├── e2e_retry.rs        # Retry and timeout tests (3 tests)
-│   ├── e2e_safety.rs       # Safety feature tests - dry-run, max-delete (3 tests)
+│   ├── e2e_safety.rs       # Safety feature tests - dry-run, max-delete (4 tests)
 │   ├── e2e_stats.rs        # Statistics and event callback tests (2 tests)
 │   ├── e2e_tracing.rs      # Logging and tracing tests (7 tests)
-│   └── e2e_versioning.rs   # S3 versioning tests (6 tests)
+│   └── e2e_versioning.rs   # S3 versioning tests (7 tests)
 ├── .github/
 │   ├── pull_request_template.md  # PR template (AI-only project notice)
 │   └── workflows/
@@ -98,6 +99,7 @@ src/
 │   ├── larger_size.rs      # LargerSizeFilter
 │   ├── include_regex.rs    # IncludeRegexFilter
 │   ├── exclude_regex.rs    # ExcludeRegexFilter
+│   ├── keep_latest_only.rs # KeepLatestOnlyFilter (retains latest version, deletes non-latest)
 │   └── user_defined.rs     # UserDefinedFilter (Lua/Rust callbacks via FilterManager)
 ├── deleter/
 │   ├── mod.rs              # ObjectDeleter, Deleter trait, DeleteResult types
@@ -139,7 +141,8 @@ src/
 │   ├── filter_properties.rs      # Filters (Properties 7-10)
 │   ├── event_callback_properties.rs # Event callbacks (Property 32)
 │   ├── safety_properties.rs      # Safety features (Properties 16-19)
-│   └── lua_properties.rs         # Lua integration (Properties 11, 14-15)
+│   ├── lua_properties.rs         # Lua integration (Properties 11, 14-15)
+│   └── keep_latest_only_properties.rs # KeepLatestOnlyFilter (Requirement 14)
 ├── test_utils.rs             # Shared test utilities (make_test_config, make_s3_object, etc.)
 └── bin/s3rm/
     ├── main.rs             # CLI binary entry point
@@ -178,8 +181,8 @@ src/
 
 Tests are co-located with source code or collected under `tests/`:
 - Unit tests in `#[cfg(test)]` modules within each source file
-- Property-based tests in `src/property_tests/` (14 files); `indicator_properties.rs` in `bin/s3rm/`
+- Property-based tests in `src/property_tests/` (15 files); `indicator_properties.rs` in `bin/s3rm/`
 - E2E integration tests in `tests/e2e_*.rs` files, each gated behind `#[cfg(e2e_test)]`
   - Require live AWS credentials configured under the `s3rm-e2e-test` AWS profile
   - Shared helpers (bucket setup/teardown, object seeding, assertion utilities) live in `tests/common/mod.rs`
-  - 87 test cases total across 14 test files covering deletion, filtering, versioning, safety, callbacks, tracing, retry, optimistic locking, performance, statistics, error handling, AWS config, Express One Zone, and combined scenarios
+  - 106 test cases total across 15 test files covering deletion, filtering, versioning, safety, callbacks, tracing, retry, optimistic locking, performance, statistics, error handling, AWS config, Express One Zone, keep-latest-only, and combined scenarios

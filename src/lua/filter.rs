@@ -57,6 +57,9 @@ impl LuaFilterCallback {
         table.set("last_modified", object.last_modified().to_string())?;
         table.set("version_id", object.version_id())?;
         table.set("e_tag", object.e_tag())?;
+        // Note: is_latest() returns true for NotVersioning objects (they are
+        // semantically the latest and only version) and defaults to true when the
+        // field is absent (None) from the S3 response.
         table.set("is_latest", object.is_latest())?;
         table.set("is_delete_marker", object.is_delete_marker())?;
         table.set("size", object.size())?;

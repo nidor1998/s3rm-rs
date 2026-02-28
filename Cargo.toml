@@ -1,6 +1,6 @@
 [package]
 name = "s3rm-rs"
-version = "1.0.2"
+version = "1.1.0"
 edition = "2024"
 authors = ["nidor1998 <nidor1998@gmail.com>"]
 description = "Fast Amazon S3 object deletion tool."

@@ -135,7 +135,7 @@ mod tests {
         }
 
         // -----------------------------------------------------------------------
-        // Property: Non-versioned objects always pass through.
+        // Property: Non-versioned objects are always filtered out (kept).
         //
         // Defensive: non-versioned objects are treated as "latest" and kept.
         // In normal operation, NotVersioning objects never appear because

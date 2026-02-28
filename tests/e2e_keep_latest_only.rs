@@ -43,6 +43,8 @@ async fn e2e_keep_latest_only_deletes_old_versions() {
         //          (creates 2 versions per key = 10 versions total).
         // Expected: 5 old versions deleted; 5 latest versions remain; each key
         //           has exactly 1 version left with the correct version ID.
+        //
+        // **Validates: Requirements 14.1, 14.2**
 
         const NUM_OBJECTS: usize = 5;
         const VERSIONS_PER_OBJECT: usize = 2;
@@ -152,6 +154,8 @@ async fn e2e_keep_latest_only_with_delete_markers() {
         //          Total: 10 items, 5 non-latest, 5 latest
         // Expected: Non-latest versions are deleted. Latest items (delete markers
         //           and v2 objects) remain, verified by version ID.
+        //
+        // **Validates: Requirements 14.1, 14.7**
 
         const NUM_OBJECTS: usize = 5;
         const NUM_DELETED: usize = 3;
@@ -300,6 +304,8 @@ async fn e2e_keep_latest_only_with_include_regex() {
         //          overwrite each once. Use include regex to target only .log files.
         // Expected: Only old .log versions deleted; latest .log versions and all
         //           .dat versions remain, verified by version ID.
+        //
+        // **Validates: Requirements 14.4**
 
         const NUM_PER_TYPE: usize = 5;
 
@@ -437,6 +443,8 @@ async fn e2e_keep_latest_only_respects_prefix_boundary() {
         //          Run pipeline targeting only "target/".
         // Expected: Old versions under "target/" deleted; latest retained.
         //           ALL versions under "other/" remain untouched.
+        //
+        // **Validates: Requirements 14.9**
 
         const NUM_PER_PREFIX: usize = 3;
 
@@ -569,6 +577,8 @@ async fn e2e_keep_latest_only_rejects_non_versioned_bucket() {
         //          target bucket does not have versioning enabled.
         // Setup:   Create standard (non-versioned) bucket; upload 5 objects.
         // Expected: Pipeline reports error; objects remain untouched.
+        //
+        // **Validates: Requirements 14.5**
 
         let helper = TestHelper::new().await;
         let bucket = helper.generate_bucket_name();
@@ -614,6 +624,8 @@ async fn e2e_keep_latest_only_single_version_per_key() {
         //          object has only a single version (which is always the latest).
         // Setup:   Create versioned bucket; upload 5 objects with one version each.
         // Expected: 0 deletions; all 5 versions remain with their original IDs.
+        //
+        // **Validates: Requirements 14.6**
 
         const NUM_OBJECTS: usize = 5;
 
@@ -691,6 +703,8 @@ async fn e2e_keep_latest_only_many_versions_per_key() {
         // Setup:   Create versioned bucket; upload 3 objects with 4 versions each
         //          (12 total). Only the 4th version of each key is latest.
         // Expected: 9 old versions deleted; 3 latest versions remain.
+        //
+        // **Validates: Requirements 14.1**
 
         const NUM_OBJECTS: usize = 3;
         const VERSIONS_PER_OBJECT: usize = 4;
@@ -789,6 +803,8 @@ async fn e2e_keep_latest_only_dry_run() {
         // Setup:   Create versioned bucket; upload 5 objects with 2 versions each.
         // Expected: Stats report 5 simulated deletions; all 10 versions remain
         //           with their original version IDs.
+        //
+        // **Validates: Requirements 14.10, 3.1**
 
         const NUM_OBJECTS: usize = 5;
 
@@ -860,6 +876,8 @@ async fn e2e_keep_latest_only_max_delete() {
         //          (10 non-latest versions). Set --max-delete 5 with --batch-size 1
         //          for deterministic enforcement.
         // Expected: Exactly 5 non-latest versions deleted; pipeline stops at limit.
+        //
+        // **Validates: Requirements 14.11, 3.6**
 
         const NUM_OBJECTS: usize = 10;
         const MAX_DELETE: u64 = 5;
@@ -925,6 +943,8 @@ async fn e2e_keep_latest_only_bucket_wide() {
         // Setup:   Create versioned bucket; upload objects under varied prefixes
         //          (a/, b/, root-level); overwrite each once.
         // Expected: All old versions across all prefixes deleted; latest retained.
+        //
+        // **Validates: Requirements 14.1, 14.9, 2.10**
 
         let helper = TestHelper::new().await;
         let bucket = helper.generate_bucket_name();
@@ -1018,6 +1038,8 @@ async fn e2e_keep_latest_only_with_if_match() {
         //          Use --if-match --batch-size 1.
         // Expected: All 5 conditional deletion attempts fail (stats_failed_objects=5);
         //           0 actual deletions; all 10 versions remain untouched.
+        //
+        // **Validates: Requirements 11.1, 11.2**
 
         const NUM_OBJECTS: usize = 5;
 
@@ -1094,6 +1116,8 @@ async fn e2e_keep_latest_only_1000_objects_multi_worker() {
         //          (2000 total). Use --worker-size 8 for parallel deletion.
         // Expected: 1000 old versions deleted; 1000 latest versions remain;
         //           every latest version ID retained, every old version ID gone.
+        //
+        // **Validates: Requirements 14.1, 14.12, 1.3**
 
         const NUM_OBJECTS: usize = 1000;
 

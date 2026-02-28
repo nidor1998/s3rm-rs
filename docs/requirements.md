@@ -30,6 +30,7 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 - **Event_Callback_Lua**: User-provided Lua script that receives events during deletion operations (progress, errors, completions)
 - **Event_Callback_Rust**: User-provided Rust function that receives events during deletion operations
 - **If_Match**: Boolean flag enabling ETag-based optimistic locking; when enabled, uses each object's own ETag for conditional deletions to prevent race conditions
+- **Keep_Latest_Only**: Filter mode that retains the latest version of each object and deletes all non-latest versions; requires versioning-enabled buckets
 - **Custom_Endpoint**: S3-compatible service endpoint (e.g., MinIO, Wasabi)
 - **Parallel_Lister_Count**: Number of concurrent listing operations (configurable)
 - **Max_Parallel_Listing_Max_Depth**: Maximum depth for parallel listing operations (similar to s3sync's --max-parallel-listing-max-depth)
@@ -229,3 +230,22 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 5. THE S3rm_Tool SHALL support reading credentials from environment variables for CI/CD environments
 6. THE S3rm_Tool SHALL output all log messages (including errors) to stdout via tracing-subscriber by default
 7. WHERE color output is not explicitly disabled, THE S3rm_Tool SHALL use colored output. Color can be disabled via the --disable-color-tracing flag or DISABLE_COLOR_TRACING environment variable
+
+### Requirement 14: Keep Latest Only Version Retention
+
+**User Story:** As a user managing versioned S3 buckets, I want to retain only the latest version of each object and delete all older versions, so that I can efficiently enforce version retention policies and reclaim storage.
+
+#### Acceptance Criteria
+
+1. WHERE the --keep-latest-only flag is provided, THE S3rm_Tool SHALL delete all non-latest versions (where IsLatest is false) and retain the latest version of each object (where IsLatest is true)
+2. THE --keep-latest-only flag SHALL require --delete-all-versions to be specified (enforced at CLI parse time)
+3. THE --keep-latest-only flag SHALL conflict with all filter options except --filter-include-regex and --filter-exclude-regex (enforced at CLI parse time). Conflicting options: --filter-include-content-type-regex, --filter-exclude-content-type-regex, --filter-include-metadata-regex, --filter-exclude-metadata-regex, --filter-include-tag-regex, --filter-exclude-tag-regex, --filter-larger-size, --filter-smaller-size, --filter-mtime-before, --filter-mtime-after, --filter-callback-lua-script
+4. WHERE --keep-latest-only is used with --filter-include-regex or --filter-exclude-regex, THE S3rm_Tool SHALL first filter objects by the regex pattern, then apply keep-latest-only logic to the matching objects
+5. WHERE the target bucket does not have versioning enabled, THE S3rm_Tool SHALL return an error and not delete any objects
+6. WHERE an object has only a single version (which is always latest), THE S3rm_Tool SHALL retain that version and not attempt to delete it
+7. WHERE an object has a delete marker as its latest version, THE S3rm_Tool SHALL retain the delete marker and delete the non-latest versions beneath it
+8. THE KeepLatestOnlyFilter SHALL treat non-versioned objects (NotVersioning variant) as latest, preventing accidental deletion if a bug introduces them into the pipeline
+9. THE --keep-latest-only flag SHALL only affect objects under the specified target prefix; objects outside the prefix SHALL remain completely untouched
+10. WHERE --keep-latest-only is used with --dry-run, THE S3rm_Tool SHALL report simulated deletion statistics without actually deleting any versions
+11. WHERE --keep-latest-only is used with --max-delete, THE S3rm_Tool SHALL stop deleting after the specified limit is reached
+12. THE --keep-latest-only feature SHALL operate correctly when distributed across multiple concurrent workers

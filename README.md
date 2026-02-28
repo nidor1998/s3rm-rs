@@ -99,7 +99,7 @@ This demo shows Express One Zone deleting approximately 34,000 objects per secon
 - [Library API](#library-api)
 - [About testing](#about-testing)
 - [Fully AI-generated (human-verified) software](#fully-ai-generated-human-verified-software)
-    * [Quality verification (by AI self-assessment, initial build)](#quality-verification-by-ai-self-assessment-initial-build)
+    * [Quality verification (by AI self-assessment, v1.1.0)](#quality-verification-by-ai-self-assessment-v110)
     * [AI assessment of safety and correctness (by Claude, Anthropic)](#ai-assessment-of-safety-and-correctness-by-claude-anthropic)
     * [AI assessment of safety and correctness (by Codex)](#ai-assessment-of-safety-and-correctness-by-codex)
     * [AI assessment of safety and correctness (by Gemini)](#ai-assessment-of-safety-and-correctness-by-gemini)
@@ -1134,7 +1134,7 @@ Human engineers authored the requirements, design specifications, and s3sync ref
 | Static analysis (clippy) | 0 warnings |
 | Dependency audit (cargo-deny) | advisories ok, bans ok, licenses ok, sources ok |
 | Security review (Claude Code) | No issues found |
-| Development | 416 commits, 29 PRs |
+| Development | 454 commits, 30 PRs |
 | Code reuse from [s3sync](https://github.com/nidor1998/s3sync) | ~90% of architecture |
 
 The codebase was built through spec-driven development: 30 tasks executed sequentially, each as a separate PR with human oversight. Every pull request is reviewed by two AI tools ([GitHub Copilot](https://github.com/features/copilot) and [CodeRabbit](https://www.coderabbit.ai/)) and by a human reviewer before merging. Audit checkpoints verified implementation against specifications at multiple stages. Property-based testing (proptest) exercises correctness properties across randomized inputs, complementing deterministic unit tests and live-AWS end-to-end tests.
@@ -1256,7 +1256,7 @@ The design shows strong defense-in-depth and unusually strong test discipline fo
 - Test signal is very strong:
     - 744 unit/property tests (all passing)
     - 106 E2E tests against live AWS S3 (all passing)
-    - 850 total passing tests
+    - 865 total passing tests
 - Coverage is high:
     - 97.45% regions, 96.69% functions, 97.95% lines (from provided cargo llvm-cov --all-features run)
 

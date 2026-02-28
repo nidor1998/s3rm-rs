@@ -318,16 +318,17 @@ graph LR
     F4 -->|Channel| F5[IncludeRegexFilter]
     F5 -->|Channel| F6[ExcludeRegexFilter]
     F6 -->|Channel| F7[UserDefinedFilter]
-    F7 -->|MPMC Channel| D1[ObjectDeleter Worker 1]
-    F7 -->|MPMC Channel| D2[ObjectDeleter Worker 2]
-    F7 -->|MPMC Channel| D3[ObjectDeleter Worker N]
+@    F7 -->|Channel| F8[KeepLatestOnlyFilter]
+    F8 -->|MPMC Channel| D1[ObjectDeleter Worker 1]
+    F8 -->|MPMC Channel| D2[ObjectDeleter Worker 2]
+    F8 -->|MPMC Channel| D3[ObjectDeleter Worker N]
     D1 -->|Channel| Term[Terminator]
     D2 -->|Channel| Term
     D3 -->|Channel| Term
 ```
 
 **Workflow**:
-1. **Check Prerequisites** (via `check_prerequisites()`): Validate configuration, handle confirmation prompt (dry-run skips confirmation but pipeline still runs fully). If `delete_all_versions` is set but the bucket is not versioned, the flag is silently cleared so the pipeline proceeds with normal deletion. Called separately before `run()` so the progress bar doesn't interfere with prompts.
+1. **Check Prerequisites** (via `check_prerequisites()`): Validate configuration, handle confirmation prompt (dry-run skips confirmation but pipeline still runs fully). If `delete_all_versions` is set but the bucket is not versioned: with `--keep-latest-only`, return an error (versioning required); otherwise, silently clear the flag so the pipeline proceeds with normal deletion. Also validates that `--if-match` is not combined with `--delete-all-versions`. Called separately before `run()` so the progress bar doesn't interfere with prompts.
 2. **List Stage**: Spawn ObjectLister to list target objects into channel
 3. **Filter Stages**: Chain filter stages (each reads from previous, writes to next)
    - MtimeBeforeFilter (if configured)
@@ -337,6 +338,7 @@ graph LR
    - IncludeRegexFilter (if configured)
    - ExcludeRegexFilter (if configured)
    - UserDefinedFilter (Lua callback, if configured)
+   - KeepLatestOnlyFilter (if `--keep-latest-only` is set; filters out latest versions, passes non-latest for deletion)
 4. **Delete Stage**: Spawn multiple ObjectDeleter workers (MPMC pattern)
 5. **Terminate Stage**: Consume final output and close channels
 
@@ -433,6 +435,9 @@ pub struct ExcludeRegexFilter { /* ObjectFilterBase + Stage */ }
 
 // User-defined filter (Lua/Rust callbacks via FilterManager)
 pub struct UserDefinedFilter { /* Stage */ }
+
+// Keep-latest-only filter (retains latest version, deletes non-latest)
+pub struct KeepLatestOnlyFilter { /* ObjectFilterBase + Stage */ }
 
 impl ObjectFilter for MtimeBeforeFilter {
     async fn filter(&self) -> Result<()> {
@@ -900,6 +905,7 @@ pub struct CLIArgs {
     pub show_no_progress: bool,
     pub delete_all_versions: bool,
     pub max_delete: Option<u64>,  // value_parser range(1..)
+    pub keep_latest_only: bool,   // requires delete_all_versions; conflicts with most filters
 
     // Filtering (same as s3sync)
     pub filter_include_regex: Option<String>,
@@ -966,7 +972,7 @@ pub struct CLIArgs {
     pub allow_lua_unsafe_vm: bool,
 
     // Advanced
-    pub if_match: bool,
+    pub if_match: bool,               // conflicts_with delete_all_versions
     pub warn_as_error: bool,
     pub max_keys: i32,                 // value_parser range(1..=32767)
     pub auto_complete_shell: Option<clap_complete::shells::Shell>,
@@ -1110,7 +1116,7 @@ s3rm s3://my-bucket/ --filter-mtime-before 2023-01-01 --worker-size 100
 **Help Text Organization** (using clap's `help_heading` attribute):
 
 Options are organized into clear categories matching s3sync's help structure:
-- **General**: dry-run, force, show-no-progress, delete-all-versions, max-delete
+- **General**: dry-run, force, show-no-progress, delete-all-versions, max-delete, keep-latest-only
 - **Filtering**: Regex, size, time filters (identical to s3sync)
 - **Tracing/Logging**: Verbosity, JSON, color control, AWS SDK tracing, span events
 - **AWS Configuration**: Credentials, region, endpoint (target-* only, no source-*)
@@ -1394,6 +1400,7 @@ pub struct FilterConfig {
     pub exclude_tag_regex: Option<Regex>,
     pub larger_size: Option<u64>,
     pub smaller_size: Option<u64>,
+    pub keep_latest_only: bool,
 }
 
 ```
@@ -1949,6 +1956,7 @@ macro_rules! e2e_timeout {
 | `tests/common/mod.rs` | — | Shared test infrastructure (`TestHelper`, `PipelineResult`, `BucketGuard`, `CollectingEventCallback`, `e2e_timeout!` macro) |
 | `tests/e2e_deletion.rs` | 7 | Basic deletion, batch mode, single mode, dry-run, force flag |
 | `tests/e2e_filter.rs` | 24 | Regex, size, time, content-type, metadata, tag, and combined filters |
+| `tests/e2e_keep_latest_only.rs` | 11 | Keep-latest-only version retention, edge cases, filter combinations |
 | `tests/e2e_safety.rs` | 3 | Safety feature tests - dry-run, max-delete |
 | `tests/e2e_versioning.rs` | 6 | Delete markers, all-versions deletion, prefix boundary versioned, parallel version listing, unversioned bucket fallback |
 | `tests/e2e_callback.rs` | 7 | Lua filter/event callbacks, Rust event callbacks, event data validation |
@@ -2008,7 +2016,7 @@ async fn test_batch_deletion_with_partial_failure() {
 - **Property Coverage**: 49 of 49 properties tested
 - **Critical Path Coverage**: 100% (deletion logic, safety checks, error handling)
 
-**Note**: Coverage includes unit tests (676 lib, 30 binary) and E2E tests (87 tests across 14 files). The remaining uncovered code is primarily in runtime paths that require live AWS infrastructure (S3 API calls, network error handlers).
+**Note**: Coverage includes unit tests (676 lib, 30 binary) and E2E tests (98 tests across 15 files). The remaining uncovered code is primarily in runtime paths that require live AWS infrastructure (S3 API calls, network error handlers).
 
 ### Continuous Integration
 
@@ -2191,6 +2199,7 @@ s3rm-rs/
 │   │   ├── smaller_size.rs    # SmallerSizeFilter (from s3sync)
 │   │   ├── mtime_after.rs     # MtimeAfterFilter (from s3sync)
 │   │   ├── mtime_before.rs    # MtimeBeforeFilter (from s3sync)
+│   │   ├── keep_latest_only.rs # KeepLatestOnlyFilter (retains latest version, deletes non-latest)
 │   │   └── user_defined.rs    # UserDefinedFilter / Lua filter stage (from s3sync)
 │   ├── deleter/
 │   │   ├── mod.rs             # ObjectDeleter, Deleter trait, DeleteResult types (NEW)
@@ -2219,7 +2228,8 @@ s3rm-rs/
 │   │   ├── filter_properties.rs      # Filters (Properties 7-10)
 │   │   ├── event_callback_properties.rs # Event callbacks (Property 32)
 │   │   ├── safety_properties.rs      # Safety features (Properties 16-19)
-│   │   └── lua_properties.rs         # Lua integration (Properties 11, 14-15)
+│   │   ├── lua_properties.rs         # Lua integration (Properties 11, 14-15)
+│   │   └── keep_latest_only_properties.rs # KeepLatestOnlyFilter (Requirement 14)
 │   ├── test_utils.rs            # Shared test utilities (mock builders, test config helpers)
 │   └── bin/
 │       └── s3rm/
@@ -2235,7 +2245,7 @@ s3rm-rs/
 └── README.md
 ```
 
-**Notes**: Property tests are consolidated in `property_tests/` (14 files covering Properties 4, 7-19, 21-30, 32, 34-37, 41-49). Unit tests remain co-located with source code (e.g., `deleter/tests.rs`, `config/args/tests.rs`). The binary crate's `indicator_properties.rs` stays in `bin/s3rm/` because it imports binary-local modules. All core components are fully implemented including pipeline orchestrator, terminator, progress indicator, CLI binary, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, and CI/CD integration.
+**Notes**: Property tests are consolidated in `property_tests/` (15 files covering Properties 4, 7-19, 21-30, 32, 34-37, 41-49, plus KeepLatestOnlyFilter properties for Requirement 14). Unit tests remain co-located with source code (e.g., `deleter/tests.rs`, `config/args/tests.rs`). The binary crate's `indicator_properties.rs` stays in `bin/s3rm/` because it imports binary-local modules. All core components are fully implemented including pipeline orchestrator, terminator, progress indicator, CLI binary, versioning support, retry/error handling, optimistic locking, logging/verbosity, AWS configuration, rate limiting, cross-platform support, keep-latest-only version retention, and CI/CD integration.
 
 ### Development Phases
 

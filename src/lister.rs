@@ -469,6 +469,38 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    #[should_panic(expected = "not implemented")]
+    async fn mock_storage_head_object_panics_unimplemented() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let mock = MockStorage::new(vec![], vec![], stats_sender);
+        let _ = mock.head_object("key", None).await;
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "not implemented")]
+    async fn mock_storage_get_object_tagging_panics_unimplemented() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let mock = MockStorage::new(vec![], vec![], stats_sender);
+        let _ = mock.get_object_tagging("key", None).await;
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "not implemented")]
+    async fn mock_storage_delete_object_panics_unimplemented() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let mock = MockStorage::new(vec![], vec![], stats_sender);
+        let _ = mock.delete_object("key", None, None).await;
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "not implemented")]
+    async fn mock_storage_delete_objects_panics_unimplemented() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let mock = MockStorage::new(vec![], vec![], stats_sender);
+        let _ = mock.delete_objects(vec![]).await;
+    }
+
+    #[tokio::test]
     async fn list_target_respects_max_keys_parameter() {
         init_dummy_tracing_subscriber();
 

@@ -250,4 +250,88 @@ mod tests {
             "Filter callback should NOT be registered by default"
         );
     }
+
+    // ===================================================================
+    // Pipeline error tests
+    // ===================================================================
+
+    /// When the S3 endpoint is unreachable the pipeline records errors
+    /// during the listing phase.
+    #[tokio::test]
+    async fn pipeline_run_errors_on_unreachable_endpoint() {
+        let args = vec![
+            "s3rm",
+            "-f",
+            "--target-access-key",
+            "dummy",
+            "--target-secret-access-key",
+            "dummy",
+            "--target-endpoint-url",
+            "https://anything.invalid",
+            "--aws-config-file",
+            "./test_data/test_config/config",
+            "--aws-shared-credentials-file",
+            "./test_data/test_config/credentials",
+            "--connect-timeout-milliseconds",
+            "1",
+            "--aws-max-attempts",
+            "0",
+            "s3://test-bucket/prefix/",
+        ];
+
+        let config = Config::try_from(parse_from_args(args).unwrap()).unwrap();
+        let cancellation_token = create_pipeline_cancellation_token();
+        let mut pipeline = DeletionPipeline::new(config, cancellation_token).await;
+
+        pipeline.run().await;
+
+        assert!(
+            pipeline.has_error(),
+            "Pipeline should have errors when S3 endpoint is unreachable"
+        );
+        assert_eq!(
+            pipeline.get_deletion_stats().stats_deleted_objects,
+            0,
+            "No objects should be deleted when endpoint is unreachable"
+        );
+    }
+
+    /// When --force is used with --dry-run and the endpoint is
+    /// unreachable the pipeline still records listing errors.
+    #[tokio::test]
+    async fn pipeline_run_dry_run_errors_on_unreachable_endpoint() {
+        let args = vec![
+            "s3rm",
+            "-f",
+            "-d",
+            "--target-access-key",
+            "dummy",
+            "--target-secret-access-key",
+            "dummy",
+            "--target-endpoint-url",
+            "https://anything.invalid",
+            "--aws-config-file",
+            "./test_data/test_config/config",
+            "--aws-shared-credentials-file",
+            "./test_data/test_config/credentials",
+            "--connect-timeout-milliseconds",
+            "1",
+            "--aws-max-attempts",
+            "0",
+            "s3://test-bucket/prefix/",
+        ];
+
+        let config = Config::try_from(parse_from_args(args).unwrap()).unwrap();
+        assert!(config.dry_run);
+
+        let cancellation_token = create_pipeline_cancellation_token();
+        let mut pipeline = DeletionPipeline::new(config, cancellation_token).await;
+
+        pipeline.run().await;
+
+        assert!(
+            pipeline.has_error(),
+            "Pipeline should have errors even in dry-run when listing fails"
+        );
+    }
 }

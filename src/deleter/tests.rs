@@ -3919,6 +3919,57 @@ fn is_not_found_error_tagging_404_status() {
 }
 
 // ===========================================================================
+// Coverage: is_not_found_error 404 status fallback (line 930)
+// ===========================================================================
+
+#[test]
+fn is_not_found_error_tagging_404_status_unknown_code() {
+    use aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingError;
+    use aws_smithy_runtime_api::http::StatusCode;
+
+    // Error code is unrecognized, but raw HTTP status is 404 — should still
+    // be classified as "not found" via the status-code fallback path.
+    let service_err = GetObjectTaggingError::generic(
+        aws_smithy_types::error::ErrorMetadata::builder()
+            .code("SomeUnknownCode")
+            .message("something went wrong")
+            .build(),
+    );
+    let raw_response = aws_smithy_runtime_api::http::Response::new(
+        StatusCode::try_from(404).unwrap(),
+        SdkBody::from(""),
+    );
+    let sdk_error: SdkError<GetObjectTaggingError, Response<SdkBody>> =
+        SdkError::service_error(service_err, raw_response);
+    let anyhow_err: anyhow::Error = sdk_error.into();
+
+    assert!(is_not_found_error(&anyhow_err));
+}
+
+#[test]
+fn is_not_found_error_tagging_non_404_status_unknown_code() {
+    use aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingError;
+    use aws_smithy_runtime_api::http::StatusCode;
+
+    // Unrecognized error code with a non-404 status — should NOT be "not found".
+    let service_err = GetObjectTaggingError::generic(
+        aws_smithy_types::error::ErrorMetadata::builder()
+            .code("SomeUnknownCode")
+            .message("something went wrong")
+            .build(),
+    );
+    let raw_response = aws_smithy_runtime_api::http::Response::new(
+        StatusCode::try_from(500).unwrap(),
+        SdkBody::from(""),
+    );
+    let sdk_error: SdkError<GetObjectTaggingError, Response<SdkBody>> =
+        SdkError::service_error(service_err, raw_response);
+    let anyhow_err: anyhow::Error = sdk_error.into();
+
+    assert!(!is_not_found_error(&anyhow_err));
+}
+
+// ===========================================================================
 // Coverage: emit_filter_skip event with tag filter + callback (lines 550-567)
 // ===========================================================================
 

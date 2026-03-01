@@ -1108,6 +1108,40 @@ mod tests {
         assert!(!message.is_empty(), "service errors should have a message");
     }
 
+    /// Creates a ClientConfig with short timeouts and 1 retry attempt for fast-failing tests.
+    fn make_fast_failing_client_config() -> ClientConfig {
+        ClientConfig {
+            client_config_location: crate::types::ClientConfigLocation {
+                aws_config_file: None,
+                aws_shared_credentials_file: None,
+            },
+            credential: crate::types::S3Credentials::Credentials {
+                access_keys: crate::types::AccessKeys {
+                    access_key: "test".to_string(),
+                    secret_access_key: "test".to_string(),
+                    session_token: None,
+                },
+            },
+            region: Some("us-east-1".to_string()),
+            endpoint_url: Some("https://localhost:9000".to_string()),
+            force_path_style: true,
+            retry_config: crate::config::RetryConfig {
+                aws_max_attempts: 1,
+                initial_backoff_milliseconds: 100,
+            },
+            cli_timeout_config: crate::config::CLITimeoutConfig {
+                operation_timeout_milliseconds: None,
+                operation_attempt_timeout_milliseconds: Some(2000),
+                connect_timeout_milliseconds: Some(1000),
+                read_timeout_milliseconds: None,
+            },
+            disable_stalled_stream_protection: false,
+            request_checksum_calculation: RequestChecksumCalculation::WhenRequired,
+            accelerate: false,
+            request_payer: None,
+        }
+    }
+
     #[test]
     fn extract_sdk_error_details_non_service_error() {
         use aws_sdk_s3::operation::head_object::HeadObjectError;
@@ -1123,5 +1157,178 @@ mod tests {
             !message.is_empty(),
             "non-service errors should have a message from Display"
         );
+    }
+
+    #[tokio::test]
+    async fn list_objects_returns_error_on_api_failure() {
+        init_dummy_tracing_subscriber();
+
+        let mut config = make_test_config("test-bucket", "prefix/");
+        config.target_client_config = Some(make_fast_failing_client_config());
+        let (storage, _, _) =
+            create_test_storage(&config, Some(make_fast_failing_client_config())).await;
+
+        let (sender, _receiver) = async_channel::unbounded();
+        let result = storage.list_objects(&sender, 1000).await;
+
+        assert!(result.is_err());
+        let err_msg = format!("{:#}", result.unwrap_err());
+        assert!(
+            err_msg.contains("list_objects_v2() failed"),
+            "Expected error to contain 'list_objects_v2() failed', got: {err_msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_object_versions_returns_error_on_api_failure() {
+        init_dummy_tracing_subscriber();
+
+        let mut config = make_test_config("test-bucket", "prefix/");
+        config.target_client_config = Some(make_fast_failing_client_config());
+        let (storage, _, _) =
+            create_test_storage(&config, Some(make_fast_failing_client_config())).await;
+
+        let (sender, _receiver) = async_channel::unbounded();
+        let result = storage.list_object_versions(&sender, 1000).await;
+
+        assert!(result.is_err());
+        let err_msg = format!("{:#}", result.unwrap_err());
+        assert!(
+            err_msg.contains("list_object_versions() failed"),
+            "Expected error to contain 'list_object_versions() failed', got: {err_msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn head_object_returns_error_on_api_failure() {
+        init_dummy_tracing_subscriber();
+
+        let mut config = make_test_config("test-bucket", "prefix/");
+        config.target_client_config = Some(make_fast_failing_client_config());
+        let (storage, _, _) =
+            create_test_storage(&config, Some(make_fast_failing_client_config())).await;
+
+        let result = storage.head_object("test-key", None).await;
+
+        assert!(result.is_err());
+        let err_msg = format!("{:#}", result.unwrap_err());
+        assert!(
+            err_msg.contains("head_object() failed"),
+            "Expected error to contain 'head_object() failed', got: {err_msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_object_tagging_returns_error_on_api_failure() {
+        init_dummy_tracing_subscriber();
+
+        let mut config = make_test_config("test-bucket", "prefix/");
+        config.target_client_config = Some(make_fast_failing_client_config());
+        let (storage, _, _) =
+            create_test_storage(&config, Some(make_fast_failing_client_config())).await;
+
+        let result = storage.get_object_tagging("test-key", None).await;
+
+        assert!(result.is_err());
+        let err_msg = format!("{:#}", result.unwrap_err());
+        assert!(
+            err_msg.contains("get_object_tagging() failed"),
+            "Expected error to contain 'get_object_tagging() failed', got: {err_msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_object_returns_error_on_api_failure() {
+        init_dummy_tracing_subscriber();
+
+        let mut config = make_test_config("test-bucket", "prefix/");
+        config.target_client_config = Some(make_fast_failing_client_config());
+        let (storage, _, _) =
+            create_test_storage(&config, Some(make_fast_failing_client_config())).await;
+
+        let result = storage.delete_object("test-key", None, None).await;
+
+        assert!(result.is_err());
+        let err_msg = format!("{:#}", result.unwrap_err());
+        assert!(
+            err_msg.contains("delete_object() failed"),
+            "Expected error to contain 'delete_object() failed', got: {err_msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_objects_returns_error_on_api_failure() {
+        init_dummy_tracing_subscriber();
+
+        let mut config = make_test_config("test-bucket", "prefix/");
+        config.target_client_config = Some(make_fast_failing_client_config());
+        let (storage, _, _) =
+            create_test_storage(&config, Some(make_fast_failing_client_config())).await;
+
+        let objects = vec![ObjectIdentifier::builder().key("test-key").build().unwrap()];
+        let result = storage.delete_objects(objects).await;
+
+        assert!(result.is_err());
+        let err_msg = format!("{:#}", result.unwrap_err());
+        assert!(
+            err_msg.contains("delete_objects() failed"),
+            "Expected error to contain 'delete_objects() failed', got: {err_msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn is_versioning_enabled_returns_error_on_api_failure() {
+        init_dummy_tracing_subscriber();
+
+        let mut config = make_test_config("test-bucket", "prefix/");
+        config.target_client_config = Some(make_fast_failing_client_config());
+        let (storage, _, _) =
+            create_test_storage(&config, Some(make_fast_failing_client_config())).await;
+
+        let result = storage.is_versioning_enabled().await;
+
+        assert!(result.is_err());
+        let err_msg = format!("{:#}", result.unwrap_err());
+        assert!(
+            err_msg.contains("get_bucket_versioning() failed"),
+            "Expected error to contain 'get_bucket_versioning() failed', got: {err_msg}"
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // exec_rate_limit_objects_per_sec_n: count == 0 early-return
+    // ---------------------------------------------------------------
+
+    #[tokio::test]
+    async fn exec_rate_limit_objects_per_sec_n_zero_skips_limiter() {
+        let config = make_test_config("test-bucket", "prefix/");
+        let (stats_sender, _) = async_channel::unbounded();
+        let cancellation_token = crate::types::token::create_pipeline_cancellation_token();
+
+        // Limiter with max=1: if count=0 did NOT early-return and tried
+        // to acquire(0), the leaky-bucket crate would panic.
+        let limiter = Arc::new(
+            leaky_bucket::RateLimiter::builder()
+                .max(1)
+                .initial(1)
+                .refill(1)
+                .build(),
+        );
+
+        let storage = S3Storage {
+            config,
+            bucket: "test-bucket".to_string(),
+            prefix: "prefix/".to_string(),
+            cancellation_token,
+            client: None,
+            request_payer: None,
+            stats_sender,
+            rate_limit_objects_per_sec: Some(limiter),
+            has_warning: Arc::new(AtomicBool::new(false)),
+            listing_worker_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
+        };
+
+        // Must return immediately without touching the rate limiter.
+        storage.exec_rate_limit_objects_per_sec_n(0).await;
     }
 }

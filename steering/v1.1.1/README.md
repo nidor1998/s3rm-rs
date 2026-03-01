@@ -1,6 +1,6 @@
 # Phase: v1.1.1
 
-**Status: PENDING**
+**Status: COMPLETE**
 
 ## Description
 

@@ -3445,6 +3445,54 @@ mod tests {
     }
 
     #[tokio::test]
+    #[should_panic(expected = "not implemented")]
+    async fn panicking_lister_mock_head_object_panics_unimplemented() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = PanickingListerMockStorage {
+            stats_sender,
+            has_warning,
+        };
+        let _ = mock.head_object("key", None).await;
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "not implemented")]
+    async fn panicking_lister_mock_get_object_tagging_panics_unimplemented() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = PanickingListerMockStorage {
+            stats_sender,
+            has_warning,
+        };
+        let _ = mock.get_object_tagging("key", None).await;
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "not implemented")]
+    async fn panicking_lister_mock_delete_object_panics_unimplemented() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = PanickingListerMockStorage {
+            stats_sender,
+            has_warning,
+        };
+        let _ = mock.delete_object("key", None, None).await;
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "not implemented")]
+    async fn panicking_lister_mock_delete_objects_panics_unimplemented() {
+        let (stats_sender, _) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let mock = PanickingListerMockStorage {
+            stats_sender,
+            has_warning,
+        };
+        let _ = mock.delete_objects(vec![]).await;
+    }
+
+    #[tokio::test]
     async fn list_target_panic_sets_has_error_and_has_panic() {
         init_dummy_tracing_subscriber();
 

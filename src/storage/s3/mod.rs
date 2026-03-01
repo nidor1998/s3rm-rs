@@ -1294,4 +1294,41 @@ mod tests {
             "Expected error to contain 'get_bucket_versioning() failed', got: {err_msg}"
         );
     }
+
+    // ---------------------------------------------------------------
+    // exec_rate_limit_objects_per_sec_n: count == 0 early-return
+    // ---------------------------------------------------------------
+
+    #[tokio::test]
+    async fn exec_rate_limit_objects_per_sec_n_zero_skips_limiter() {
+        let config = make_test_config("test-bucket", "prefix/");
+        let (stats_sender, _) = async_channel::unbounded();
+        let cancellation_token = crate::types::token::create_pipeline_cancellation_token();
+
+        // Limiter with max=1: if count=0 did NOT early-return and tried
+        // to acquire(0), the leaky-bucket crate would panic.
+        let limiter = Arc::new(
+            leaky_bucket::RateLimiter::builder()
+                .max(1)
+                .initial(1)
+                .refill(1)
+                .build(),
+        );
+
+        let storage = S3Storage {
+            config,
+            bucket: "test-bucket".to_string(),
+            prefix: "prefix/".to_string(),
+            cancellation_token,
+            client: None,
+            request_payer: None,
+            stats_sender,
+            rate_limit_objects_per_sec: Some(limiter),
+            has_warning: Arc::new(AtomicBool::new(false)),
+            listing_worker_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
+        };
+
+        // Must return immediately without touching the rate limiter.
+        storage.exec_rate_limit_objects_per_sec_n(0).await;
+    }
 }

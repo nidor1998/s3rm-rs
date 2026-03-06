@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.1.2] - 2026-03-06
+
+### Security
+
+- Upgrade `aws-lc-rs` 1.16.0→1.16.1 and `aws-lc-sys` 0.37.1→0.38.0 to address CVE-2026-3336
+
+### Changed
+
+- Update `tokio` 1.49→1.50, `rustls` 0.23.36→0.23.37, and other transitive dependencies
+
 ## [v1.1.1] - 2026-03-01
 
 ### Added

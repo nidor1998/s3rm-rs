@@ -1,6 +1,6 @@
 [package]
 name = "s3rm-rs"
-version = "1.1.1"
+version = "1.1.2"
 edition = "2024"
 authors = ["nidor1998 <nidor1998@gmail.com>"]
 description = "Fast Amazon S3 object deletion tool."
@@ -34,7 +34,7 @@ thiserror = "2.0.18"
 # Async runtime (same as s3sync)
 async-trait = "0.1.89"
 async-channel = "2.5.0"
-tokio = { version = "1.49.0", features = ["full"] }
+tokio = { version = "1.50.0", features = ["full"] }
 tokio-util = "0.7.18"
 
 # AWS SDK (same versions as s3sync)
@@ -97,9 +97,9 @@ shadow-rs = { version = "1.7.0", optional = true }
 [dev-dependencies]
 proptest = "1.10"
 once_cell = "1.21.3"
-uuid = { version = "1.21.0", features = ["v4"] }
-nix = { version = "0.31.1", features = ["process", "signal"] }
-tempfile = "3.25.0"
+uuid = { version = "1.22.0", features = ["v4"] }
+nix = { version = "0.31.2", features = ["process", "signal"] }
+tempfile = "3.26.0"
 rusty-fork = "0.3.1"
 
 [lints.rust]

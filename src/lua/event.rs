@@ -3,6 +3,8 @@
 //! Adapted from s3sync's `callback/lua_event_callback.rs`.
 //! Converts `EventData` to a Lua table and calls the Lua `on_event()` function.
 
+use std::time::Duration;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use tracing::warn;
@@ -16,12 +18,20 @@ use crate::types::event_callback::{EventCallback, EventData};
 /// For each event, converts `EventData` to a Lua table and calls the function.
 pub struct LuaEventCallback {
     pub(crate) lua: LuaScriptCallbackEngine,
+    callback_timeout: Duration,
 }
 
 impl LuaEventCallback {
     /// Create a new Lua event callback with the specified security mode.
+    ///
+    /// - `callback_timeout_ms`: Timeout per callback invocation in milliseconds (0 = no timeout)
     #[allow(clippy::new_without_default)]
-    pub fn new(memory_limit: usize, allow_lua_os_library: bool, unsafe_lua: bool) -> Self {
+    pub fn new(
+        memory_limit: usize,
+        allow_lua_os_library: bool,
+        unsafe_lua: bool,
+        callback_timeout_ms: u64,
+    ) -> Self {
         let lua = if unsafe_lua {
             LuaScriptCallbackEngine::unsafe_new(memory_limit)
         } else if allow_lua_os_library {
@@ -30,7 +40,10 @@ impl LuaEventCallback {
             LuaScriptCallbackEngine::new_without_os_io_libs(memory_limit)
         };
 
-        Self { lua }
+        Self {
+            lua,
+            callback_timeout: Duration::from_millis(callback_timeout_ms),
+        }
     }
 
     /// Load and compile a Lua event script from a file path.
@@ -82,8 +95,34 @@ impl EventCallback for LuaEventCallback {
             warn!("Lua function 'on_event' not found: {}", e);
             return;
         }
+        let func = func.expect("func was checked above");
 
-        let func_result: mlua::Result<()> = func.unwrap().call_async(table).await;
+        if !self.callback_timeout.is_zero() {
+            let timeout_ms = self.callback_timeout.as_millis();
+            let deadline = std::time::Instant::now() + self.callback_timeout;
+
+            // Install a Lua hook that fires every 1000 instructions to check the deadline.
+            let _ = self.lua.get_engine().set_global_hook(
+                mlua::HookTriggers::new().every_nth_instruction(1000),
+                move |_lua, _debug| {
+                    if std::time::Instant::now() >= deadline {
+                        Err(mlua::Error::RuntimeError(format!(
+                            "Lua event callback timed out after {}ms",
+                            timeout_ms
+                        )))
+                    } else {
+                        Ok(mlua::VmState::Continue)
+                    }
+                },
+            );
+        }
+
+        let func_result: mlua::Result<()> = func.call_async(table).await;
+
+        if !self.callback_timeout.is_zero() {
+            self.lua.get_engine().remove_global_hook();
+        }
+
         if let Err(e) = func_result {
             warn!("Error executing Lua event callback: {}", e);
         }
@@ -97,14 +136,14 @@ mod tests {
 
     #[tokio::test]
     async fn create_all_modes() {
-        let _callback = LuaEventCallback::new(8 * 1024 * 1024, false, false);
-        let _callback = LuaEventCallback::new(8 * 1024 * 1024, true, false);
-        let _callback = LuaEventCallback::new(0, true, true);
+        let _callback = LuaEventCallback::new(8 * 1024 * 1024, false, false, 0);
+        let _callback = LuaEventCallback::new(8 * 1024 * 1024, true, false, 0);
+        let _callback = LuaEventCallback::new(0, true, true, 0);
     }
 
     #[tokio::test]
     async fn on_event_with_valid_script() {
-        let mut callback = LuaEventCallback::new(8 * 1024 * 1024, false, false);
+        let mut callback = LuaEventCallback::new(8 * 1024 * 1024, false, false, 0);
         callback
             .load_and_compile_from_string(
                 r#"
@@ -122,7 +161,7 @@ mod tests {
 
     #[tokio::test]
     async fn on_event_missing_function_does_not_panic() {
-        let mut callback = LuaEventCallback::new(8 * 1024 * 1024, false, false);
+        let mut callback = LuaEventCallback::new(8 * 1024 * 1024, false, false, 0);
         callback
             .load_and_compile_from_string("-- no on_event function")
             .unwrap();
@@ -134,7 +173,7 @@ mod tests {
 
     #[tokio::test]
     async fn on_event_runtime_error_does_not_panic() {
-        let mut callback = LuaEventCallback::new(8 * 1024 * 1024, false, false);
+        let mut callback = LuaEventCallback::new(8 * 1024 * 1024, false, false, 0);
         callback
             .load_and_compile_from_string(
                 r#"
@@ -152,7 +191,7 @@ mod tests {
 
     #[tokio::test]
     async fn on_event_accesses_event_fields() {
-        let mut callback = LuaEventCallback::new(8 * 1024 * 1024, false, false);
+        let mut callback = LuaEventCallback::new(8 * 1024 * 1024, false, false, 0);
         callback
             .load_and_compile_from_string(
                 r#"
@@ -180,7 +219,7 @@ mod tests {
 
     #[tokio::test]
     async fn on_event_receives_statistics() {
-        let mut callback = LuaEventCallback::new(8 * 1024 * 1024, false, false);
+        let mut callback = LuaEventCallback::new(8 * 1024 * 1024, false, false, 0);
         callback
             .load_and_compile_from_string(
                 r#"
@@ -203,5 +242,42 @@ mod tests {
             .get("received_deleted")
             .unwrap();
         assert_eq!(deleted, Some(42));
+    }
+
+    #[tokio::test]
+    async fn event_timeout_does_not_panic() {
+        // Use a short timeout (100ms) with an infinite loop script
+        let mut callback = LuaEventCallback::new(8 * 1024 * 1024, false, false, 100);
+        callback
+            .load_and_compile_from_string(
+                r#"
+                function on_event(event_data)
+                    while true do end
+                end
+                "#,
+            )
+            .unwrap();
+
+        let event_data = EventData::new(EventType::DELETE_COMPLETE);
+        // Should log a warning but not panic or hang
+        callback.on_event(event_data).await;
+    }
+
+    #[tokio::test]
+    async fn event_with_timeout_normal_execution() {
+        // Verify that a normal script completes within the timeout
+        let mut callback = LuaEventCallback::new(8 * 1024 * 1024, false, false, 5000);
+        callback
+            .load_and_compile_from_string(
+                r#"
+                function on_event(event_data)
+                    -- normal fast execution
+                end
+                "#,
+            )
+            .unwrap();
+
+        let event_data = EventData::new(EventType::DELETE_COMPLETE);
+        callback.on_event(event_data).await;
     }
 }

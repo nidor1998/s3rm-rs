@@ -89,6 +89,7 @@ pub struct Config {
     pub allow_lua_os_library: bool,
     pub allow_lua_unsafe_vm: bool,
     pub lua_vm_memory_limit: usize,
+    pub lua_callback_timeout_milliseconds: u64,
     pub if_match: bool,
     pub max_delete: Option<u64>,
     // Callback managers
@@ -165,6 +166,7 @@ impl Default for Config {
             allow_lua_os_library: false,
             allow_lua_unsafe_vm: false,
             lua_vm_memory_limit: 64 * 1024 * 1024,
+            lua_callback_timeout_milliseconds: 10_000,
             if_match: false,
             max_delete: None,
             filter_manager: FilterManager::new(),
@@ -433,6 +435,7 @@ mod tests {
         assert!(!config.allow_lua_os_library);
         assert!(!config.allow_lua_unsafe_vm);
         assert_eq!(config.lua_vm_memory_limit, 64 * 1024 * 1024);
+        assert_eq!(config.lua_callback_timeout_milliseconds, 10_000);
         assert!(!config.if_match);
         assert!(!config.delete_all_versions);
     }

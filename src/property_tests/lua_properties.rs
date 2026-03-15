@@ -57,7 +57,7 @@ mod tests {
         fn lua_filter_always_true_passes_all(key in arb_s3_key(), size in 0i64..10_000_000i64) {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false);
+                let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false, 0);
                 callback
                     .load_and_compile_from_string("function filter(obj) return true end")
                     .unwrap();
@@ -83,7 +83,7 @@ mod tests {
         fn lua_filter_always_false_rejects_all(key in arb_s3_key(), size in 0i64..10_000_000i64) {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false);
+                let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false, 0);
                 callback
                     .load_and_compile_from_string("function filter(obj) return false end")
                     .unwrap();
@@ -117,7 +117,7 @@ mod tests {
         ) {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false);
+                let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false, 0);
                 callback
                     .load_and_compile_from_string(
                         r#"
@@ -153,7 +153,7 @@ mod tests {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
                 let threshold = 5_000_000i64;
-                let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false);
+                let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false, 0);
                 callback
                     .load_and_compile_from_string(
                         &format!(
@@ -185,7 +185,7 @@ mod tests {
         fn lua_filter_receives_all_fields(obj in arb_s3_object()) {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false);
+                let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false, 0);
                 callback
                     .load_and_compile_from_string(
                         r#"
@@ -229,7 +229,7 @@ mod tests {
         fn lua_filter_callback_returns_boolean(key in arb_s3_key()) {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false);
+                let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false, 0);
                 callback
                     .load_and_compile_from_string(
                         "function filter(obj) return obj.key ~= nil end",
@@ -270,7 +270,7 @@ mod tests {
         ) {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                let mut callback = LuaEventCallback::new(8 * 1024 * 1024, false, false);
+                let mut callback = LuaEventCallback::new(8 * 1024 * 1024, false, false, 0);
                 callback
                     .load_and_compile_from_string(
                         r#"
@@ -414,7 +414,7 @@ mod tests {
 
     #[tokio::test]
     async fn filter_callback_in_safe_mode_cannot_access_filesystem() {
-        let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false);
+        let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false, 0);
         // Define a filter that tries to use io.open at runtime
         callback
             .load_and_compile_from_string(
@@ -444,7 +444,7 @@ mod tests {
 
     #[tokio::test]
     async fn filter_callback_with_os_library_can_use_os_clock() {
-        let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, true, false);
+        let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, true, false, 0);
         callback
             .load_and_compile_from_string(
                 r#"

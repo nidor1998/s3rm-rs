@@ -46,7 +46,8 @@ pub fn show_indicator(
     show_result: bool,
     dry_run: bool,
 ) -> JoinHandle<IndicatorSummary> {
-    let progress_style = ProgressStyle::with_template("{wide_msg}").unwrap();
+    let progress_style =
+        ProgressStyle::with_template("{wide_msg}").expect("hardcoded progress template invalid");
     let progress_text = ProgressBar::new(0);
     progress_text.set_style(progress_style);
 
@@ -112,7 +113,10 @@ pub fn show_indicator(
                     );
 
                     if show_result {
-                        progress_text.set_style(ProgressStyle::with_template("{msg}").unwrap());
+                        progress_text.set_style(
+                            ProgressStyle::with_template("{msg}")
+                                .expect("hardcoded progress template invalid"),
+                        );
 
                         progress_text.finish_with_message(format!(
                             "deleted {:>3} objects | {:>3} objects/sec,  skipped {} objects,  error {} objects,  deleted {:>3},  duration {}",
@@ -125,7 +129,7 @@ pub fn show_indicator(
                         ));
 
                         println!();
-                        io::stdout().flush().unwrap()
+                        let _ = io::stdout().flush();
                     }
 
                     return IndicatorSummary {

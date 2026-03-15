@@ -34,7 +34,7 @@ impl UserDefinedFilter {
     async fn receive_and_filter(&self) -> Result<()> {
         loop {
             tokio::select! {
-                recv_result = self.base.receiver.as_ref().unwrap().recv() => {
+                recv_result = self.base.receiver.as_ref().expect("user-defined filter receiver not initialized").recv() => {
                     match recv_result {
                         Ok(object) => {
                             // If a filter callback is registered, execute it

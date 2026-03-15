@@ -61,7 +61,7 @@ impl Stage {
         let result = self
             .sender
             .as_ref()
-            .unwrap()
+            .expect("Stage sender not initialized: this stage cannot send objects")
             .send(object)
             .await
             .context("async_channel::Sender::send() failed.");
@@ -79,7 +79,10 @@ impl Stage {
 
     /// Check if the sender channel has been closed by the receiver.
     pub fn is_channel_closed(&self) -> bool {
-        self.sender.as_ref().unwrap().is_closed()
+        self.sender
+            .as_ref()
+            .expect("Stage sender not initialized: this stage cannot send objects")
+            .is_closed()
     }
 
     /// Send a statistics event through the storage stats channel.

@@ -149,7 +149,7 @@ impl ObjectDeleter {
     async fn receive_and_delete(&mut self) -> Result<()> {
         loop {
             tokio::select! {
-                recv_result = self.base.receiver.as_ref().unwrap().recv() => {
+                recv_result = self.base.receiver.as_ref().expect("ObjectDeleter receiver not initialized").recv() => {
                     match recv_result {
                         Ok(object) => {
                             self.process_object(object).await?;
@@ -161,7 +161,7 @@ impl ObjectDeleter {
                                 return Ok(());
                             }
                         },
-                        Err(_) if self.base.receiver.as_ref().unwrap().is_closed() => {
+                        Err(_) if self.base.receiver.as_ref().expect("ObjectDeleter receiver not initialized").is_closed() => {
                             // Channel closed: all senders dropped. Flush remaining buffer.
                             self.delete_buffered_objects().await?;
                             debug!(worker_index = self.worker_index, "delete worker has been completed.");

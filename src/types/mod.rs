@@ -111,24 +111,30 @@ impl S3Object {
 
     pub fn key(&self) -> &str {
         match &self {
-            Self::Versioning(object) => object.key().unwrap(),
-            Self::NotVersioning(object) => object.key().unwrap(),
-            Self::DeleteMarker(marker) => marker.key().unwrap(),
+            Self::Versioning(object) => object.key().expect("S3 ObjectVersion missing key"),
+            Self::NotVersioning(object) => object.key().expect("S3 Object missing key"),
+            Self::DeleteMarker(marker) => marker.key().expect("S3 DeleteMarker missing key"),
         }
     }
 
     pub fn last_modified(&self) -> &DateTime {
         match &self {
-            Self::Versioning(object) => object.last_modified().unwrap(),
-            Self::NotVersioning(object) => object.last_modified().unwrap(),
-            Self::DeleteMarker(marker) => marker.last_modified().unwrap(),
+            Self::Versioning(object) => object
+                .last_modified()
+                .expect("S3 ObjectVersion missing last_modified"),
+            Self::NotVersioning(object) => object
+                .last_modified()
+                .expect("S3 Object missing last_modified"),
+            Self::DeleteMarker(marker) => marker
+                .last_modified()
+                .expect("S3 DeleteMarker missing last_modified"),
         }
     }
 
     pub fn size(&self) -> i64 {
         match &self {
-            Self::Versioning(object) => object.size().unwrap(),
-            Self::NotVersioning(object) => object.size().unwrap(),
+            Self::Versioning(object) => object.size().expect("S3 ObjectVersion missing size"),
+            Self::NotVersioning(object) => object.size().expect("S3 Object missing size"),
             Self::DeleteMarker(_) => 0,
         }
     }

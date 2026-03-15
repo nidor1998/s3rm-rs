@@ -131,7 +131,7 @@ impl StorageTrait for S3Storage {
                     .clone()
                     .acquire_owned()
                     .await
-                    .unwrap();
+                    .expect("listing semaphore closed unexpectedly");
                 return self
                     .list_objects_with_parallel("", sender, max_keys, 1, permit)
                     .await
@@ -146,7 +146,7 @@ impl StorageTrait for S3Storage {
                     .clone()
                     .acquire_owned()
                     .await
-                    .unwrap();
+                    .expect("listing semaphore closed unexpectedly");
                 return self
                     .list_objects_with_parallel("", sender, max_keys, 1, permit)
                     .await
@@ -169,7 +169,7 @@ impl StorageTrait for S3Storage {
             let output = self
                 .client
                 .as_ref()
-                .unwrap()
+                .expect("S3 client not initialized")
                 .list_objects_v2()
                 .set_request_payer(self.request_payer.clone())
                 .bucket(&self.bucket)
@@ -232,7 +232,7 @@ impl StorageTrait for S3Storage {
                     .clone()
                     .acquire_owned()
                     .await
-                    .unwrap();
+                    .expect("listing semaphore closed unexpectedly");
                 return self
                     .list_object_versions_with_parallel("", sender, max_keys, 1, permit)
                     .await
@@ -247,7 +247,7 @@ impl StorageTrait for S3Storage {
                     .clone()
                     .acquire_owned()
                     .await
-                    .unwrap();
+                    .expect("listing semaphore closed unexpectedly");
                 return self
                     .list_object_versions_with_parallel("", sender, max_keys, 1, permit)
                     .await
@@ -271,7 +271,7 @@ impl StorageTrait for S3Storage {
             let output = self
                 .client
                 .as_ref()
-                .unwrap()
+                .expect("S3 client not initialized")
                 .list_object_versions()
                 .set_request_payer(self.request_payer.clone())
                 .bucket(&self.bucket)
@@ -347,7 +347,7 @@ impl StorageTrait for S3Storage {
 
         self.client
             .as_ref()
-            .unwrap()
+            .expect("S3 client not initialized")
             .head_object()
             .set_request_payer(self.request_payer.clone())
             .bucket(&self.bucket)
@@ -379,7 +379,7 @@ impl StorageTrait for S3Storage {
 
         self.client
             .as_ref()
-            .unwrap()
+            .expect("S3 client not initialized")
             .get_object_tagging()
             .set_request_payer(self.request_payer.clone())
             .bucket(&self.bucket)
@@ -412,7 +412,7 @@ impl StorageTrait for S3Storage {
 
         self.client
             .as_ref()
-            .unwrap()
+            .expect("S3 client not initialized")
             .delete_object()
             .set_request_payer(self.request_payer.clone())
             .bucket(&self.bucket)
@@ -448,7 +448,7 @@ impl StorageTrait for S3Storage {
 
         self.client
             .as_ref()
-            .unwrap()
+            .expect("S3 client not initialized")
             .delete_objects()
             .set_request_payer(self.request_payer.clone())
             .bucket(&self.bucket)
@@ -484,7 +484,7 @@ impl StorageTrait for S3Storage {
         let response = self
             .client
             .as_ref()
-            .unwrap()
+            .expect("S3 client not initialized")
             .get_bucket_versioning()
             .bucket(&self.bucket)
             .send()
@@ -599,7 +599,7 @@ impl S3Storage {
                 let output = self
                     .client
                     .as_ref()
-                    .unwrap()
+                    .expect("S3 client not initialized")
                     .list_objects_v2()
                     .set_request_payer(self.request_payer.clone())
                     .bucket(&self.bucket)
@@ -668,7 +668,7 @@ impl S3Storage {
                                 .clone()
                                 .acquire_owned()
                                 .await
-                                .unwrap();
+                                .expect("listing semaphore closed unexpectedly");
 
                             join_set.spawn(async move {
                                 storage
@@ -754,7 +754,7 @@ impl S3Storage {
                 let output = self
                     .client
                     .as_ref()
-                    .unwrap()
+                    .expect("S3 client not initialized")
                     .list_object_versions()
                     .set_request_payer(self.request_payer.clone())
                     .bucket(&self.bucket)
@@ -842,7 +842,7 @@ impl S3Storage {
                                 .clone()
                                 .acquire_owned()
                                 .await
-                                .unwrap();
+                                .expect("listing semaphore closed unexpectedly");
 
                             join_set.spawn(async move {
                                 storage

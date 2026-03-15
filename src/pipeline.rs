@@ -169,7 +169,10 @@ impl DeletionPipeline {
         if !self.has_error() {
             return None;
         }
-        let mut error_list = self.errors.lock().unwrap();
+        let mut error_list = self
+            .errors
+            .lock()
+            .expect("error list mutex poisoned: a pipeline task panicked while holding the lock");
         let mut errors = Vec::with_capacity(error_list.len());
         while let Some(e) = error_list.pop_front() {
             errors.push(e);
@@ -184,7 +187,10 @@ impl DeletionPipeline {
         if !self.has_error() {
             return None;
         }
-        let error_list = self.errors.lock().unwrap();
+        let error_list = self
+            .errors
+            .lock()
+            .expect("error list mutex poisoned: a pipeline task panicked while holding the lock");
         Some(error_list.iter().map(|e| e.to_string()).collect())
     }
 
@@ -300,7 +306,10 @@ impl DeletionPipeline {
     /// Record an error and set the error flag.
     fn record_error(&self, error: anyhow::Error) {
         self.has_error.store(true, Ordering::SeqCst);
-        self.errors.lock().unwrap().push_back(error);
+        self.errors
+            .lock()
+            .expect("error list mutex poisoned: a pipeline task panicked while holding the lock")
+            .push_back(error);
     }
 
     /// Shutdown: close stats sender.
@@ -401,7 +410,10 @@ impl DeletionPipeline {
                     cancellation_token.cancel();
                     has_error.store(true, Ordering::SeqCst);
                     error!("filter stage failed: {}", e);
-                    error_list.lock().unwrap().push_back(e);
+                    error_list
+                        .lock()
+                        .expect("error list mutex poisoned")
+                        .push_back(e);
                 }
                 Err(e) => {
                     cancellation_token.cancel();
@@ -410,7 +422,7 @@ impl DeletionPipeline {
                     error!("filter task panicked: {}", e);
                     error_list
                         .lock()
-                        .unwrap()
+                        .expect("error list mutex poisoned")
                         .push_back(anyhow::anyhow!("filter task panicked: {}", e));
                 }
             }
@@ -443,7 +455,10 @@ impl DeletionPipeline {
                     cancellation_token.cancel();
                     has_error.store(true, Ordering::SeqCst);
                     error!("object lister failed: {}", e);
-                    error_list.lock().unwrap().push_back(e);
+                    error_list
+                        .lock()
+                        .expect("error list mutex poisoned")
+                        .push_back(e);
                 }
                 Err(e) => {
                     cancellation_token.cancel();
@@ -452,7 +467,7 @@ impl DeletionPipeline {
                     error!("object lister task panicked: {}", e);
                     error_list
                         .lock()
-                        .unwrap()
+                        .expect("error list mutex poisoned")
                         .push_back(anyhow::anyhow!("object lister task panicked: {}", e));
                 }
             }
@@ -554,7 +569,10 @@ impl DeletionPipeline {
                         cancellation_token.cancel();
                         has_error.store(true, Ordering::SeqCst);
                         error!("user defined filter failed: {}", e);
-                        error_list.lock().unwrap().push_back(e);
+                        error_list
+                            .lock()
+                            .expect("error list mutex poisoned")
+                            .push_back(e);
                     }
                     Err(e) => {
                         cancellation_token.cancel();
@@ -618,7 +636,10 @@ impl DeletionPipeline {
                             cancellation_token.cancel();
                             has_error.store(true, Ordering::SeqCst);
                             error!(worker_index, "delete worker failed: {}", e);
-                            error_list.lock().unwrap().push_back(e);
+                            error_list
+                                .lock()
+                                .expect("error list mutex poisoned")
+                                .push_back(e);
                         }
                     }
                     Err(e) => {

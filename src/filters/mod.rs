@@ -84,7 +84,14 @@ impl ObjectFilterBase<'_> {
             }
 
             tokio::task::yield_now().await;
-            match self.base.receiver.as_ref().unwrap().recv().await {
+            match self
+                .base
+                .receiver
+                .as_ref()
+                .expect("filter stage receiver not initialized")
+                .recv()
+                .await
+            {
                 Ok(object) => {
                     tokio::task::yield_now().await;
                     if !filter_fn(&object, &self.base.config.filter_config) {

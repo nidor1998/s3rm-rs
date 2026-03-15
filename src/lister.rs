@@ -56,12 +56,24 @@ impl ObjectLister {
         if self.stage.config.delete_all_versions {
             self.stage
                 .target
-                .list_object_versions(self.stage.sender.as_ref().unwrap(), max_keys)
+                .list_object_versions(
+                    self.stage
+                        .sender
+                        .as_ref()
+                        .expect("ObjectLister stage sender not initialized"),
+                    max_keys,
+                )
                 .await?;
         } else {
             self.stage
                 .target
-                .list_objects(self.stage.sender.as_ref().unwrap(), max_keys)
+                .list_objects(
+                    self.stage
+                        .sender
+                        .as_ref()
+                        .expect("ObjectLister stage sender not initialized"),
+                    max_keys,
+                )
                 .await?;
         }
 

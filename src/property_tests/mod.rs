@@ -21,4 +21,5 @@ mod optimistic_locking_properties;
 mod rate_limiting_properties;
 mod retry_properties;
 mod safety_properties;
+mod stress_tests;
 mod versioning_properties;

@@ -141,6 +141,7 @@ mod tests {
             allow_lua_os_library: false,
             allow_lua_unsafe_vm: false,
             lua_vm_memory_limit: 50 * 1024 * 1024,
+            lua_callback_timeout_milliseconds: 0,
             if_match: false,
             max_delete,
             filter_manager: FilterManager::new(),

@@ -3,6 +3,8 @@
 //! Adapted from s3sync's `callback/lua_filter_callback.rs`.
 //! Converts `S3Object` to a Lua table and calls the Lua `filter()` function.
 
+use std::time::Duration;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use tracing::error;
@@ -18,6 +20,7 @@ use crate::types::filter_callback::FilterCallback;
 /// Returns `true` if the object should be deleted, `false` to skip it.
 pub struct LuaFilterCallback {
     lua: LuaScriptCallbackEngine,
+    callback_timeout: Duration,
 }
 
 impl LuaFilterCallback {
@@ -26,8 +29,14 @@ impl LuaFilterCallback {
     /// - `unsafe_lua`: Full capabilities (overrides other flags)
     /// - `allow_lua_os_library`: Enables OS library (when `unsafe_lua` is false)
     /// - Default: Safe mode (no OS/IO)
+    /// - `callback_timeout_ms`: Timeout per callback invocation in milliseconds (0 = no timeout)
     #[allow(clippy::new_without_default)]
-    pub fn new(memory_limit: usize, allow_lua_os_library: bool, unsafe_lua: bool) -> Self {
+    pub fn new(
+        memory_limit: usize,
+        allow_lua_os_library: bool,
+        unsafe_lua: bool,
+        callback_timeout_ms: u64,
+    ) -> Self {
         let lua = if unsafe_lua {
             LuaScriptCallbackEngine::unsafe_new(memory_limit)
         } else if allow_lua_os_library {
@@ -36,7 +45,10 @@ impl LuaFilterCallback {
             LuaScriptCallbackEngine::new_without_os_io_libs(memory_limit)
         };
 
-        Self { lua }
+        Self {
+            lua,
+            callback_timeout: Duration::from_millis(callback_timeout_ms),
+        }
     }
 
     /// Load and compile a Lua filter script from a file path.
@@ -65,9 +77,49 @@ impl LuaFilterCallback {
         table.set("size", object.size())?;
 
         let func: mlua::Function = self.lua.get_engine().globals().get("filter")?;
-        let result: bool = func.call_async(table).await?;
 
-        Ok(result)
+        if self.callback_timeout.is_zero() {
+            let result: bool = func.call_async(table).await?;
+            Ok(result)
+        } else {
+            let timeout_ms = self.callback_timeout.as_millis();
+            let deadline = std::time::Instant::now() + self.callback_timeout;
+
+            // Install a Lua hook that fires every 1000 instructions to check the deadline.
+            // If hook installation fails, the timeout won't be enforced and the Lua
+            // filter could hang the pipeline, so we propagate the error.
+            self.lua
+                .get_engine()
+                .set_global_hook(
+                    mlua::HookTriggers::new().every_nth_instruction(1000),
+                    move |_lua, _debug| {
+                        if std::time::Instant::now() >= deadline {
+                            Err(mlua::Error::RuntimeError(format!(
+                                "Lua filter callback timed out after {}ms",
+                                timeout_ms
+                            )))
+                        } else {
+                            Ok(mlua::VmState::Continue)
+                        }
+                    },
+                )
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to install Lua timeout hook for filter callback: {}",
+                        e
+                    )
+                })?;
+
+            let result: mlua::Result<bool> = func.call_async(table).await;
+
+            // Remove the hook after execution
+            self.lua.get_engine().remove_global_hook();
+
+            match result {
+                Ok(v) => Ok(v),
+                Err(e) => Err(e.into()),
+            }
+        }
     }
 }
 
@@ -100,14 +152,14 @@ mod tests {
 
     #[tokio::test]
     async fn create_all_modes() {
-        let _callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false);
-        let _callback = LuaFilterCallback::new(8 * 1024 * 1024, true, false);
-        let _callback = LuaFilterCallback::new(0, true, true);
+        let _callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false, 0);
+        let _callback = LuaFilterCallback::new(8 * 1024 * 1024, true, false, 0);
+        let _callback = LuaFilterCallback::new(0, true, true, 0);
     }
 
     #[tokio::test]
     async fn filter_returns_true() {
-        let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false);
+        let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false, 0);
         callback
             .load_and_compile_from_string("function filter(obj) return true end")
             .unwrap();
@@ -119,7 +171,7 @@ mod tests {
 
     #[tokio::test]
     async fn filter_returns_false() {
-        let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false);
+        let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false, 0);
         callback
             .load_and_compile_from_string("function filter(obj) return false end")
             .unwrap();
@@ -131,7 +183,7 @@ mod tests {
 
     #[tokio::test]
     async fn filter_accesses_object_key() {
-        let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false);
+        let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false, 0);
         callback
             .load_and_compile_from_string(
                 r#"
@@ -151,7 +203,7 @@ mod tests {
 
     #[tokio::test]
     async fn filter_accesses_object_size() {
-        let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false);
+        let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false, 0);
         callback
             .load_and_compile_from_string(
                 r#"
@@ -169,7 +221,7 @@ mod tests {
 
     #[tokio::test]
     async fn filter_error_on_missing_function() {
-        let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false);
+        let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false, 0);
         callback
             .load_and_compile_from_string("-- no filter function defined")
             .unwrap();
@@ -181,7 +233,7 @@ mod tests {
 
     #[tokio::test]
     async fn filter_error_on_runtime_error() {
-        let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false);
+        let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false, 0);
         callback
             .load_and_compile_from_string(
                 r#"
@@ -195,5 +247,44 @@ mod tests {
         let object = make_test_object("test-key");
         let result = callback.filter(&object).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn filter_timeout_returns_error() {
+        // Use a short timeout (100ms) with an infinite loop script
+        let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false, 100);
+        callback
+            .load_and_compile_from_string(
+                r#"
+                function filter(obj)
+                    while true do end
+                    return true
+                end
+                "#,
+            )
+            .unwrap();
+
+        let object = make_test_object("test-key");
+        let result = callback.filter(&object).await;
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("timed out"),
+            "Expected timeout error, got: {}",
+            err_msg
+        );
+    }
+
+    #[tokio::test]
+    async fn filter_with_timeout_normal_execution() {
+        // Verify that a normal script completes within the timeout
+        let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false, 5000);
+        callback
+            .load_and_compile_from_string("function filter(obj) return true end")
+            .unwrap();
+
+        let object = make_test_object("test-key");
+        let result = callback.filter(&object).await.unwrap();
+        assert!(result);
     }
 }

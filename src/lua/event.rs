@@ -102,7 +102,9 @@ impl EventCallback for LuaEventCallback {
             let deadline = std::time::Instant::now() + self.callback_timeout;
 
             // Install a Lua hook that fires every 1000 instructions to check the deadline.
-            let _ = self.lua.get_engine().set_global_hook(
+            // If hook installation fails, log a warning and proceed without timeout
+            // protection rather than silently ignoring the failure.
+            if let Err(e) = self.lua.get_engine().set_global_hook(
                 mlua::HookTriggers::new().every_nth_instruction(1000),
                 move |_lua, _debug| {
                     if std::time::Instant::now() >= deadline {
@@ -114,7 +116,13 @@ impl EventCallback for LuaEventCallback {
                         Ok(mlua::VmState::Continue)
                     }
                 },
-            );
+            ) {
+                warn!(
+                    "Failed to install Lua timeout hook for event callback: {}. \
+                     Proceeding without timeout protection.",
+                    e
+                );
+            }
         }
 
         let func_result: mlua::Result<()> = func.call_async(table).await;

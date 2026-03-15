@@ -86,19 +86,29 @@ impl LuaFilterCallback {
             let deadline = std::time::Instant::now() + self.callback_timeout;
 
             // Install a Lua hook that fires every 1000 instructions to check the deadline.
-            let _ = self.lua.get_engine().set_global_hook(
-                mlua::HookTriggers::new().every_nth_instruction(1000),
-                move |_lua, _debug| {
-                    if std::time::Instant::now() >= deadline {
-                        Err(mlua::Error::RuntimeError(format!(
-                            "Lua filter callback timed out after {}ms",
-                            timeout_ms
-                        )))
-                    } else {
-                        Ok(mlua::VmState::Continue)
-                    }
-                },
-            );
+            // If hook installation fails, the timeout won't be enforced and the Lua
+            // filter could hang the pipeline, so we propagate the error.
+            self.lua
+                .get_engine()
+                .set_global_hook(
+                    mlua::HookTriggers::new().every_nth_instruction(1000),
+                    move |_lua, _debug| {
+                        if std::time::Instant::now() >= deadline {
+                            Err(mlua::Error::RuntimeError(format!(
+                                "Lua filter callback timed out after {}ms",
+                                timeout_ms
+                            )))
+                        } else {
+                            Ok(mlua::VmState::Continue)
+                        }
+                    },
+                )
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to install Lua timeout hook for filter callback: {}",
+                        e
+                    )
+                })?;
 
             let result: mlua::Result<bool> = func.call_async(table).await;
 

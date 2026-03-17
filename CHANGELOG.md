@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.2.0] - 2026-03-16
+
+### Added
+
+- `--lua-callback-timeout` option to set a per-invocation timeout (in milliseconds) for Lua filter and event callbacks. Defaults to 10,000 ms. Set to 0 to disable. Uses instruction-count-based hooks (`set_global_hook`) so the timeout works even if the Lua script enters an infinite loop without yielding
+- E2E stress tests for concurrent stats accuracy, channel backpressure, and batch boundary correctness (`tests/e2e_stress.rs`)
+
+### Changed
+
+- Replace critical `unwrap()` calls with descriptive `expect()` messages across `types/mod.rs`, `stage.rs`, `deleter/mod.rs`, and `filters/mod.rs` for clearer panic diagnostics in production
+- Enhance `deny.toml` cargo-deny configuration: add `[advisories]` (RustSec DB audit), `[bans]` (openssl-sys prohibition, duplicate crate detection), and `[sources]` (crates.io-only restriction)
+- Handle `set_global_hook()` Result properly in Lua timeout callbacks — filter callbacks now propagate the error; event callbacks log a warning instead of silently ignoring failures
+- Update dependencies: `clap` 4.5→4.6, `clap_complete` 4.5→4.6, `tracing-subscriber` 0.3.22→0.3.23, `shadow-rs` 1.7.0→1.7.1, `tempfile` 3.26→3.27, and transitive dependency updates
+
 ## [v1.1.2] - 2026-03-06
 
 ### Security

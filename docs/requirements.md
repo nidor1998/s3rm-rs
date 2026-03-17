@@ -75,6 +75,7 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 12. THE S3rm_Tool SHALL support Lua callback types: filter and event callbacks
 13. WHERE Lua scripts are provided, THE S3rm_Tool SHALL run them in safe mode by default (no OS or I/O library access)
 14. THE S3rm_Tool SHALL provide options to allow Lua OS library and unsafe VM operations when explicitly enabled
+15. THE S3rm_Tool SHALL enforce a configurable timeout for each Lua callback invocation (default 10 seconds). WHERE a filter callback times out, THE S3rm_Tool SHALL cancel the pipeline. WHERE an event callback times out, THE S3rm_Tool SHALL log a warning and continue execution
 
 ### Requirement 3: Safety and Confirmation Features
 

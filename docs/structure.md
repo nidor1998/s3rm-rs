@@ -55,6 +55,7 @@
 │   ├── e2e_retry.rs        # Retry and timeout tests (3 tests)
 │   ├── e2e_safety.rs       # Safety feature tests - dry-run, max-delete (4 tests)
 │   ├── e2e_stats.rs        # Statistics and event callback tests (2 tests)
+│   ├── e2e_stress.rs       # Concurrent pipeline stress tests (3 tests)
 │   ├── e2e_tracing.rs      # Logging and tracing tests (7 tests)
 │   └── e2e_versioning.rs   # S3 versioning tests (7 tests)
 ├── .github/
@@ -185,4 +186,4 @@ Tests are co-located with source code or collected under `tests/`:
 - E2E integration tests in `tests/e2e_*.rs` files, each gated behind `#[cfg(e2e_test)]`
   - Require live AWS credentials configured under the `s3rm-e2e-test` AWS profile
   - Shared helpers (bucket setup/teardown, object seeding, assertion utilities) live in `tests/common/mod.rs`
-  - 106 test cases total across 15 test files covering deletion, filtering, versioning, safety, callbacks, tracing, retry, optimistic locking, performance, statistics, error handling, AWS config, Express One Zone, keep-latest-only, and combined scenarios
+  - 109 test cases total across 16 test files covering deletion, filtering, versioning, safety, callbacks, tracing, retry, optimistic locking, performance, statistics, error handling, AWS config, Express One Zone, keep-latest-only, combined, and stress scenarios

@@ -180,7 +180,7 @@ cargo fmt
 
 ### Steering (Active Phase)
 - steering/init_build/tasks.md - Implementation task list
-- steering/init_build/e2e_test_plan.md - E2E test plan (Task 29: 106 test functions across 15 test files, complete)
+- steering/init_build/e2e_test_plan.md - E2E test plan (Task 29: 109 test functions across 16 test files, complete)
 
 ### Source Code
 - `src/lib.rs` - Library entry point and public API
@@ -198,7 +198,7 @@ cargo fmt
 - `src/property_tests/` - Property-based tests (proptest, 15 files)
 - `src/bin/s3rm/indicator_properties.rs` - Binary crate property tests (Property 31)
 - `src/**/tests.rs` and `#[cfg(test)]` modules - Unit tests
-- `tests/e2e_*.rs` - End-to-end integration tests (15 files, 106 tests)
+- `tests/e2e_*.rs` - End-to-end integration tests (16 files, 109 tests)
 
 ## Architecture Overview
 
@@ -265,6 +265,8 @@ RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_aws_config
 RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_combined
 RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_stats
 RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_express_one_zone
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_keep_latest_only
+RUSTFLAGS="--cfg e2e_test" cargo test --test e2e_stress
 
 # Run all E2E tests at once
 RUSTFLAGS="--cfg e2e_test" cargo test --all-features --test '*' -- --test-threads=8
@@ -272,7 +274,7 @@ RUSTFLAGS="--cfg e2e_test" cargo test --all-features --test '*' -- --test-thread
 
 ## Next Steps for Development
 
-All tasks (1-30) are complete. v1.0.0 pre-release validation passed.
+All tasks (1-30) are complete. v1.2.0 pre-release validation passed.
 
 ## Tips for Claude Code Users
 

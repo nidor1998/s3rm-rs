@@ -819,7 +819,7 @@ pub struct LuaFilterCallback {
 }
 
 impl LuaFilterCallback {
-    pub fn new(memory_limit: usize, allow_lua_os_library: bool, unsafe_lua: bool) -> Self;
+    pub fn new(memory_limit: usize, allow_lua_os_library: bool, unsafe_lua: bool, callback_timeout_ms: u64) -> Self;
     pub fn load_and_compile(&mut self, script_path: &str) -> Result<()>;
 }
 
@@ -839,7 +839,7 @@ pub struct LuaEventCallback {
 }
 
 impl LuaEventCallback {
-    pub fn new(memory_limit: usize, allow_lua_os_library: bool, unsafe_lua: bool) -> Self;
+    pub fn new(memory_limit: usize, allow_lua_os_library: bool, unsafe_lua: bool, callback_timeout_ms: u64) -> Self;
     pub fn load_and_compile(&mut self, script_path: &str) -> Result<()>;
 }
 
@@ -969,6 +969,7 @@ pub struct CLIArgs {
     pub event_callback_lua_script: Option<String>,
     pub allow_lua_os_library: bool,
     pub lua_vm_memory_limit: String,  // human-readable (default "64MiB")
+    pub lua_callback_timeout: u64,    // milliseconds (default 10_000)
     pub allow_lua_unsafe_vm: bool,
 
     // Advanced
@@ -1123,7 +1124,7 @@ Options are organized into clear categories matching s3sync's help structure:
 - **Performance**: Worker count, batch-size, parallel listings, rate limiting (identical to s3sync)
 - **Retry Options**: Max attempts, backoff configuration (identical to s3sync)
 - **Timeout Options**: Operation, connection, read timeouts (identical to s3sync)
-- **Lua scripting support**: Script paths, memory limits, security modes (feature-gated)
+- **Lua scripting support**: Script paths, memory limits, callback timeout, security modes (feature-gated)
 - **Advanced**: If-Match, warn-as-error, max-keys, shell completions
 - **Dangerous**: allow-lua-unsafe-vm
 
@@ -1336,6 +1337,7 @@ pub struct Config {
     pub allow_lua_os_library: bool,
     pub allow_lua_unsafe_vm: bool,
     pub lua_vm_memory_limit: usize,
+    pub lua_callback_timeout_milliseconds: u64,  // default 10_000
     pub if_match: bool,             // Uses the object's own ETag for conditional deletion
     pub max_delete: Option<u64>,
     // Callback managers
@@ -1956,19 +1958,20 @@ macro_rules! e2e_timeout {
 | `tests/common/mod.rs` | — | Shared test infrastructure (`TestHelper`, `PipelineResult`, `BucketGuard`, `CollectingEventCallback`, `e2e_timeout!` macro) |
 | `tests/e2e_deletion.rs` | 7 | Basic deletion, batch mode, single mode, dry-run, force flag |
 | `tests/e2e_filter.rs` | 24 | Regex, size, time, content-type, metadata, tag, and combined filters |
-| `tests/e2e_keep_latest_only.rs` | 11 | Keep-latest-only version retention, edge cases, filter combinations |
-| `tests/e2e_safety.rs` | 3 | Safety feature tests - dry-run, max-delete |
-| `tests/e2e_versioning.rs` | 6 | Delete markers, all-versions deletion, prefix boundary versioned, parallel version listing, unversioned bucket fallback |
+| `tests/e2e_keep_latest_only.rs` | 15 | Keep-latest-only version retention, edge cases, filter combinations |
+| `tests/e2e_safety.rs` | 4 | Safety feature tests - dry-run, max-delete |
+| `tests/e2e_versioning.rs` | 7 | Delete markers, all-versions deletion, prefix boundary versioned, parallel version listing, unversioned bucket fallback |
 | `tests/e2e_callback.rs` | 7 | Lua filter/event callbacks, Rust event callbacks, event data validation |
-| `tests/e2e_optimistic.rs` | 3 | If-Match conditional deletion, ETag mismatch handling |
+| `tests/e2e_optimistic.rs` | 4 | If-Match conditional deletion, ETag mismatch handling |
 | `tests/e2e_performance.rs` | 5 | Worker scaling, batch throughput, rate limiting, large object counts |
 | `tests/e2e_tracing.rs` | 7 | Verbosity levels, JSON logging, color output, structured fields |
 | `tests/e2e_retry.rs` | 3 | Retry on transient errors, force retry, error continuation |
-| `tests/e2e_error.rs` | 6 | Error handling, exit codes, partial failure, invalid config |
+| `tests/e2e_error.rs` | 7 | Error handling, exit codes, partial failure, invalid config |
 | `tests/e2e_aws_config.rs` | 4 | Credential loading, region config, custom endpoint, profile |
 | `tests/e2e_combined.rs` | 7 | Multi-filter combinations, pipeline integration scenarios |
 | `tests/e2e_stats.rs` | 2 | Statistics accuracy, event callback stats reporting |
 | `tests/e2e_express_one_zone.rs` | 3 | Express One Zone auto-detection, filtering, parallel listing override |
+| `tests/e2e_stress.rs` | 3 | Concurrent pipeline stress tests (parallel execution, rapid cancellation, high worker count) |
 
 **Running E2E Tests**:
 
@@ -2010,13 +2013,13 @@ async fn test_batch_deletion_with_partial_failure() {
 
 ### Test Coverage Goals
 
-- **Line Coverage**: >94% (current: 94.44% as of 2026-02-23, via `cargo llvm-cov report` combining lib+bin+E2E)
-- **Region Coverage**: >94% (current: 94.58%)
-- **Function Coverage**: >87% (current: 87.94%)
+- **Line Coverage**: >97% (current: 97.95% as of 2026-02-28, via `cargo llvm-cov report` combining lib+bin+E2E)
+- **Region Coverage**: >97% (current: 97.45%)
+- **Function Coverage**: >96% (current: 96.69%)
 - **Property Coverage**: 49 of 49 properties tested
 - **Critical Path Coverage**: 100% (deletion logic, safety checks, error handling)
 
-**Note**: Coverage includes unit tests (676 lib, 30 binary) and E2E tests (98 tests across 15 files). The remaining uncovered code is primarily in runtime paths that require live AWS infrastructure (S3 API calls, network error handlers).
+**Note**: Coverage includes unit tests (740 lib, 32 binary) and E2E tests (109 tests across 16 files). The remaining uncovered code is primarily in runtime paths that require live AWS infrastructure (S3 API calls, network error handlers).
 
 ### Continuous Integration
 
@@ -2080,7 +2083,7 @@ thiserror = "2.0.18"
 # Async runtime (same as s3sync)
 async-trait = "0.1.89"
 async-channel = "2.5.0"
-tokio = { version = "1.49.0", features = ["full"] }
+tokio = { version = "1.50.0", features = ["full"] }
 tokio-util = "0.7.18"
 
 # AWS SDK (same versions as s3sync)
@@ -2093,8 +2096,8 @@ aws-smithy-types-convert = { version = "0.60.13", features = ["convert-chrono"] 
 aws-types = "1.3.13"
 
 # CLI (same as s3sync)
-clap = { version = "4.5.60", features = ["derive", "env", "cargo", "string"] }
-clap_complete = "4.5.66"
+clap = { version = "4.6.0", features = ["derive", "env", "cargo", "string"] }
+clap_complete = "4.6.0"
 clap-verbosity-flag = "3.0.4"
 
 # Date/time
@@ -2112,7 +2115,7 @@ zeroize_derive = "1.4.3"
 
 # Logging (same as s3sync)
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json", "local-time"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json", "local-time"] }
 
 # Progress bar (same as s3sync)
 indicatif = "0.18.4"
@@ -2134,7 +2137,7 @@ mlua = { version = "0.11.6", features = ["lua54", "async", "send", "vendored"], 
 byte-unit = "5.2.0"
 
 # Build info (same as s3sync)
-shadow-rs = { version = "1.7.0", optional = true }
+shadow-rs = { version = "1.7.1", optional = true }
 
 # Misc (same as s3sync)
 cfg-if = "1.0.4"
@@ -2142,14 +2145,14 @@ bitflags = "2.11.0"
 log = "0.4.29"
 
 [build-dependencies]
-shadow-rs = { version = "1.7.0", optional = true }
+shadow-rs = { version = "1.7.1", optional = true }
 
 [dev-dependencies]
 proptest = "1.10"
-once_cell = "1.21.3"
-uuid = { version = "1.21.0", features = ["v4"] }
-nix = { version = "0.31.1", features = ["process", "signal"] }
-tempfile = "3.25.0"
+once_cell = "1.21.4"
+uuid = { version = "1.22.0", features = ["v4"] }
+nix = { version = "0.31.2", features = ["process", "signal"] }
+tempfile = "3.27.0"
 rusty-fork = "0.3.1"
 ```
 

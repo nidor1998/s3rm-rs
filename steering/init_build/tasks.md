@@ -2,13 +2,13 @@
 
 ## Executive Summary
 
-**Project Status**: Tasks 1-30 complete. v1.1.0 pre-release validation passed.
+**Project Status**: Tasks 1-30 complete. v1.2.0 pre-release validation passed.
 
 ## Overview
 
 This implementation plan follows a phased approach that maximizes code reuse from s3sync (~90% of codebase). The architecture is library-first, with the CLI as a thin wrapper. The implementation focuses on streaming pipelines with stages connected by async channels, targeting comprehensive property-based testing coverage for all critical correctness properties.
 
-**Current Achievement**: Tasks 1-30 complete (v1.1.0). All 49 correctness properties have property-based tests (714 lib tests, 30 binary tests, 106 E2E tests -- all pass, verified 2026-02-28). Code quality checks (clippy zero warnings, rustfmt clean, cargo-deny advisories/bans/licenses/sources all ok, cargo doc builds) all pass. Combined coverage: 97.45% regions, 96.69% functions, 97.95% lines.
+**Current Achievement**: Tasks 1-30 complete (v1.2.0). All 49 correctness properties have property-based tests (740 lib tests, 32 binary tests, 109 E2E tests -- all pass). Code quality checks (clippy zero warnings, rustfmt clean, cargo-deny advisories/bans/licenses/sources all ok, cargo doc builds) all pass. Combined coverage: 97.45% regions, 96.69% functions, 97.95% lines.
 
 ## Current Status
 
@@ -46,7 +46,7 @@ Phase 27: Pre-Release Validation (Task 30)
 
 - [x] 1. Project Setup and Foundation
   - Create Cargo workspace with s3rm-rs library and binary
-  - Configure dependencies matching s3sync versions (AWS SDK 1.124.0, tokio 1.49, clap 4.5, mlua 0.11, proptest 1.10)
+  - Configure dependencies matching s3sync versions (AWS SDK 1.124.0, tokio 1.50, clap 4.6, mlua 0.11, proptest 1.10)
   - Set up project structure with lib.rs and main.rs
   - Configure CI pipeline for multi-platform builds (Linux x86_64/ARM64, Windows, macOS)
   - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
@@ -769,12 +769,12 @@ Phase 27: Pre-Release Validation (Task 30)
   - [x] Verify each property has a corresponding property-based test file — 15 property test files with 63 proptest (`prop_`) functions
   - [x] Verify each test runs with appropriate iteration counts
   - [x] Verify each test includes comment tag: "Feature: s3rm-rs, Property N: [property text]"
-  - [x] Run all property tests: `cargo test --lib` — 522 tests pass (verified 2026-02-25)
+  - [x] Run all property tests: `cargo test --lib` — 740 tests (verified 2026-03-18)
   - [x] Document any missing property tests — none missing
   - _Requirements: All requirements (comprehensive coverage)_
 
 
-**Implemented Property Tests**: Properties 1-49 (49 of 49) across 15 property test files (14 in `src/property_tests/` + `src/bin/s3rm/indicator_properties.rs`) plus property tests in `src/deleter/tests.rs`, `src/lister.rs`, and `src/config/args/tests.rs`. 63 `prop_` functions total. Test totals: 522 lib tests (all pass), 26 binary tests (all pass), 84 E2E tests (14 test files, all pass). All tests verified passing 2026-02-25.
+**Implemented Property Tests**: Properties 1-49 (49 of 49) across 15 property test files (14 in `src/property_tests/` + `src/bin/s3rm/indicator_properties.rs`) plus property tests in `src/deleter/tests.rs`, `src/lister.rs`, and `src/config/args/tests.rs`. 62 `prop_` functions total. Test totals: 740 lib tests, 32 binary tests, 109 E2E tests (16 test files).
 
 - [x] 27. Documentation and Examples
   - [x] 27.1 Write README.md (completed in commit 4082dbe on build/init/task23)
@@ -838,20 +838,20 @@ Phase 27: Pre-Release Validation (Task 30)
 - [x] 29. Automated E2E Integration Testing
   - **Executor**: This task was performed by the `test-architect` agent.
   - **Full test plan**: See [`steering/init_build/e2e_test_plan.md`](e2e_test_plan.md)
-  - 106 test functions (29.0–29.64 + v1.1.0 additions) across 15 test files + shared infrastructure (`tests/common/mod.rs`)
+  - 109 test functions (29.0–29.64 + v1.1.0/v1.2.0 additions) across 16 test files + shared infrastructure (`tests/common/mod.rs`)
   - Uses `#![cfg(e2e_test)]`, AWS profile `s3rm-e2e-test`, parallel-safe unique buckets
-  - Covers: filtering (24), deletion modes (7), safety (4), versioning (7), callbacks (7), optimistic locking (4), performance (5), tracing (7), retry (3), error/access denial (7), AWS config (4), combined (7), statistics (2), Express One Zone (3), keep-latest-only (15)
+  - Covers: filtering (24), deletion modes (7), safety (4), versioning (7), callbacks (7), optimistic locking (4), performance (5), tracing (7), retry (3), error/access denial (7), AWS config (4), combined (7), statistics (2), Express One Zone (3), keep-latest-only (15), stress (3)
   - _Requirements: 1.1-1.11, 2.1-2.14, 3.1-3.6, 4.1-4.10, 5.1-5.5, 6.1-6.6, 7.1-7.7, 8.1-8.8, 10.1-10.7, 11.1-11.4, 12.1-12.9, 13.1-13.7_
 
 - [x] 30. Final Checkpoint - Pre-Release Validation
-  - [x] Run all unit tests: `cargo test --lib` — 714 passed, 0 failed (verified 2026-02-28)
+  - [x] Run all unit tests: `cargo test --lib` — 740 tests (verified 2026-03-18)
   - [x] Run all property-based tests: `cargo test --lib` — all 49 properties pass (verified 2026-02-28)
   - [x] Run all integration tests: `cargo test --test '*'` — 0 non-E2E integration tests (E2E gated behind cfg flag)
   - [x] Verify code coverage meets target — `cargo llvm-cov report` (combined lib+bin+E2E): 97.45% regions, 96.69% functions, 97.95% lines (2026-02-28)
   - [x] Verify clippy has no warnings: `cargo clippy --all-targets --all-features` — zero warnings (verified 2026-02-28)
   - [x] Verify rustfmt is applied: `cargo fmt --all -- --check` — clean (verified 2026-02-28)
   - [x] Verify security audit passes: `cargo deny check` — advisories ok, bans ok, licenses ok, sources ok (verified 2026-02-28)
-  - [x] Verify manual integration tests pass (E2E with real S3) — 106/106 E2E tests pass as of 2026-02-28
+  - [x] Verify manual integration tests pass (E2E with real S3) — 109 E2E tests across 16 files
   - [x] Verify documentation builds: `cargo doc --no-deps` — builds successfully (verified 2026-02-25)
   - [x] Review all completed tasks and mark any remaining work — audit complete (Task 30, 2026-02-25)
   - [x] Ask the user if questions arise or if ready to proceed to release
@@ -866,12 +866,12 @@ Phase 27: Pre-Release Validation (Task 30)
 - Unit tests validate specific examples and edge cases
 - Maximum code reuse from s3sync (~90% of codebase)
 - Library-first architecture: CLI is thin wrapper over library
-- Current (v1.1.0): 97.95% line coverage (97.45% region, 96.69% function via cargo llvm-cov, 2026-02-28)
+- Current (v1.2.0): 97.95% line coverage (97.45% region, 96.69% function via cargo llvm-cov, 2026-02-28)
 - All 49 correctness properties must have property-based tests with minimum 100 iterations
 
 ## Implementation Status Summary
 
-Tasks 1-30 complete (v1.1.0). All merged to init_build. Test totals: 714 lib tests (all pass), 30 binary tests (all pass), 106 E2E tests (15 test files, all pass). All tests verified passing 2026-02-28. Code quality: clippy zero warnings, rustfmt clean, cargo-deny (advisories/bans/licenses/sources) all ok, cargo doc builds. Combined coverage (`cargo llvm-cov report`): 97.45% regions, 96.69% functions, 97.95% lines.
+Tasks 1-30 complete (v1.2.0). All merged to init_build. Test totals: 740 lib tests, 32 binary tests, 109 E2E tests (16 test files). Code quality: clippy zero warnings, rustfmt clean, cargo-deny (advisories/bans/licenses/sources) all ok, cargo doc builds. Combined coverage (`cargo llvm-cov report`): 97.45% regions, 96.69% functions, 97.95% lines.
 
 **Already implemented across Tasks 1-25** (infrastructure available for remaining tasks):
 - AWS client setup, credentials, retry, rate limiting, tracing (Task 2)

@@ -11,7 +11,7 @@ You are executing a single task from the s3rm-rs implementation plan.
 ## Task Selection
 
 - If a task number is provided (`$ARGUMENTS`), execute that specific task.
-- If no task number is provided, read `steering/init_build/tasks.md` and find the **first unchecked task** (`- [ ]`) that is not blocked by uncompleted dependencies.
+- If no task number is provided, read the tasks file (e.g., `steering/<current-phase>/tasks.md`) and find the **first unchecked task** (`- [ ]`) that is not blocked by uncompleted dependencies.
 
 ## Execution Workflow
 
@@ -19,37 +19,37 @@ You are executing a single task from the s3rm-rs implementation plan.
 
 Before doing anything else, set up the working branch, GitHub issue, and draft PR:
 
-1. **Determine the task number** (from `$ARGUMENTS` or by reading `tasks.md`)
+1. **Determine the task number** (from `$ARGUMENTS` or by reading the tasks file)
 2. **Ensure working tree is clean** — run `git status`. If there are uncommitted changes, stop and ask the user how to proceed.
-3. **Checkout `init_build`** — run `git checkout init_build` and `git pull origin init_build` to get latest
-4. **Create task branch** — run `git checkout -b build/init/task<N>` where `<N>` is the task number
+3. **Checkout the base branch** — check out the appropriate base branch (e.g., `main` or the current development branch) and pull latest
+4. **Create task branch** — run `git checkout -b task/<N>` where `<N>` is the task number
    - If the branch already exists, ask the user whether to reuse it or create a fresh one
 5. **Create GitHub issue** for the task using the GitHub MCP tools:
-   - **Title**: `Task <N>: <task title from tasks.md>`
-   - **Body**: Include the task description, sub-tasks (as a checkbox list), and referenced requirements from tasks.md
+   - **Title**: `Task <N>: <task title from tasks file>`
+   - **Body**: Include the task description, sub-tasks (as a checkbox list), and referenced requirements
    - **Labels**: add `task` label (create it first if it doesn't exist)
    - **Save the issue number** — you will need it when creating the PR later
-6. **Mark task as in-progress** in `steering/init_build/tasks.md`:
+6. **Mark task as in-progress** in the tasks file (if one exists, e.g., `steering/<current-phase>/tasks.md`):
    - Change the task's `- [ ]` to `- [-]` (in-progress marker)
    - Do NOT change sub-task checkboxes yet
 7. **Commit the in-progress update and push**:
-   - Stage only `tasks.md`: `git add steering/init_build/tasks.md`
-   - Commit: `git commit -m "Mark Task <N> as in-progress in tasks.md"`
-   - Push: `git push -u origin build/init/task<N>`
+   - Stage the tasks file
+   - Commit: `git commit -m "Mark Task <N> as in-progress"`
+   - Push: `git push -u origin task/<N>`
 8. **Create a draft pull request** using `gh pr create`:
    - **Title**: `Task <N>: <task title>`
-   - **Base**: `init_build`
+   - **Base**: the base branch from step 3
    - **Body**: Include `Closes #<issue_number>` to link the issue, a summary section, and a test plan section
    - **Draft**: yes — it will be marked ready for review after implementation
 9. **Confirm** — display the current branch name, issue URL, and PR URL before proceeding
 
-All work for this task MUST happen on the `build/init/task<N>` branch.
+All work for this task MUST happen on the `task/<N>` branch.
 
 ### Phase 1: Read Context (MANDATORY)
 
 Before writing any code, you MUST read all three spec files:
 
-1. **Tasks**: Read `steering/init_build/tasks.md` — find the target task and its sub-tasks
+1. **Tasks**: Find the current steering directory by listing `steering/` and selecting the latest phase. Read its `tasks.md` to find the target task and sub-tasks.
 2. **Requirements**: Read `docs/requirements.md` — find the acceptance criteria referenced by the task
 3. **Design**: Read `docs/design.md` — find the component interfaces and architecture for the task
 
@@ -114,7 +114,7 @@ Wait for the user to review the changes.
 
 **Only execute this phase when the user explicitly confirms the work is acceptable.**
 
-1. **Update `steering/init_build/tasks.md`**:
+1. **Update the tasks file** (in the current steering directory):
    - Change `- [-]` to `- [x]` for the completed task (was marked in-progress in Phase 0)
    - Change `- [ ]` to `- [x]` for all completed sub-tasks
    - Update the "Current Achievement" line and "Completed Phases" section to include this task
@@ -126,7 +126,7 @@ Wait for the user to review the changes.
 
 ## Rules
 
-- **BRANCH FIRST** — always create `build/init/task<N>` from `init_build` before starting
+- **BRANCH FIRST** — always create `task/<N>` from the base branch before starting
 - **ONE TASK ONLY** — never implement multiple tasks
 - **CONTEXT FIRST** — always read specs before coding
 - **S3SYNC FIRST** — always check s3sync before writing new code

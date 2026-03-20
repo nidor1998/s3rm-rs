@@ -9,7 +9,7 @@ in the project, for reference.
 
 ### Prerequisites
 
-- **Rust** (edition 2024, MSRV 1.91.0) — install via [rustup](https://rustup.rs/)
+- **Rust** (edition 2024, MSRV 1.91.1) — install via [rustup](https://rustup.rs/)
 - **Cargo** — ships with rustup
 - **cargo-deny** (optional) — `cargo install cargo-deny` for license/advisory checks
 

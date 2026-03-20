@@ -26,3 +26,13 @@ Thumbs.db
 *.profdata
 lcov.info
 tarpaulin-report.html
+
+# MCP and Claude local config
+.mcp.json
+.claude/settings.local.json
+
+# Tool version manager
+mise.toml
+
+# Serena
+.serena/

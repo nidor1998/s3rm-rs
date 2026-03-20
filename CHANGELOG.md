@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v1.2.0] - 2026-03-16
+## [v1.2.0] - 2026-03-20
 
 ### Added
 
@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhance `deny.toml` cargo-deny configuration: add `[advisories]` (RustSec DB audit), `[bans]` (openssl-sys prohibition, duplicate crate detection), and `[sources]` (crates.io-only restriction)
 - Handle `set_global_hook()` Result properly in Lua timeout callbacks — filter callbacks now propagate the error; event callbacks log a warning instead of silently ignoring failures
 - Update dependencies: `clap` 4.5→4.6, `clap_complete` 4.5→4.6, `tracing-subscriber` 0.3.22→0.3.23, `shadow-rs` 1.7.0→1.7.1, `tempfile` 3.26→3.27, and transitive dependency updates
+- Bump MSRV to 1.91.1
+- Update AWS SDK dependencies: `aws-config` 1.8.14→1.8.15, `aws-runtime` 1.7.1→1.7.2, `aws-sdk-s3` 1.124.0→1.127.0, `aws-smithy-runtime-api` 1.11.5→1.11.6, `aws-smithy-types` 1.4.5→1.4.7, `aws-smithy-types-convert` 0.60.13→0.60.14, `aws-types` 1.3.13→1.3.14
+- Update transitive dependencies: `aws-lc-rs` 1.16.1→1.16.2, `aws-lc-sys` 0.38.0→0.39.0, `zerocopy` 0.8.42→0.8.47, `winnow` 0.7.15→1.0.0
+- Switch Dockerfile builder image from `debian:trixie` with manual rustup to `rust:1-trixie`
+- Add `.dockerignore` for optimized Docker build context
 
 ## [v1.1.2] - 2026-03-06
 

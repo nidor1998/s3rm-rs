@@ -14,9 +14,9 @@ Thoroughly explore the source tree under `src/` to understand actual types, trai
 
 Report all discrepancies found, then update both spec files to match the implementation.
 
-## Step 2: Audit tasks.md
+## Step 2: Audit tasks.md (if applicable)
 
-Review `steering/init_build/tasks.md` against the actual source code at the **sub-task level**. Many sub-tasks in later phases may have already been completed during earlier tasks. For each unchecked sub-task, check whether the implementation already exists in the codebase. If so, mark it `[x]` with a note indicating which earlier task completed it. Also update:
+List the `steering/` directory to find the current phase. If a `tasks.md` exists in the current steering directory, review it against the actual source code at the **sub-task level**. Many sub-tasks in later phases may have already been completed during earlier tasks. For each unchecked sub-task, check whether the implementation already exists in the codebase. If so, mark it `[x]` with a note indicating which earlier task completed it. Also update:
 
 - The status summary and completed phases list
 - The "Implemented Property Tests" line (check which property tests actually exist)

@@ -7,7 +7,7 @@ license: MIT
 compatibility: Designed for Claude Code. Works best when source code and Cargo projects are available. Do not assume toolchain is installed.
 metadata:
   version: "1.0.0"
-  language: "ja-JP"
+  language: "en"
   tags: "rust,code-review,debugging,performance,unsafe,ffi,async,mentoring"
   author: "your-name-or-org"
   id: "rust_expert"

@@ -43,7 +43,7 @@ Before implementing ANY component:
 
 ## Core Principles
 
-1. **Spec-Driven Development**: All work follows the specification in `docs/` and `steering/init_build/`
+1. **Spec-Driven Development**: All work follows the specification in `docs/` and the current `steering/<phase>/` directory
 2. **Maximum s3sync Reuse**: Check s3sync repository before writing new code
 3. **One Task at a Time**: Never implement multiple tasks simultaneously
 4. **Context First**: Always read requirements and design before coding
@@ -89,7 +89,7 @@ Before any implementation:
 
 ### Step 6: Post-Review Updates (ONLY after human review confirms completion)
 When the user confirms the task review is complete, do BOTH:
-1. **Update `steering/init_build/tasks.md`** — mark the task and all sub-tasks as `[x]`, update the status summary and completed phases
+1. **Update the tasks file** in the current steering directory — mark the task and all sub-tasks as `[x]`, update the status summary and completed phases
 2. **Update the GitHub issue** — mark all sub-task checkboxes as `[x]` in the issue body, then close the issue as completed
 
 ## Important Rules
@@ -116,5 +116,5 @@ cargo fmt                # Formatting
 
 - Requirements: `docs/requirements.md`
 - Design: `docs/design.md`
-- Tasks: `steering/init_build/tasks.md`
-- Phase info: `steering/init_build/README.md`
+- Tasks: `steering/<current-phase>/tasks.md` (list `steering/` to find the latest phase)
+- Phase info: `steering/<current-phase>/README.md`

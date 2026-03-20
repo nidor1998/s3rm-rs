@@ -33,3 +33,6 @@ tarpaulin-report.html
 
 # Tool version manager
 mise.toml
+
+# Serena
+.serena/

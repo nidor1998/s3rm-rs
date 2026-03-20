@@ -4,6 +4,7 @@
 .vscode
 .devcontainer
 .DS_Store
+.claude/
 .serena/
 target/
 test_data/

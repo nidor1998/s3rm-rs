@@ -507,6 +507,38 @@ fn parse_human_bytes_invalid() {
     assert!(parse_human_bytes("abc").is_err());
 }
 
+#[test]
+fn parse_human_bytes_returns_u64() {
+    // Verify the return type is u64, not usize
+    let result: u64 = parse_human_bytes("1GiB").unwrap();
+    assert_eq!(result, 1024 * 1024 * 1024);
+}
+
+#[test]
+fn parse_human_bytes_large_value() {
+    // 8 EiB — exceeds u32::MAX, verifying u64 return
+    let result = parse_human_bytes("8EiB").unwrap();
+    assert_eq!(result, 8 * 1024 * 1024 * 1024 * 1024 * 1024 * 1024);
+}
+
+#[test]
+fn parse_human_bytes_zero() {
+    assert_eq!(parse_human_bytes("0").unwrap(), 0);
+}
+
+#[test]
+fn parse_human_bytes_one_byte() {
+    assert_eq!(parse_human_bytes("1").unwrap(), 1);
+}
+
+#[test]
+fn parse_human_bytes_tib() {
+    assert_eq!(
+        parse_human_bytes("2TiB").unwrap(),
+        2 * 1024 * 1024 * 1024 * 1024
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Property tests
 // ---------------------------------------------------------------------------
@@ -1072,4 +1104,184 @@ fn config_from_full_args_with_if_match() {
     assert!(!config.delete_all_versions);
     assert_eq!(config.max_delete, Some(10000));
     assert!(config.filter_config.include_regex.is_some());
+}
+
+// ---------------------------------------------------------------------------
+// build_filter_config tests — exercises the expect() paths
+// ---------------------------------------------------------------------------
+
+#[test]
+fn build_filter_config_compiles_include_regex() {
+    let args = vec!["s3rm", "s3://bucket/", "--filter-include-regex", r"\.csv$"];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    let regex = config.filter_config.include_regex.unwrap();
+    assert!(regex.is_match("file.csv").unwrap());
+    assert!(!regex.is_match("file.txt").unwrap());
+}
+
+#[test]
+fn build_filter_config_compiles_exclude_regex() {
+    let args = vec!["s3rm", "s3://bucket/", "--filter-exclude-regex", r"^temp/"];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    let regex = config.filter_config.exclude_regex.unwrap();
+    assert!(regex.is_match("temp/file.txt").unwrap());
+    assert!(!regex.is_match("data/file.txt").unwrap());
+}
+
+#[test]
+fn build_filter_config_compiles_content_type_regexes() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-include-content-type-regex",
+        "text/.*",
+        "--filter-exclude-content-type-regex",
+        "text/html",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert!(config.filter_config.include_content_type_regex.is_some());
+    assert!(config.filter_config.exclude_content_type_regex.is_some());
+}
+
+#[test]
+fn build_filter_config_compiles_metadata_regexes() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-include-metadata-regex",
+        "key=val",
+        "--filter-exclude-metadata-regex",
+        "secret=.*",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert!(config.filter_config.include_metadata_regex.is_some());
+    assert!(config.filter_config.exclude_metadata_regex.is_some());
+}
+
+#[test]
+fn build_filter_config_compiles_tag_regexes() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-include-tag-regex",
+        "env=prod",
+        "--filter-exclude-tag-regex",
+        "env=dev",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert!(config.filter_config.include_tag_regex.is_some());
+    assert!(config.filter_config.exclude_tag_regex.is_some());
+}
+
+#[test]
+fn build_filter_config_no_filters_all_none() {
+    let args = vec!["s3rm", "s3://bucket/"];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert!(config.filter_config.include_regex.is_none());
+    assert!(config.filter_config.exclude_regex.is_none());
+    assert!(config.filter_config.larger_size.is_none());
+    assert!(config.filter_config.smaller_size.is_none());
+    assert!(config.filter_config.before_time.is_none());
+    assert!(config.filter_config.after_time.is_none());
+}
+
+#[test]
+fn build_filter_config_mtime_before() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-mtime-before",
+        "2024-06-01T00:00:00Z",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert!(config.filter_config.before_time.is_some());
+}
+
+#[test]
+fn build_filter_config_mtime_after() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-mtime-after",
+        "2024-01-01T00:00:00Z",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert!(config.filter_config.after_time.is_some());
+}
+
+#[test]
+fn build_filter_config_size_zero() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-larger-size",
+        "0",
+        "--filter-smaller-size",
+        "1",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert_eq!(config.filter_config.larger_size, Some(0));
+    assert_eq!(config.filter_config.smaller_size, Some(1));
+}
+
+#[test]
+fn build_filter_config_size_values_are_u64() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-larger-size",
+        "1GiB",
+        "--filter-smaller-size",
+        "2GiB",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert_eq!(config.filter_config.larger_size, Some(1024 * 1024 * 1024));
+    assert_eq!(
+        config.filter_config.smaller_size,
+        Some(2 * 1024 * 1024 * 1024)
+    );
+}
+
+#[test]
+fn build_filter_config_larger_size_only() {
+    let args = vec!["s3rm", "s3://bucket/", "--filter-larger-size", "500"];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert_eq!(config.filter_config.larger_size, Some(500));
+    assert!(config.filter_config.smaller_size.is_none());
+}
+
+#[test]
+fn build_filter_config_smaller_size_only() {
+    let args = vec!["s3rm", "s3://bucket/", "--filter-smaller-size", "500"];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert!(config.filter_config.larger_size.is_none());
+    assert_eq!(config.filter_config.smaller_size, Some(500));
+}
+
+#[test]
+fn build_filter_config_size_with_human_units() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-larger-size",
+        "512KiB",
+        "--filter-smaller-size",
+        "64MiB",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert_eq!(config.filter_config.larger_size, Some(512 * 1024));
+    assert_eq!(config.filter_config.smaller_size, Some(64 * 1024 * 1024));
 }

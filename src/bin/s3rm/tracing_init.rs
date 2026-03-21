@@ -30,8 +30,8 @@ pub fn init_tracing(config: &TracingConfig) {
         format!(
             "s3rm_rs={tracing_level},s3rm={tracing_level},aws_smithy_runtime={tracing_level},aws_config={tracing_level},aws_sigv4={tracing_level}"
         )
-    } else if env::var(EVENT_FILTER_ENV_VAR).is_ok() {
-        env::var(EVENT_FILTER_ENV_VAR).unwrap()
+    } else if let Ok(env_filter) = env::var(EVENT_FILTER_ENV_VAR) {
+        env_filter
     } else {
         show_target = false;
         format!("s3rm_rs={tracing_level},s3rm={tracing_level}")

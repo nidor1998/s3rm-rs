@@ -12,7 +12,10 @@ pub fn parse_human_bytes(value: &str) -> Result<u64, String> {
     check_human_bytes(value)?;
 
     let result = Byte::from_str(value).map_err(|e| e.to_string())?;
-    Ok(result.as_u128().try_into().unwrap())
+    Ok(result
+        .as_u128()
+        .try_into()
+        .expect("check_human_bytes already validated u64 range"))
 }
 
 #[cfg(test)]
@@ -51,5 +54,33 @@ mod tests {
     fn parse_invalid_value() {
         assert!(parse_human_bytes("524287a").is_err());
         assert!(parse_human_bytes("5Zib").is_err());
+    }
+
+    #[test]
+    fn parse_zero() {
+        assert_eq!(0, parse_human_bytes("0").unwrap());
+    }
+
+    #[test]
+    fn parse_one_byte() {
+        assert_eq!(1, parse_human_bytes("1").unwrap());
+    }
+
+    #[test]
+    fn parse_max_u64_rejects_overflow() {
+        // Values exceeding u64::MAX should be rejected by check_human_bytes
+        assert!(parse_human_bytes("18446744073709551616").is_err());
+    }
+
+    #[test]
+    fn check_rejects_overflow() {
+        // u64::MAX + 1 = 18446744073709551616
+        assert!(check_human_bytes("18446744073709551616").is_err());
+    }
+
+    #[test]
+    fn check_accepts_large_valid_value() {
+        // 50 TiB is within u64 range
+        assert!(check_human_bytes("50TiB").is_ok());
     }
 }

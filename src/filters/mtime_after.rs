@@ -7,7 +7,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use aws_smithy_types::DateTime as SmithyDateTime;
 use aws_smithy_types_convert::date_time::DateTimeExt;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::config::FilterConfig;
 use crate::filters::{ObjectFilter, ObjectFilterBase};
@@ -39,16 +39,46 @@ impl ObjectFilter for MtimeAfterFilter<'_> {
 }
 
 fn is_after_or_equal(object: &S3Object, config: &FilterConfig) -> bool {
-    let last_modified = SmithyDateTime::from_millis(object.last_modified().to_millis().unwrap())
-        .to_chrono_utc()
-        .unwrap();
+    let Some(after_time) = config.after_time else {
+        warn!(
+            name = FILTER_NAME,
+            "after_time config is None, skipping object to be safe."
+        );
+        return false;
+    };
 
-    if last_modified < config.after_time.unwrap() {
+    let millis = match object.last_modified().to_millis() {
+        Ok(m) => m,
+        Err(e) => {
+            warn!(
+                name = FILTER_NAME,
+                key = object.key(),
+                error = %e,
+                "failed to convert last_modified to millis, skipping object to be safe."
+            );
+            return false;
+        }
+    };
+
+    let last_modified = match SmithyDateTime::from_millis(millis).to_chrono_utc() {
+        Ok(dt) => dt,
+        Err(e) => {
+            warn!(
+                name = FILTER_NAME,
+                key = object.key(),
+                error = %e,
+                "failed to convert last_modified to chrono DateTime, skipping object to be safe."
+            );
+            return false;
+        }
+    };
+
+    if last_modified < after_time {
         let key = object.key();
         let delete_marker = object.is_delete_marker();
         let version_id = object.version_id();
         let last_modified = last_modified.to_rfc3339();
-        let config_time = config.after_time.unwrap().to_rfc3339();
+        let config_time = after_time.to_rfc3339();
 
         debug!(
             name = FILTER_NAME,
@@ -143,5 +173,26 @@ pub(crate) mod tests {
 
         // Equal means at-or-after, so passes filter
         assert!(is_after_or_equal(&object, &config));
+    }
+
+    #[tokio::test]
+    async fn none_config_returns_false() {
+        init_dummy_tracing_subscriber();
+
+        let object = S3Object::NotVersioning(
+            Object::builder()
+                .last_modified(
+                    DateTime::from_str("2023-01-20T00:00:00.000Z", DateTimeFormat::DateTime)
+                        .unwrap(),
+                )
+                .build(),
+        );
+
+        let config = FilterConfig {
+            after_time: None,
+            ..Default::default()
+        };
+
+        assert!(!is_after_or_equal(&object, &config));
     }
 }

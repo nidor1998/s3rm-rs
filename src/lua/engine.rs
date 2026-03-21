@@ -37,7 +37,9 @@ impl LuaScriptCallbackEngine {
         );
 
         let engine = Lua::new();
-        engine.set_memory_limit(memory_limit).unwrap();
+        engine
+            .set_memory_limit(memory_limit)
+            .expect("failed to set Lua memory limit");
         LuaScriptCallbackEngine { engine }
     }
 
@@ -55,8 +57,10 @@ impl LuaScriptCallbackEngine {
             StdLib::ALL_SAFE ^ (StdLib::OS | StdLib::IO),
             LuaOptions::default(),
         )
-        .unwrap();
-        engine.set_memory_limit(memory_limit).unwrap();
+        .expect("failed to create Lua engine without OS/IO libs");
+        engine
+            .set_memory_limit(memory_limit)
+            .expect("failed to set Lua memory limit");
         LuaScriptCallbackEngine { engine }
     }
 
@@ -70,7 +74,9 @@ impl LuaScriptCallbackEngine {
 
         let engine;
         unsafe { engine = Lua::unsafe_new() };
-        engine.set_memory_limit(memory_limit).unwrap();
+        engine
+            .set_memory_limit(memory_limit)
+            .expect("failed to set Lua memory limit");
         LuaScriptCallbackEngine { engine }
     }
 

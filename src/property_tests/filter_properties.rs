@@ -276,7 +276,8 @@ mod tests {
                 let object = arbitrary_s3_object_with_size(size);
                 let passes = crate::filters::larger_size::tests::test_is_larger_or_equal(&object, &config);
 
-                let expected = size >= threshold as i64;
+                // Compare in u64 space (size is non-negative in this range)
+                let expected = (size as u64) >= threshold;
                 prop_assert_eq!(
                     passes, expected,
                     "Size {}: passes={}, expected={} (threshold={})",
@@ -299,7 +300,8 @@ mod tests {
                 let object = arbitrary_s3_object_with_size(size);
                 let passes = crate::filters::smaller_size::tests::test_is_smaller(&object, &config);
 
-                let expected = size < threshold as i64;
+                // Compare in u64 space (size is non-negative in this range)
+                let expected = (size as u64) < threshold;
                 prop_assert_eq!(
                     passes, expected,
                     "Size {}: passes={}, expected={} (threshold={})",
@@ -330,9 +332,10 @@ mod tests {
                 let passes_larger = crate::filters::larger_size::tests::test_is_larger_or_equal(&object, &larger_config);
                 let passes_smaller = crate::filters::smaller_size::tests::test_is_smaller(&object, &smaller_config);
 
-                // Combined with AND: size >= min AND size < max
+                // Combined with AND: size >= min AND size < max (u64 comparison)
                 let in_range = passes_larger && passes_smaller;
-                let expected = size >= min_size as i64 && size < max_size as i64;
+                let size_u64 = size as u64;
+                let expected = size_u64 >= min_size && size_u64 < max_size;
 
                 prop_assert_eq!(
                     in_range, expected,
@@ -340,6 +343,78 @@ mod tests {
                     size, in_range, expected, min_size, max_size
                 );
             }
+        }
+
+        // Property: negative object sizes are always filtered out
+        #[test]
+        fn test_negative_size_always_filtered(
+            size in -1000i64..0,
+            threshold in 0u64..10000,
+        ) {
+            let object = arbitrary_s3_object_with_size(size);
+
+            let larger_config = FilterConfig {
+                larger_size: Some(threshold),
+                ..Default::default()
+            };
+            let smaller_config = FilterConfig {
+                smaller_size: Some(threshold.saturating_add(1)),
+                ..Default::default()
+            };
+
+            // Negative sizes should never pass either filter
+            prop_assert!(
+                !crate::filters::larger_size::tests::test_is_larger_or_equal(&object, &larger_config),
+                "Negative size {} should not pass larger_size filter (threshold={})",
+                size, threshold
+            );
+            prop_assert!(
+                !crate::filters::smaller_size::tests::test_is_smaller(&object, &smaller_config),
+                "Negative size {} should not pass smaller_size filter (threshold={})",
+                size, threshold.saturating_add(1)
+            );
+        }
+
+        // Property: thresholds above i64::MAX always filter out valid objects
+        #[test]
+        fn test_threshold_above_i64_max_larger_filter(
+            size in 0i64..=i64::MAX,
+            offset in 1u64..1000,
+        ) {
+            let threshold = (i64::MAX as u64).saturating_add(offset);
+            let object = arbitrary_s3_object_with_size(size);
+            let config = FilterConfig {
+                larger_size: Some(threshold),
+                ..Default::default()
+            };
+
+            // No i64 value can be >= a threshold above i64::MAX
+            prop_assert!(
+                !crate::filters::larger_size::tests::test_is_larger_or_equal(&object, &config),
+                "Size {} should not pass larger_size filter with threshold {} > i64::MAX",
+                size, threshold
+            );
+        }
+
+        // Property: thresholds above i64::MAX always pass smaller_size filter for valid objects
+        #[test]
+        fn test_threshold_above_i64_max_smaller_filter(
+            size in 0i64..=i64::MAX,
+            offset in 1u64..1000,
+        ) {
+            let threshold = (i64::MAX as u64).saturating_add(offset);
+            let object = arbitrary_s3_object_with_size(size);
+            let config = FilterConfig {
+                smaller_size: Some(threshold),
+                ..Default::default()
+            };
+
+            // Any i64 value is < a threshold above i64::MAX
+            prop_assert!(
+                crate::filters::smaller_size::tests::test_is_smaller(&object, &config),
+                "Size {} should pass smaller_size filter with threshold {} > i64::MAX",
+                size, threshold
+            );
         }
 
         #[test]

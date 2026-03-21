@@ -507,6 +507,38 @@ fn parse_human_bytes_invalid() {
     assert!(parse_human_bytes("abc").is_err());
 }
 
+#[test]
+fn parse_human_bytes_returns_u64() {
+    // Verify the return type is u64, not usize
+    let result: u64 = parse_human_bytes("1GiB").unwrap();
+    assert_eq!(result, 1024 * 1024 * 1024);
+}
+
+#[test]
+fn parse_human_bytes_large_value() {
+    // 8 EiB — exceeds u32::MAX, verifying u64 return
+    let result = parse_human_bytes("8EiB").unwrap();
+    assert_eq!(result, 8 * 1024 * 1024 * 1024 * 1024 * 1024 * 1024);
+}
+
+#[test]
+fn parse_human_bytes_zero() {
+    assert_eq!(parse_human_bytes("0").unwrap(), 0);
+}
+
+#[test]
+fn parse_human_bytes_one_byte() {
+    assert_eq!(parse_human_bytes("1").unwrap(), 1);
+}
+
+#[test]
+fn parse_human_bytes_tib() {
+    assert_eq!(
+        parse_human_bytes("2TiB").unwrap(),
+        2 * 1024 * 1024 * 1024 * 1024
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Property tests
 // ---------------------------------------------------------------------------
@@ -1199,4 +1231,57 @@ fn build_filter_config_size_zero() {
     let config = Config::try_from(cli).unwrap();
     assert_eq!(config.filter_config.larger_size, Some(0));
     assert_eq!(config.filter_config.smaller_size, Some(1));
+}
+
+#[test]
+fn build_filter_config_size_values_are_u64() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-larger-size",
+        "1GiB",
+        "--filter-smaller-size",
+        "2GiB",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert_eq!(config.filter_config.larger_size, Some(1024 * 1024 * 1024));
+    assert_eq!(
+        config.filter_config.smaller_size,
+        Some(2 * 1024 * 1024 * 1024)
+    );
+}
+
+#[test]
+fn build_filter_config_larger_size_only() {
+    let args = vec!["s3rm", "s3://bucket/", "--filter-larger-size", "500"];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert_eq!(config.filter_config.larger_size, Some(500));
+    assert!(config.filter_config.smaller_size.is_none());
+}
+
+#[test]
+fn build_filter_config_smaller_size_only() {
+    let args = vec!["s3rm", "s3://bucket/", "--filter-smaller-size", "500"];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert!(config.filter_config.larger_size.is_none());
+    assert_eq!(config.filter_config.smaller_size, Some(500));
+}
+
+#[test]
+fn build_filter_config_size_with_human_units() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-larger-size",
+        "512KiB",
+        "--filter-smaller-size",
+        "64MiB",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert_eq!(config.filter_config.larger_size, Some(512 * 1024));
+    assert_eq!(config.filter_config.smaller_size, Some(64 * 1024 * 1024));
 }

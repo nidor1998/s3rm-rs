@@ -159,4 +159,114 @@ pub(crate) mod tests {
 
         assert!(!is_smaller(&object, &config));
     }
+
+    #[test]
+    fn negative_size_returns_false() {
+        init_dummy_tracing_subscriber();
+
+        let object = S3Object::NotVersioning(Object::builder().key("test").size(-1).build());
+        let config = FilterConfig {
+            smaller_size: Some(100),
+            ..Default::default()
+        };
+
+        assert!(!is_smaller(&object, &config));
+    }
+
+    #[test]
+    fn zero_size_smaller_than_threshold() {
+        init_dummy_tracing_subscriber();
+
+        let object = S3Object::NotVersioning(Object::builder().key("test").size(0).build());
+        let config = FilterConfig {
+            smaller_size: Some(1),
+            ..Default::default()
+        };
+
+        assert!(is_smaller(&object, &config));
+    }
+
+    #[test]
+    fn zero_size_not_smaller_than_zero_threshold() {
+        init_dummy_tracing_subscriber();
+
+        let object = S3Object::NotVersioning(Object::builder().key("test").size(0).build());
+        let config = FilterConfig {
+            smaller_size: Some(0),
+            ..Default::default()
+        };
+
+        // 0 >= 0, so NOT smaller
+        assert!(!is_smaller(&object, &config));
+    }
+
+    #[test]
+    fn large_threshold_above_i64_max() {
+        init_dummy_tracing_subscriber();
+
+        // Threshold exceeds i64::MAX — would wrap with `as i64`
+        let threshold = i64::MAX as u64 + 1;
+        let object = S3Object::NotVersioning(Object::builder().key("test").size(i64::MAX).build());
+        let config = FilterConfig {
+            smaller_size: Some(threshold),
+            ..Default::default()
+        };
+
+        // i64::MAX < (i64::MAX + 1), so object IS smaller
+        assert!(is_smaller(&object, &config));
+    }
+
+    #[test]
+    fn threshold_at_i64_max() {
+        init_dummy_tracing_subscriber();
+
+        let object = S3Object::NotVersioning(Object::builder().key("test").size(i64::MAX).build());
+        let config = FilterConfig {
+            smaller_size: Some(i64::MAX as u64),
+            ..Default::default()
+        };
+
+        // Equal, so NOT smaller
+        assert!(!is_smaller(&object, &config));
+    }
+
+    #[test]
+    fn threshold_at_u64_max() {
+        init_dummy_tracing_subscriber();
+
+        let object = S3Object::NotVersioning(Object::builder().key("test").size(i64::MAX).build());
+        let config = FilterConfig {
+            smaller_size: Some(u64::MAX),
+            ..Default::default()
+        };
+
+        // i64::MAX < u64::MAX, so object IS smaller
+        assert!(is_smaller(&object, &config));
+    }
+
+    #[test]
+    fn size_one_below_threshold() {
+        init_dummy_tracing_subscriber();
+
+        let object = S3Object::NotVersioning(Object::builder().key("test").size(99).build());
+        let config = FilterConfig {
+            smaller_size: Some(100),
+            ..Default::default()
+        };
+
+        assert!(is_smaller(&object, &config));
+    }
+
+    #[test]
+    fn size_one_above_threshold() {
+        init_dummy_tracing_subscriber();
+
+        let object = S3Object::NotVersioning(Object::builder().key("test").size(101).build());
+        let config = FilterConfig {
+            smaller_size: Some(100),
+            ..Default::default()
+        };
+
+        assert!(!is_smaller(&object, &config));
+    }
 }

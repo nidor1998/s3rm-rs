@@ -662,23 +662,23 @@ async fn e2e_batch_deleter_error_code_in_events() {
 }
 
 // ---------------------------------------------------------------------------
-// Error chain preservation: pipeline errors contain original cause
+// Smoke test: invalid credentials produce non-empty pipeline errors
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn e2e_error_chain_preserved_in_pipeline_errors() {
+async fn e2e_invalid_credentials_pipeline_error_smoke_test() {
     e2e_timeout!(async {
-        // Purpose: Verify that when the pipeline encounters an error (e.g., invalid
-        //          credentials), the error chain preserves the original AWS SDK error.
-        //          This validates fix #5 (error chain preservation).
+        // Purpose: Smoke test verifying that invalid credentials produce a
+        //          pipeline error with a non-empty error list. This does NOT
+        //          test error chain preservation in the deletion stage (the
+        //          failure occurs at listing, before any deletion). Error chain
+        //          preservation through delete_buffered_objects and
+        //          handle_api_error is covered by unit tests.
         //
         // Setup:   Create a bucket, upload objects, run with invalid credentials.
-        // Expected: - Pipeline has_error is true
-        //           - Errors list is non-empty
-        //           - Error messages contain meaningful context (not just a generic
-        //             "cancelled with error" message without the original cause)
+        // Expected: has_error is true, errors list is non-empty, objects remain.
         //
-        // Validates: Error chain preservation (fix #5)
+        // Validates: Pipeline surfaces listing-stage auth errors (Req 6.4)
 
         let helper = TestHelper::new().await;
         let bucket = helper.generate_bucket_name();
@@ -692,7 +692,6 @@ async fn e2e_error_chain_preserved_in_pipeline_errors() {
                 .await;
         }
 
-        // Run with invalid credentials to trigger an error
         let config = TestHelper::build_config(vec![
             &format!("s3://{bucket}/chain/"),
             "--target-access-key",
@@ -709,22 +708,12 @@ async fn e2e_error_chain_preserved_in_pipeline_errors() {
             result.has_error,
             "Pipeline should report error for invalid credentials"
         );
-
-        // Verify error messages are non-empty and contain meaningful info
         assert!(
             !result.errors.is_empty(),
             "Errors list should not be empty when pipeline fails"
         );
 
-        // The error chain should contain some reference to the underlying cause
-        // (not just a bare "cancelled with error" without context)
-        let all_errors = result.errors.join("\n");
-        assert!(
-            !all_errors.is_empty(),
-            "Combined error messages should not be empty"
-        );
-
-        // Objects should still exist
+        // Objects should still exist (failure was at listing, before deletion)
         let remaining = helper.count_objects(&bucket, "chain/").await;
         assert_eq!(
             remaining, 3,

@@ -50,7 +50,17 @@ fn is_larger_or_equal(object: &S3Object, config: &FilterConfig) -> bool {
         return false;
     };
 
-    if object.size() < larger_size as i64 {
+    let object_size = object.size();
+    if object_size < 0 {
+        warn!(
+            name = FILTER_NAME,
+            size = object_size,
+            "object has negative size, skipping to be safe."
+        );
+        return false;
+    }
+
+    if (object_size as u64) < larger_size {
         let key = object.key();
         let content_length = object.size();
         let delete_marker = object.is_delete_marker();

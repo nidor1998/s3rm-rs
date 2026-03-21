@@ -46,6 +46,80 @@ impl BatchDeleter {
     pub fn new(target: crate::storage::Storage) -> Self {
         Self { target }
     }
+
+    /// Retries a failed key using individual DeleteObject calls with force-retry logic.
+    ///
+    /// When a batch DeleteObjects call reports a retryable error for a key,
+    /// this method falls back to individual DeleteObject attempts with the
+    /// configured retry count and interval.
+    ///
+    /// Returns `Some(DeletedKey)` on success, or `Some(FailedKey)` wrapped in
+    /// `Err` variant if all retries are exhausted.
+    async fn retry_failed_key_with_single_delete(
+        &self,
+        key: &str,
+        version_id: Option<&str>,
+        if_match_etag: Option<String>,
+        code: &str,
+        message: &str,
+        config: &Config,
+    ) -> std::result::Result<DeletedKey, FailedKey> {
+        let force_retry_count = config.force_retry_config.force_retry_count;
+        let force_retry_interval = config.force_retry_config.force_retry_interval_milliseconds;
+
+        for attempt in 0..=force_retry_count {
+            if attempt > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(force_retry_interval)).await;
+            }
+
+            match self
+                .target
+                .delete_object(
+                    key,
+                    version_id.map(|v| v.to_string()),
+                    if_match_etag.clone(),
+                )
+                .await
+            {
+                Ok(_) => {
+                    return Ok(DeletedKey {
+                        key: key.to_string(),
+                        version_id: version_id.map(|v| v.to_string()),
+                    });
+                }
+                Err(e) => {
+                    warn!(
+                        key = key,
+                        version_id = version_id,
+                        attempt = attempt + 1,
+                        max_attempts = force_retry_count + 1,
+                        error = %e,
+                        "S3 DeleteObject fallback attempt {}/{} failed for key '{}'.",
+                        attempt + 1, force_retry_count + 1, key,
+                    );
+                }
+            }
+        }
+
+        warn!(
+            key = key,
+            version_id = version_id,
+            code = code,
+            message = message,
+            "S3 DeleteObject fallback exhausted all {} retries for key '{}': {} ({}).",
+            force_retry_count + 1,
+            key,
+            code,
+            message,
+        );
+
+        Err(FailedKey {
+            key: key.to_string(),
+            version_id: version_id.map(|v| v.to_string()),
+            error_code: code.to_string(),
+            error_message: message.to_string(),
+        })
+    }
 }
 
 #[async_trait]
@@ -58,8 +132,6 @@ impl Deleter for BatchDeleter {
         }
 
         let batch_size = (config.batch_size as usize).min(MAX_BATCH_SIZE);
-        let force_retry_count = config.force_retry_config.force_retry_count;
-        let force_retry_interval = config.force_retry_config.force_retry_interval_milliseconds;
 
         for chunk in objects.chunks(batch_size) {
             // Build a lookup map from (key, version_id) -> &S3Object for ETag retrieval
@@ -129,63 +201,26 @@ impl Deleter for BatchDeleter {
                         None
                     };
 
-                    let mut single_succeeded = false;
-                    for attempt in 0..=force_retry_count {
-                        if attempt > 0 {
-                            tokio::time::sleep(std::time::Duration::from_millis(
-                                force_retry_interval,
-                            ))
-                            .await;
+                    match self
+                        .retry_failed_key_with_single_delete(
+                            &key,
+                            version_id.as_deref(),
+                            if_match_etag,
+                            &code,
+                            &message,
+                            config,
+                        )
+                        .await
+                    {
+                        Ok(deleted_key) => {
+                            result.deleted.push(deleted_key);
                         }
-
-                        match self
-                            .target
-                            .delete_object(&key, version_id.clone(), if_match_etag.clone())
-                            .await
-                        {
-                            Ok(_) => {
-                                result.deleted.push(DeletedKey {
-                                    key: key.clone(),
-                                    version_id: version_id.clone(),
-                                });
-                                single_succeeded = true;
-                                break;
-                            }
-                            Err(e) => {
-                                warn!(
-                                    key = key,
-                                    version_id = version_id,
-                                    attempt = attempt + 1,
-                                    max_attempts = force_retry_count + 1,
-                                    error = %e,
-                                    "S3 DeleteObject fallback attempt {}/{} failed for key '{}'.",
-                                    attempt + 1, force_retry_count + 1, key,
-                                );
-                            }
+                        Err(failed_key) => {
+                            self.target
+                                .send_stats(DeletionStatistics::DeleteError { key: key.clone() })
+                                .await;
+                            result.failed.push(failed_key);
                         }
-                    }
-
-                    if !single_succeeded {
-                        warn!(
-                            key = key,
-                            version_id = version_id,
-                            code = code,
-                            message = message,
-                            "S3 DeleteObject fallback exhausted all {} retries for key '{}': {} ({}).",
-                            force_retry_count + 1,
-                            key,
-                            code,
-                            message,
-                        );
-                        self.target
-                            .send_stats(DeletionStatistics::DeleteError { key: key.clone() })
-                            .await;
-                        result.failed.push(FailedKey {
-                            key,
-                            version_id,
-                            error_code: code,
-                            error_message: message,
-                        });
                     }
                 } else {
                     // Non-retryable error: treat as warning, not error.

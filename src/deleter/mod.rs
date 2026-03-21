@@ -241,8 +241,8 @@ impl ObjectDeleter {
     }
 
     /// Apply content-type and metadata filters via HeadObject.
-    /// Returns `Ok(true)` if the object was filtered out or an error occurred
-    /// that should skip further processing.
+    /// Returns `Ok(true)` if the object was filtered out or not found (404).
+    /// Returns `Err` on fatal API errors (which also cancels the pipeline).
     async fn apply_head_object_filters(&self, object: &S3Object) -> Result<bool> {
         let fc = &self.base.config.filter_config;
         let needs_head_object = fc.include_content_type_regex.is_some()
@@ -326,8 +326,8 @@ impl ObjectDeleter {
     }
 
     /// Apply tag filters via GetObjectTagging.
-    /// Returns `Ok(true)` if the object was filtered out or an error occurred
-    /// that should skip further processing.
+    /// Returns `Ok(true)` if the object was filtered out or not found (404).
+    /// Returns `Err` on fatal API errors (which also cancels the pipeline).
     async fn apply_tag_filters(&self, object: &S3Object) -> Result<bool> {
         let fc = &self.base.config.filter_config;
         let needs_tagging = fc.include_tag_regex.is_some() || fc.exclude_tag_regex.is_some();

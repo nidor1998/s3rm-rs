@@ -85,9 +85,8 @@ fn check_s3_target(s: &str) -> Result<String, String> {
     }
 }
 
-fn parse_human_bytes(s: &str) -> Result<usize, String> {
-    let v = value_parser::human_bytes::parse_human_bytes(s)?;
-    usize::try_from(v).map_err(|e| e.to_string())
+fn parse_human_bytes(s: &str) -> Result<u64, String> {
+    value_parser::human_bytes::parse_human_bytes(s)
 }
 
 // ---------------------------------------------------------------------------
@@ -555,7 +554,7 @@ where
 // ---------------------------------------------------------------------------
 
 impl CLIArgs {
-    fn build_filter_config(&self) -> FilterConfig {
+    fn build_filter_config(&self) -> Result<FilterConfig, String> {
         // value_parser already validated regexes at parse time
         let compile_regex = |pattern: &Option<String>| -> Option<Regex> {
             pattern
@@ -563,7 +562,20 @@ impl CLIArgs {
                 .map(|p| Regex::new(p).expect("regex was already validated by value_parser"))
         };
 
-        FilterConfig {
+        let larger_size = self
+            .filter_larger_size
+            .as_deref()
+            .map(parse_human_bytes)
+            .transpose()
+            .map_err(|e| format!("Invalid filter-larger-size: {e}"))?;
+        let smaller_size = self
+            .filter_smaller_size
+            .as_deref()
+            .map(parse_human_bytes)
+            .transpose()
+            .map_err(|e| format!("Invalid filter-smaller-size: {e}"))?;
+
+        Ok(FilterConfig {
             before_time: self.filter_mtime_before,
             after_time: self.filter_mtime_after,
             include_regex: compile_regex(&self.filter_include_regex),
@@ -574,14 +586,10 @@ impl CLIArgs {
             exclude_metadata_regex: compile_regex(&self.filter_exclude_metadata_regex),
             include_tag_regex: compile_regex(&self.filter_include_tag_regex),
             exclude_tag_regex: compile_regex(&self.filter_exclude_tag_regex),
-            larger_size: self.filter_larger_size.as_deref().map(|s| {
-                parse_human_bytes(s).expect("value was already validated by value_parser") as u64
-            }),
-            smaller_size: self.filter_smaller_size.as_deref().map(|s| {
-                parse_human_bytes(s).expect("value was already validated by value_parser") as u64
-            }),
+            larger_size,
+            smaller_size,
             keep_latest_only: self.keep_latest_only,
-        }
+        })
     }
 
     fn build_client_config(&self) -> Option<ClientConfig> {
@@ -683,7 +691,7 @@ impl TryFrom<CLIArgs> for Config {
     #[allow(clippy::needless_late_init)]
     fn try_from(args: CLIArgs) -> Result<Self, Self::Error> {
         let target = args.parse_target()?;
-        let filter_config = args.build_filter_config();
+        let filter_config = args.build_filter_config()?;
         let target_client_config = args.build_client_config();
         let tracing_config = args.build_tracing_config(args.dry_run);
 
@@ -726,6 +734,7 @@ impl TryFrom<CLIArgs> for Config {
                 allow_lua_os_library = args.allow_lua_os_library;
                 allow_lua_unsafe_vm = args.allow_lua_unsafe_vm;
                 lua_vm_memory_limit = parse_human_bytes(&args.lua_vm_memory_limit)
+                    .and_then(|v| usize::try_from(v).map_err(|e| e.to_string()))
                     .map_err(|e| format!("Invalid lua-vm-memory-limit: {e}"))?;
                 lua_callback_timeout_milliseconds = args.lua_callback_timeout;
             } else {

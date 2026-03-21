@@ -556,9 +556,11 @@ where
 
 impl CLIArgs {
     fn build_filter_config(&self) -> FilterConfig {
-        // value_parser already validated regexes at parse time, so unwrap is safe
+        // value_parser already validated regexes at parse time
         let compile_regex = |pattern: &Option<String>| -> Option<Regex> {
-            pattern.as_ref().map(|p| Regex::new(p).unwrap())
+            pattern
+                .as_ref()
+                .map(|p| Regex::new(p).expect("regex was already validated by value_parser"))
         };
 
         FilterConfig {
@@ -572,14 +574,12 @@ impl CLIArgs {
             exclude_metadata_regex: compile_regex(&self.filter_exclude_metadata_regex),
             include_tag_regex: compile_regex(&self.filter_include_tag_regex),
             exclude_tag_regex: compile_regex(&self.filter_exclude_tag_regex),
-            larger_size: self
-                .filter_larger_size
-                .as_deref()
-                .map(|s| parse_human_bytes(s).unwrap() as u64),
-            smaller_size: self
-                .filter_smaller_size
-                .as_deref()
-                .map(|s| parse_human_bytes(s).unwrap() as u64),
+            larger_size: self.filter_larger_size.as_deref().map(|s| {
+                parse_human_bytes(s).expect("value was already validated by value_parser") as u64
+            }),
+            smaller_size: self.filter_smaller_size.as_deref().map(|s| {
+                parse_human_bytes(s).expect("value was already validated by value_parser") as u64
+            }),
             keep_latest_only: self.keep_latest_only,
         }
     }

@@ -49,20 +49,21 @@ async fn main() -> Result<()> {
 }
 
 fn load_config_exit_if_err() -> Config {
-    let config = Config::try_from(CLIArgs::parse());
-    if let Err(error_message) = config {
-        clap::Error::raw(clap::error::ErrorKind::ValueValidation, error_message).exit();
+    match Config::try_from(CLIArgs::parse()) {
+        Ok(config) => config,
+        Err(error_message) => {
+            clap::Error::raw(clap::error::ErrorKind::ValueValidation, error_message).exit();
+        }
     }
-    config.unwrap()
 }
 
 fn start_tracing_if_necessary(config: &Config) -> bool {
-    if config.tracing_config.is_none() {
-        return false;
+    if let Some(tracing_config) = config.tracing_config.as_ref() {
+        tracing_init::init_tracing(tracing_config);
+        true
+    } else {
+        false
     }
-
-    tracing_init::init_tracing(config.tracing_config.as_ref().unwrap());
-    true
 }
 
 fn register_user_defined_callbacks(config: &mut Config) {
@@ -151,7 +152,11 @@ async fn run(mut config: Config) -> Result<()> {
                 error!(duration_sec = duration_sec, "s3rm abnormal termination.");
                 std::process::exit(EXIT_CODE_ABNORMAL_TERMINATION);
             }
-            let errors = pipeline.get_errors_and_consume().unwrap();
+            let Some(errors) = pipeline.get_errors_and_consume() else {
+                // has_error() was true but no errors found — should not happen.
+                error!(duration_sec = duration_sec, "s3rm failed.");
+                std::process::exit(1);
+            };
             // Use the highest exit code across all errors so that a severe
             // status (e.g. 3 for PartialFailure) is not downgraded by a
             // subsequent generic error (code 1).
@@ -210,6 +215,14 @@ mod tests {
             let config = Config::try_from(parse_from_args(args).unwrap()).unwrap();
             assert!(!start_tracing_if_necessary(&config));
         }
+    }
+
+    #[test]
+    fn start_tracing_with_none_config() {
+        let args = vec!["s3rm", "-qq", "s3://test-bucket/prefix/"];
+        let config = Config::try_from(parse_from_args(args).unwrap()).unwrap();
+        assert!(config.tracing_config.is_none());
+        assert!(!start_tracing_if_necessary(&config));
     }
 
     #[test]

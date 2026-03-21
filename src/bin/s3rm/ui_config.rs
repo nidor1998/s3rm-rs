@@ -16,15 +16,15 @@ pub fn is_progress_indicator_needed(config: &Config) -> bool {
         return false;
     }
 
-    if config.tracing_config.is_none() {
+    let Some(tracing_config) = config.tracing_config.as_ref() else {
         return true;
-    }
+    };
 
-    if log::Level::Warn < config.tracing_config.as_ref().unwrap().tracing_level {
+    if log::Level::Warn < tracing_config.tracing_level {
         return false;
     }
 
-    !config.tracing_config.as_ref().unwrap().json_tracing
+    !tracing_config.json_tracing
 }
 
 /// Whether to show the final result summary line.
@@ -37,11 +37,11 @@ pub fn is_show_result_needed(config: &Config) -> bool {
         return false;
     }
 
-    if config.tracing_config.is_none() {
+    let Some(tracing_config) = config.tracing_config.as_ref() else {
         return true;
-    }
+    };
 
-    !config.tracing_config.as_ref().unwrap().json_tracing
+    !tracing_config.json_tracing
 }
 
 #[cfg(test)]

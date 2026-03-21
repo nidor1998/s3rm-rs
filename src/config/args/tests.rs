@@ -1073,3 +1073,130 @@ fn config_from_full_args_with_if_match() {
     assert_eq!(config.max_delete, Some(10000));
     assert!(config.filter_config.include_regex.is_some());
 }
+
+// ---------------------------------------------------------------------------
+// build_filter_config tests — exercises the expect() paths
+// ---------------------------------------------------------------------------
+
+#[test]
+fn build_filter_config_compiles_include_regex() {
+    let args = vec!["s3rm", "s3://bucket/", "--filter-include-regex", r"\.csv$"];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    let regex = config.filter_config.include_regex.unwrap();
+    assert!(regex.is_match("file.csv").unwrap());
+    assert!(!regex.is_match("file.txt").unwrap());
+}
+
+#[test]
+fn build_filter_config_compiles_exclude_regex() {
+    let args = vec!["s3rm", "s3://bucket/", "--filter-exclude-regex", r"^temp/"];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    let regex = config.filter_config.exclude_regex.unwrap();
+    assert!(regex.is_match("temp/file.txt").unwrap());
+    assert!(!regex.is_match("data/file.txt").unwrap());
+}
+
+#[test]
+fn build_filter_config_compiles_content_type_regexes() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-include-content-type-regex",
+        "text/.*",
+        "--filter-exclude-content-type-regex",
+        "text/html",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert!(config.filter_config.include_content_type_regex.is_some());
+    assert!(config.filter_config.exclude_content_type_regex.is_some());
+}
+
+#[test]
+fn build_filter_config_compiles_metadata_regexes() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-include-metadata-regex",
+        "key=val",
+        "--filter-exclude-metadata-regex",
+        "secret=.*",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert!(config.filter_config.include_metadata_regex.is_some());
+    assert!(config.filter_config.exclude_metadata_regex.is_some());
+}
+
+#[test]
+fn build_filter_config_compiles_tag_regexes() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-include-tag-regex",
+        "env=prod",
+        "--filter-exclude-tag-regex",
+        "env=dev",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert!(config.filter_config.include_tag_regex.is_some());
+    assert!(config.filter_config.exclude_tag_regex.is_some());
+}
+
+#[test]
+fn build_filter_config_no_filters_all_none() {
+    let args = vec!["s3rm", "s3://bucket/"];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert!(config.filter_config.include_regex.is_none());
+    assert!(config.filter_config.exclude_regex.is_none());
+    assert!(config.filter_config.larger_size.is_none());
+    assert!(config.filter_config.smaller_size.is_none());
+    assert!(config.filter_config.before_time.is_none());
+    assert!(config.filter_config.after_time.is_none());
+}
+
+#[test]
+fn build_filter_config_mtime_before() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-mtime-before",
+        "2024-06-01T00:00:00Z",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert!(config.filter_config.before_time.is_some());
+}
+
+#[test]
+fn build_filter_config_mtime_after() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-mtime-after",
+        "2024-01-01T00:00:00Z",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert!(config.filter_config.after_time.is_some());
+}
+
+#[test]
+fn build_filter_config_size_zero() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-larger-size",
+        "0",
+        "--filter-smaller-size",
+        "1",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert_eq!(config.filter_config.larger_size, Some(0));
+    assert_eq!(config.filter_config.smaller_size, Some(1));
+}

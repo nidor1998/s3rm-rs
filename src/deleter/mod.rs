@@ -21,6 +21,7 @@ use aws_sdk_s3::types::Tag;
 use aws_smithy_runtime_api::client::result::SdkError;
 use aws_smithy_runtime_api::http::Response;
 use aws_smithy_types::body::SdkBody;
+use fancy_regex::Regex;
 use tracing::{debug, error, info, trace, warn};
 use urlencoding::encode;
 
@@ -250,30 +251,55 @@ impl ObjectDeleter {
             match head_result {
                 Ok(head_output) => {
                     // Content-type filters
-                    if !self.decide_delete_by_include_content_type_regex(
+                    let content_type = head_output.content_type();
+                    let fc = &self.base.config.filter_config;
+                    if !self.decide_delete_by_regex(
                         key,
-                        head_output.content_type(),
-                    ) {
+                        fc.include_content_type_regex.as_ref(),
+                        content_type,
+                        INCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME,
+                        true,
+                    )? {
                         self.emit_filter_skip(&object, INCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME)
                             .await;
                         return Ok(());
                     }
-                    if !self.decide_delete_by_exclude_content_type_regex(
+                    if !self.decide_delete_by_regex(
                         key,
-                        head_output.content_type(),
-                    ) {
+                        fc.exclude_content_type_regex.as_ref(),
+                        content_type,
+                        EXCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME,
+                        false,
+                    )? {
                         self.emit_filter_skip(&object, EXCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME)
                             .await;
                         return Ok(());
                     }
 
                     // Metadata filters
-                    if !self.decide_delete_by_include_metadata_regex(key, head_output.metadata()) {
+                    let formatted_metadata = head_output
+                        .metadata()
+                        .filter(|m| !m.is_empty())
+                        .map(format_metadata);
+                    let formatted_metadata_ref = formatted_metadata.as_deref();
+                    if !self.decide_delete_by_regex(
+                        key,
+                        fc.include_metadata_regex.as_ref(),
+                        formatted_metadata_ref,
+                        INCLUDE_METADATA_REGEX_FILTER_NAME,
+                        true,
+                    )? {
                         self.emit_filter_skip(&object, INCLUDE_METADATA_REGEX_FILTER_NAME)
                             .await;
                         return Ok(());
                     }
-                    if !self.decide_delete_by_exclude_metadata_regex(key, head_output.metadata()) {
+                    if !self.decide_delete_by_regex(
+                        key,
+                        fc.exclude_metadata_regex.as_ref(),
+                        formatted_metadata_ref,
+                        EXCLUDE_METADATA_REGEX_FILTER_NAME,
+                        false,
+                    )? {
                         self.emit_filter_skip(&object, EXCLUDE_METADATA_REGEX_FILTER_NAME)
                             .await;
                         return Ok(());
@@ -319,13 +345,27 @@ impl ObjectDeleter {
 
             match tagging_result {
                 Ok(tagging_output) => {
-                    let tags = tagging_output.tag_set();
-                    if !self.decide_delete_by_include_tag_regex(key, Some(tags)) {
+                    let formatted_tags = format_tags(tagging_output.tag_set());
+                    let formatted_tags_ref = Some(formatted_tags.as_str());
+                    let fc = &self.base.config.filter_config;
+                    if !self.decide_delete_by_regex(
+                        key,
+                        fc.include_tag_regex.as_ref(),
+                        formatted_tags_ref,
+                        INCLUDE_TAG_REGEX_FILTER_NAME,
+                        true,
+                    )? {
                         self.emit_filter_skip(&object, INCLUDE_TAG_REGEX_FILTER_NAME)
                             .await;
                         return Ok(());
                     }
-                    if !self.decide_delete_by_exclude_tag_regex(key, Some(tags)) {
+                    if !self.decide_delete_by_regex(
+                        key,
+                        fc.exclude_tag_regex.as_ref(),
+                        formatted_tags_ref,
+                        EXCLUDE_TAG_REGEX_FILTER_NAME,
+                        false,
+                    )? {
                         self.emit_filter_skip(&object, EXCLUDE_TAG_REGEX_FILTER_NAME)
                             .await;
                         return Ok(());
@@ -563,275 +603,57 @@ impl ObjectDeleter {
     }
 
     // -----------------------------------------------------------------------
-    // Content-type regex filters (adapted from s3sync's ObjectSyncer)
+    // Unified regex filter (replaces six near-identical filter methods)
     // -----------------------------------------------------------------------
 
-    fn decide_delete_by_include_content_type_regex(
+    /// Evaluate a regex filter against an optional pre-formatted value.
+    ///
+    /// Returns `Ok(true)` if the object passes the filter (should proceed to deletion).
+    /// - `regex` is `None` → filter disabled → always passes.
+    /// - `formatted_value` is `None` → include filters reject, exclude filters pass.
+    /// - Otherwise, include filters pass on match, exclude filters pass on non-match.
+    ///
+    /// Returns `Err` if the regex engine fails (e.g. backtracking limit exceeded).
+    fn decide_delete_by_regex(
         &self,
         key: &str,
-        content_type: Option<&str>,
-    ) -> bool {
-        if self
-            .base
-            .config
-            .filter_config
-            .include_content_type_regex
-            .is_none()
-        {
-            return true;
-        }
+        regex: Option<&Regex>,
+        formatted_value: Option<&str>,
+        filter_name: &str,
+        is_include: bool,
+    ) -> Result<bool> {
+        let Some(regex) = regex else {
+            return Ok(true);
+        };
 
-        if content_type.is_none() {
+        let Some(value) = formatted_value else {
             trace!(
-                name = INCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME,
+                name = filter_name,
                 worker_index = self.worker_index,
                 key = key,
-                "Content-Type = None",
+                "value = None",
             );
-            return false;
-        }
+            return Ok(!is_include);
+        };
 
-        let is_match = self
-            .base
-            .config
-            .filter_config
-            .include_content_type_regex
-            .as_ref()
-            .unwrap()
-            .is_match(content_type.unwrap())
-            .unwrap();
+        let is_match = regex.is_match(value).map_err(|e| {
+            anyhow!(
+                "regex match failed for filter '{}', key '{}': {}",
+                filter_name,
+                key,
+                e
+            )
+        })?;
 
         trace!(
-            name = INCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME,
+            name = filter_name,
             worker_index = self.worker_index,
             key = key,
-            content_type = content_type.unwrap(),
+            value = value,
             is_match = is_match,
         );
 
-        is_match
-    }
-
-    fn decide_delete_by_exclude_content_type_regex(
-        &self,
-        key: &str,
-        content_type: Option<&str>,
-    ) -> bool {
-        if self
-            .base
-            .config
-            .filter_config
-            .exclude_content_type_regex
-            .is_none()
-        {
-            return true;
-        }
-
-        if content_type.is_none() {
-            trace!(
-                name = EXCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME,
-                worker_index = self.worker_index,
-                key = key,
-                "Content-Type = None",
-            );
-            return true;
-        }
-
-        let is_match = self
-            .base
-            .config
-            .filter_config
-            .exclude_content_type_regex
-            .as_ref()
-            .unwrap()
-            .is_match(content_type.unwrap())
-            .unwrap();
-
-        trace!(
-            name = EXCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME,
-            worker_index = self.worker_index,
-            key = key,
-            content_type = content_type.unwrap(),
-            is_match = is_match,
-        );
-
-        !is_match
-    }
-
-    // -----------------------------------------------------------------------
-    // Metadata regex filters (adapted from s3sync's ObjectSyncer)
-    // -----------------------------------------------------------------------
-
-    fn decide_delete_by_include_metadata_regex(
-        &self,
-        key: &str,
-        metadata: Option<&HashMap<String, String>>,
-    ) -> bool {
-        if self
-            .base
-            .config
-            .filter_config
-            .include_metadata_regex
-            .is_none()
-        {
-            return true;
-        }
-
-        if metadata.is_none() || metadata.as_ref().unwrap().is_empty() {
-            debug!(
-                name = INCLUDE_METADATA_REGEX_FILTER_NAME,
-                worker_index = self.worker_index,
-                key = key,
-                "metadata = None",
-            );
-            return false;
-        }
-
-        let formatted = format_metadata(metadata.unwrap());
-        let is_match = self
-            .base
-            .config
-            .filter_config
-            .include_metadata_regex
-            .as_ref()
-            .unwrap()
-            .is_match(&formatted)
-            .unwrap();
-
-        trace!(
-            name = INCLUDE_METADATA_REGEX_FILTER_NAME,
-            worker_index = self.worker_index,
-            key = key,
-            metadata = formatted,
-            is_match = is_match,
-        );
-
-        is_match
-    }
-
-    fn decide_delete_by_exclude_metadata_regex(
-        &self,
-        key: &str,
-        metadata: Option<&HashMap<String, String>>,
-    ) -> bool {
-        if self
-            .base
-            .config
-            .filter_config
-            .exclude_metadata_regex
-            .is_none()
-        {
-            return true;
-        }
-
-        if metadata.is_none() || metadata.as_ref().unwrap().is_empty() {
-            trace!(
-                name = EXCLUDE_METADATA_REGEX_FILTER_NAME,
-                worker_index = self.worker_index,
-                key = key,
-                "metadata = None",
-            );
-            return true;
-        }
-
-        let formatted = format_metadata(metadata.unwrap());
-        let is_match = self
-            .base
-            .config
-            .filter_config
-            .exclude_metadata_regex
-            .as_ref()
-            .unwrap()
-            .is_match(&formatted)
-            .unwrap();
-
-        trace!(
-            name = EXCLUDE_METADATA_REGEX_FILTER_NAME,
-            worker_index = self.worker_index,
-            key = key,
-            metadata = formatted,
-            is_match = is_match,
-        );
-
-        !is_match
-    }
-
-    // -----------------------------------------------------------------------
-    // Tag regex filters (adapted from s3sync's ObjectSyncer)
-    // -----------------------------------------------------------------------
-
-    fn decide_delete_by_include_tag_regex(&self, key: &str, tags: Option<&[Tag]>) -> bool {
-        if self.base.config.filter_config.include_tag_regex.is_none() {
-            return true;
-        }
-
-        if tags.is_none() {
-            trace!(
-                name = INCLUDE_TAG_REGEX_FILTER_NAME,
-                worker_index = self.worker_index,
-                key = key,
-                "tags = None",
-            );
-            return false;
-        }
-
-        let formatted = format_tags(tags.unwrap());
-        let is_match = self
-            .base
-            .config
-            .filter_config
-            .include_tag_regex
-            .as_ref()
-            .unwrap()
-            .is_match(&formatted)
-            .unwrap();
-
-        trace!(
-            name = INCLUDE_TAG_REGEX_FILTER_NAME,
-            worker_index = self.worker_index,
-            key = key,
-            tags = formatted,
-            is_match = is_match,
-        );
-
-        is_match
-    }
-
-    fn decide_delete_by_exclude_tag_regex(&self, key: &str, tags: Option<&[Tag]>) -> bool {
-        if self.base.config.filter_config.exclude_tag_regex.is_none() {
-            return true;
-        }
-
-        if tags.is_none() {
-            trace!(
-                name = EXCLUDE_TAG_REGEX_FILTER_NAME,
-                worker_index = self.worker_index,
-                key = key,
-                "tags = None",
-            );
-            return true;
-        }
-
-        let formatted = format_tags(tags.unwrap());
-        let is_match = self
-            .base
-            .config
-            .filter_config
-            .exclude_tag_regex
-            .as_ref()
-            .unwrap()
-            .is_match(&formatted)
-            .unwrap();
-
-        trace!(
-            name = EXCLUDE_TAG_REGEX_FILTER_NAME,
-            worker_index = self.worker_index,
-            key = key,
-            tags = formatted,
-            is_match = is_match,
-        );
-
-        !is_match
+        Ok(if is_include { is_match } else { !is_match })
     }
 }
 

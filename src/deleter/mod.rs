@@ -196,7 +196,7 @@ impl ObjectDeleter {
             return Ok(());
         }
 
-        self.buffer_object(object).await
+        self.buffer_and_delete(object).await
     }
 
     /// Check max_delete threshold. Returns `Ok(true)` if the threshold was
@@ -413,7 +413,7 @@ impl ObjectDeleter {
     }
 
     /// Buffer an object for batch deletion, flushing when the batch is full.
-    async fn buffer_object(&mut self, object: S3Object) -> Result<()> {
+    async fn buffer_and_delete(&mut self, object: S3Object) -> Result<()> {
         self.buffer.push(object);
         if self.buffer.len() >= self.effective_batch_size {
             self.delete_buffered_objects().await?;

@@ -4868,11 +4868,11 @@ async fn apply_tag_filters_include_passes_exclude_rejects() {
 }
 
 // ===========================================================================
-// Unit tests: buffer_object
+// Unit tests: buffer_and_delete
 // ===========================================================================
 
 #[tokio::test]
-async fn buffer_object_adds_to_buffer() {
+async fn buffer_and_delete_adds_to_buffer() {
     init_dummy_tracing_subscriber();
     let (stats_sender, _stats_receiver) = async_channel::unbounded();
     let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
@@ -4883,19 +4883,19 @@ async fn buffer_object_adds_to_buffer() {
 
     assert_eq!(deleter.buffer.len(), 0);
     deleter
-        .buffer_object(make_s3_object("key/1", 100))
+        .buffer_and_delete(make_s3_object("key/1", 100))
         .await
         .unwrap();
     assert_eq!(deleter.buffer.len(), 1);
     deleter
-        .buffer_object(make_s3_object("key/2", 200))
+        .buffer_and_delete(make_s3_object("key/2", 200))
         .await
         .unwrap();
     assert_eq!(deleter.buffer.len(), 2);
 }
 
 #[tokio::test]
-async fn buffer_object_flushes_at_batch_size() {
+async fn buffer_and_delete_flushes_at_batch_size() {
     init_dummy_tracing_subscriber();
     let (stats_sender, _stats_receiver) = async_channel::unbounded();
     let (boxed, mock) = make_mock_storage_boxed(stats_sender);
@@ -4910,7 +4910,7 @@ async fn buffer_object_flushes_at_batch_size() {
 
     // First object: buffer not full yet
     deleter
-        .buffer_object(make_s3_object("key/1", 100))
+        .buffer_and_delete(make_s3_object("key/1", 100))
         .await
         .unwrap();
     assert_eq!(deleter.buffer.len(), 1);
@@ -4918,7 +4918,7 @@ async fn buffer_object_flushes_at_batch_size() {
 
     // Second object: reaches batch_size=2, triggers flush
     deleter
-        .buffer_object(make_s3_object("key/2", 200))
+        .buffer_and_delete(make_s3_object("key/2", 200))
         .await
         .unwrap();
     assert_eq!(deleter.buffer.len(), 0); // flushed

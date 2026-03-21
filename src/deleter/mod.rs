@@ -405,11 +405,11 @@ impl ObjectDeleter {
         error!(
             worker_index = self.worker_index,
             key = key,
-            error = error.to_string(),
+            error = %error,
             "{} failed.",
             operation,
         );
-        Err(anyhow!("{} failed for key: {}", operation, key))
+        Err(anyhow!("{:#}", error).context(format!("{} failed for key: {}", operation, key)))
     }
 
     /// Buffer an object for batch deletion, flushing when the batch is full.
@@ -473,10 +473,10 @@ impl ObjectDeleter {
                     self.base.cancellation_token.cancel();
                     error!(
                         worker_index = self.worker_index,
-                        error = e.to_string(),
+                        error = %e,
                         "delete worker has been cancelled with error."
                     );
-                    return Err(anyhow!("delete worker has been cancelled with error."));
+                    return Err(e.context("delete worker has been cancelled with error."));
                 }
             }
         };

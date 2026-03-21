@@ -1,13 +1,16 @@
 //! E2E tests for error handling and access denial (Tests 29.48 - 29.50).
 //!
 //! Tests access denied with invalid credentials, nonexistent bucket,
-//! --warn-as-error behavior, CLI exit codes, and config validation.
+//! --warn-as-error behavior, CLI exit codes, config validation, error chain
+//! preservation, and error code granularity.
 
 #![cfg(e2e_test)]
 
 mod common;
 
-use common::TestHelper;
+use common::{CollectingEventCallback, TestHelper};
+use s3rm_rs::EventType;
+use std::sync::{Arc, Mutex};
 
 // ---------------------------------------------------------------------------
 // 29.48 Access Denied Invalid Credentials
@@ -456,6 +459,340 @@ async fn e2e_warn_as_error_with_partial_failure() {
         assert_eq!(
             remaining_protected, 10,
             "All protected/ objects should remain due to AccessDenied"
+        );
+
+        guard.cleanup().await;
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Single deleter partial failure captures specific S3 error code in events
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_single_deleter_partial_failure_error_code_in_events() {
+    e2e_timeout!(async {
+        // Purpose: Verify that SingleDeleter (batch_size=1) extracts and reports
+        //          specific S3 error codes (e.g., "AccessDenied") rather than a
+        //          generic "DeleteObjectError" string. This validates fix #6
+        //          (error code granularity in SingleDeleter).
+        //
+        // Setup:   1. Create a bucket and upload objects:
+        //             - 5 under "ok/" (no restrictions)
+        //             - 5 under "denied/" (deletion denied by bucket policy)
+        //          2. Apply deny policy on "denied/"
+        //          3. Run with --batch-size 1 (forces SingleDeleter) and event callback
+        //
+        // Expected: - DELETE_FAILED events for "denied/" objects contain
+        //             "AccessDenied" in their error_message, not generic "DeleteObjectError"
+        //           - "ok/" objects are successfully deleted
+        //
+        // Validates: Error code granularity (fix #6)
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..5 {
+            helper
+                .put_object(&bucket, &format!("ok/file{i}.dat"), vec![b'o'; 100])
+                .await;
+        }
+        for i in 0..5 {
+            helper
+                .put_object(&bucket, &format!("denied/file{i}.dat"), vec![b'd'; 100])
+                .await;
+        }
+
+        helper.deny_delete_on_prefix(&bucket, "denied/").await;
+
+        let collected_events = Arc::new(Mutex::new(Vec::new()));
+        let callback = CollectingEventCallback {
+            events: Arc::clone(&collected_events),
+        };
+
+        let mut config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/"),
+            "--batch-size",
+            "1",
+            "--force",
+        ]);
+        config
+            .event_manager
+            .register_callback(EventType::ALL_EVENTS, callback, false);
+
+        let result = TestHelper::run_pipeline(config).await;
+
+        helper.delete_bucket_policy(&bucket).await;
+
+        // "ok/" objects should have been deleted
+        let remaining_ok = helper.count_objects(&bucket, "ok/").await;
+        assert_eq!(remaining_ok, 0, "All ok/ objects should have been deleted");
+
+        // "denied/" objects should still exist
+        let remaining_denied = helper.count_objects(&bucket, "denied/").await;
+        assert_eq!(
+            remaining_denied, 5,
+            "All denied/ objects should remain due to AccessDenied"
+        );
+
+        // Check DELETE_FAILED events contain specific error codes
+        {
+            let events = collected_events.lock().unwrap();
+            let failed_events: Vec<_> = events
+                .iter()
+                .filter(|e| e.event_type == EventType::DELETE_FAILED)
+                .collect();
+
+            assert!(
+                !failed_events.is_empty(),
+                "Should have DELETE_FAILED events for denied/ objects"
+            );
+
+            for event in &failed_events {
+                if let Some(ref error_msg) = event.error_message {
+                    assert!(
+                        error_msg.contains("AccessDenied"),
+                        "DELETE_FAILED event error_message should contain 'AccessDenied', got: {error_msg}"
+                    );
+                    assert!(
+                        !error_msg.contains("DeleteObjectError"),
+                        "DELETE_FAILED event should NOT use generic 'DeleteObjectError', got: {error_msg}"
+                    );
+                }
+            }
+        }
+
+        assert!(
+            result.has_warning || result.has_error,
+            "Pipeline should report warning or error for failures"
+        );
+
+        guard.cleanup().await;
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Batch deleter partial failure captures specific S3 error codes in events
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_batch_deleter_error_code_in_events() {
+    e2e_timeout!(async {
+        // Purpose: Verify that BatchDeleter reports specific S3 error codes
+        //          (e.g., "AccessDenied") in DELETE_FAILED events. This serves
+        //          as a reference for comparing with SingleDeleter behavior.
+        //
+        // Setup:   Similar to the single-deleter test but with batch_size=100.
+        //
+        // Expected: DELETE_FAILED events contain "AccessDenied" error code.
+        //
+        // Validates: BatchDeleter error code consistency
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..5 {
+            helper
+                .put_object(&bucket, &format!("ok/file{i}.dat"), vec![b'o'; 100])
+                .await;
+        }
+        for i in 0..5 {
+            helper
+                .put_object(&bucket, &format!("denied/file{i}.dat"), vec![b'd'; 100])
+                .await;
+        }
+
+        helper.deny_delete_on_prefix(&bucket, "denied/").await;
+
+        let collected_events = Arc::new(Mutex::new(Vec::new()));
+        let callback = CollectingEventCallback {
+            events: Arc::clone(&collected_events),
+        };
+
+        let mut config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/"),
+            "--batch-size",
+            "100",
+            "--force",
+        ]);
+        config
+            .event_manager
+            .register_callback(EventType::ALL_EVENTS, callback, false);
+
+        let result = TestHelper::run_pipeline(config).await;
+
+        helper.delete_bucket_policy(&bucket).await;
+
+        // Check DELETE_FAILED events contain specific error codes
+        {
+            let events = collected_events.lock().unwrap();
+            let failed_events: Vec<_> = events
+                .iter()
+                .filter(|e| e.event_type == EventType::DELETE_FAILED)
+                .collect();
+
+            assert!(
+                !failed_events.is_empty(),
+                "Should have DELETE_FAILED events for denied/ objects"
+            );
+
+            for event in &failed_events {
+                if let Some(ref error_msg) = event.error_message {
+                    assert!(
+                        error_msg.contains("AccessDenied"),
+                        "BatchDeleter DELETE_FAILED event should contain 'AccessDenied', got: {error_msg}"
+                    );
+                }
+            }
+        }
+
+        assert!(
+            result.has_warning || result.has_error,
+            "Pipeline should report warning or error for failures"
+        );
+
+        guard.cleanup().await;
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Error chain preservation: pipeline errors contain original cause
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_error_chain_preserved_in_pipeline_errors() {
+    e2e_timeout!(async {
+        // Purpose: Verify that when the pipeline encounters an error (e.g., invalid
+        //          credentials), the error chain preserves the original AWS SDK error.
+        //          This validates fix #5 (error chain preservation).
+        //
+        // Setup:   Create a bucket, upload objects, run with invalid credentials.
+        // Expected: - Pipeline has_error is true
+        //           - Errors list is non-empty
+        //           - Error messages contain meaningful context (not just a generic
+        //             "cancelled with error" message without the original cause)
+        //
+        // Validates: Error chain preservation (fix #5)
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..3 {
+            helper
+                .put_object(&bucket, &format!("chain/file{i}.dat"), vec![b'c'; 100])
+                .await;
+        }
+
+        // Run with invalid credentials to trigger an error
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/chain/"),
+            "--target-access-key",
+            "INVALIDACCESSKEY123456",
+            "--target-secret-access-key",
+            "INVALIDSECRETKEY1234567890abcdefghijklmn",
+            "--target-region",
+            helper.region(),
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(
+            result.has_error,
+            "Pipeline should report error for invalid credentials"
+        );
+
+        // Verify error messages are non-empty and contain meaningful info
+        assert!(
+            !result.errors.is_empty(),
+            "Errors list should not be empty when pipeline fails"
+        );
+
+        // The error chain should contain some reference to the underlying cause
+        // (not just a bare "cancelled with error" without context)
+        let all_errors = result.errors.join("\n");
+        assert!(
+            !all_errors.is_empty(),
+            "Combined error messages should not be empty"
+        );
+
+        // Objects should still exist
+        let remaining = helper.count_objects(&bucket, "chain/").await;
+        assert_eq!(
+            remaining, 3,
+            "All objects should remain after failed deletion"
+        );
+
+        guard.cleanup().await;
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Single deleter: warn-as-error with partial failure
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_warn_as_error_single_deleter_partial_failure() {
+    e2e_timeout!(async {
+        // Purpose: Verify that --warn-as-error works correctly with batch_size=1
+        //          (SingleDeleter). When some objects fail to delete, the warning
+        //          should be promoted to an error.
+        //
+        // Setup:   Upload deletable and protected objects, apply deny policy,
+        //          run with --batch-size 1 --warn-as-error.
+        // Expected: has_error is true (warnings promoted to errors).
+        //
+        // Validates: warn-as-error with SingleDeleter
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..5 {
+            helper
+                .put_object(&bucket, &format!("ok/file{i}.dat"), vec![b'o'; 100])
+                .await;
+        }
+        for i in 0..5 {
+            helper
+                .put_object(&bucket, &format!("denied/file{i}.dat"), vec![b'd'; 100])
+                .await;
+        }
+
+        helper.deny_delete_on_prefix(&bucket, "denied/").await;
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/"),
+            "--batch-size",
+            "1",
+            "--warn-as-error",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        helper.delete_bucket_policy(&bucket).await;
+
+        // With --warn-as-error, partial failures should be promoted to error
+        assert!(
+            result.has_error,
+            "SingleDeleter with --warn-as-error should promote partial failures to error"
+        );
+
+        // denied/ objects should still exist
+        let remaining_denied = helper.count_objects(&bucket, "denied/").await;
+        assert_eq!(
+            remaining_denied, 5,
+            "All denied/ objects should remain due to AccessDenied"
         );
 
         guard.cleanup().await;

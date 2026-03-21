@@ -6,7 +6,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::config::FilterConfig;
 use crate::filters::{ObjectFilter, ObjectFilterBase};
@@ -42,12 +42,19 @@ fn is_larger_or_equal(object: &S3Object, config: &FilterConfig) -> bool {
         return true;
     }
 
-    if object.size() < config.larger_size.unwrap() as i64 {
+    let Some(larger_size) = config.larger_size else {
+        warn!(
+            name = FILTER_NAME,
+            "larger_size config is None, skipping object to be safe."
+        );
+        return false;
+    };
+
+    if object.size() < larger_size as i64 {
         let key = object.key();
         let content_length = object.size();
         let delete_marker = object.is_delete_marker();
         let version_id = object.version_id();
-        let config_size = config.larger_size.unwrap();
 
         debug!(
             name = FILTER_NAME,
@@ -55,7 +62,7 @@ fn is_larger_or_equal(object: &S3Object, config: &FilterConfig) -> bool {
             content_length = content_length,
             delete_marker = delete_marker,
             version_id = version_id,
-            config_size = config_size,
+            config_size = larger_size,
             "object filtered."
         );
         return false;
@@ -127,5 +134,18 @@ pub(crate) mod tests {
         };
 
         assert!(is_larger_or_equal(&delete_marker, &config));
+    }
+
+    #[test]
+    fn none_config_returns_false() {
+        init_dummy_tracing_subscriber();
+
+        let object = S3Object::NotVersioning(Object::builder().key("test").size(100).build());
+        let config = FilterConfig {
+            larger_size: None,
+            ..Default::default()
+        };
+
+        assert!(!is_larger_or_equal(&object, &config));
     }
 }

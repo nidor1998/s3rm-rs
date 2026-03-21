@@ -6,7 +6,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::config::FilterConfig;
 use crate::filters::{ObjectFilter, ObjectFilterBase};
@@ -42,12 +42,19 @@ fn is_smaller(object: &S3Object, config: &FilterConfig) -> bool {
         return true;
     }
 
-    if object.size() >= config.smaller_size.unwrap() as i64 {
+    let Some(smaller_size) = config.smaller_size else {
+        warn!(
+            name = FILTER_NAME,
+            "smaller_size config is None, skipping object to be safe."
+        );
+        return false;
+    };
+
+    if object.size() >= smaller_size as i64 {
         let key = object.key();
         let content_length = object.size();
         let delete_marker = object.is_delete_marker();
         let version_id = object.version_id();
-        let config_size = config.smaller_size.unwrap();
 
         debug!(
             name = FILTER_NAME,
@@ -55,7 +62,7 @@ fn is_smaller(object: &S3Object, config: &FilterConfig) -> bool {
             content_length = content_length,
             delete_marker = delete_marker,
             version_id = version_id,
-            config_size = config_size,
+            config_size = smaller_size,
             "object filtered."
         );
         return false;
@@ -128,5 +135,18 @@ pub(crate) mod tests {
         };
 
         assert!(is_smaller(&delete_marker, &config));
+    }
+
+    #[test]
+    fn none_config_returns_false() {
+        init_dummy_tracing_subscriber();
+
+        let object = S3Object::NotVersioning(Object::builder().key("test").size(1).build());
+        let config = FilterConfig {
+            smaller_size: None,
+            ..Default::default()
+        };
+
+        assert!(!is_smaller(&object, &config));
     }
 }

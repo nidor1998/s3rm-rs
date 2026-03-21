@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::config::FilterConfig;
 use crate::filters::{ObjectFilter, ObjectFilterBase};
@@ -37,18 +37,32 @@ impl ObjectFilter for IncludeRegexFilter<'_> {
 }
 
 fn is_match(object: &S3Object, config: &FilterConfig) -> bool {
-    let match_result = config
-        .include_regex
-        .as_ref()
-        .unwrap()
-        .is_match(object.key())
-        .unwrap();
+    let Some(regex) = config.include_regex.as_ref() else {
+        warn!(
+            name = FILTER_NAME,
+            "include_regex config is None, skipping object to be safe."
+        );
+        return false;
+    };
+
+    let match_result = match regex.is_match(object.key()) {
+        Ok(matched) => matched,
+        Err(e) => {
+            warn!(
+                name = FILTER_NAME,
+                key = object.key(),
+                error = %e,
+                "regex match failed, skipping object to be safe."
+            );
+            false
+        }
+    };
 
     if !match_result {
         let key = object.key();
         let delete_marker = object.is_delete_marker();
         let version_id = object.version_id();
-        let include_regex = config.include_regex.as_ref().unwrap().as_str();
+        let include_regex = regex.as_str();
 
         debug!(
             name = FILTER_NAME,
@@ -105,6 +119,44 @@ pub(crate) mod tests {
         assert!(!is_match(&object, &config));
 
         let object = S3Object::NotVersioning(Object::builder().key("abcdefg").build());
+        assert!(!is_match(&object, &config));
+    }
+
+    #[test]
+    fn is_match_none_config_returns_false() {
+        init_dummy_tracing_subscriber();
+
+        let config = FilterConfig {
+            include_regex: None,
+            ..Default::default()
+        };
+
+        let object = S3Object::NotVersioning(Object::builder().key("anything.csv").build());
+        assert!(!is_match(&object, &config));
+    }
+
+    #[test]
+    fn is_match_regex_error_returns_false() {
+        use fancy_regex::RegexBuilder;
+
+        init_dummy_tracing_subscriber();
+
+        // Backreference forces fancy_regex VM (inner regex crate can't handle it).
+        // With backtrack_limit(1), matching against a non-matching string triggers RuntimeError.
+        let regex = RegexBuilder::new(r"(a+)\1b")
+            .backtrack_limit(1)
+            .build()
+            .unwrap();
+
+        // Verify this actually produces an error (not Ok)
+        assert!(regex.is_match("aaaaaaaaaaaaaaac").is_err());
+
+        let config = FilterConfig {
+            include_regex: Some(regex),
+            ..Default::default()
+        };
+
+        let object = S3Object::NotVersioning(Object::builder().key("aaaaaaaaaaaaaaac").build());
         assert!(!is_match(&object, &config));
     }
 }

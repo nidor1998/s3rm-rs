@@ -7,7 +7,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use aws_smithy_types::DateTime as SmithyDateTime;
 use aws_smithy_types_convert::date_time::DateTimeExt;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::config::FilterConfig;
 use crate::filters::{ObjectFilter, ObjectFilterBase};
@@ -39,17 +39,46 @@ impl ObjectFilter for MtimeBeforeFilter<'_> {
 }
 
 fn is_before(object: &S3Object, config: &FilterConfig) -> bool {
-    let last_modified = SmithyDateTime::to_chrono_utc(&SmithyDateTime::from_millis(
-        object.last_modified().to_millis().unwrap(),
-    ))
-    .unwrap();
+    let Some(before_time) = config.before_time else {
+        warn!(
+            name = FILTER_NAME,
+            "before_time config is None, skipping object to be safe."
+        );
+        return false;
+    };
 
-    if config.before_time.unwrap() <= last_modified {
+    let millis = match object.last_modified().to_millis() {
+        Ok(m) => m,
+        Err(e) => {
+            warn!(
+                name = FILTER_NAME,
+                key = object.key(),
+                error = %e,
+                "failed to convert last_modified to millis, skipping object to be safe."
+            );
+            return false;
+        }
+    };
+
+    let last_modified = match SmithyDateTime::from_millis(millis).to_chrono_utc() {
+        Ok(dt) => dt,
+        Err(e) => {
+            warn!(
+                name = FILTER_NAME,
+                key = object.key(),
+                error = %e,
+                "failed to convert last_modified to chrono DateTime, skipping object to be safe."
+            );
+            return false;
+        }
+    };
+
+    if before_time <= last_modified {
         let key = object.key();
         let delete_marker = object.is_delete_marker();
         let version_id = object.version_id();
         let last_modified = last_modified.to_rfc3339();
-        let config_time = config.before_time.unwrap().to_rfc3339();
+        let config_time = before_time.to_rfc3339();
 
         debug!(
             name = FILTER_NAME,
@@ -144,6 +173,27 @@ pub(crate) mod tests {
         };
 
         // Equal means NOT before, so filtered out
+        assert!(!is_before(&object, &config));
+    }
+
+    #[test]
+    fn none_config_returns_false() {
+        init_dummy_tracing_subscriber();
+
+        let object = S3Object::NotVersioning(
+            Object::builder()
+                .last_modified(
+                    DateTime::from_str("2023-01-20T00:00:00.000Z", DateTimeFormat::DateTime)
+                        .unwrap(),
+                )
+                .build(),
+        );
+
+        let config = FilterConfig {
+            before_time: None,
+            ..Default::default()
+        };
+
         assert!(!is_before(&object, &config));
     }
 }

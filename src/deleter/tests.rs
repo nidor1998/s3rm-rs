@@ -810,13 +810,13 @@ async fn object_deleter_max_delete_threshold() {
     // Run deleter — should stop after max_delete threshold
     deleter.delete().await.unwrap();
 
-    // Objects 0 and 1 are buffered (counter ≤ 2), but when object 2 triggers
-    // the threshold (counter=3 > 2), the pipeline cancels without flushing.
+    // Objects 0 and 1 are buffered (counter ≤ 2). When object 2 triggers
+    // the threshold (counter=3 > 2), the buffer is flushed before cancelling.
     let batch_calls = mock.delete_objects_calls.lock().unwrap();
-    assert_eq!(batch_calls.len(), 0);
-
-    let single_calls = mock.delete_object_calls.lock().unwrap();
-    assert_eq!(single_calls.len(), 0);
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].identifiers.len(), 2);
+    assert_eq!(batch_calls[0].identifiers[0].key(), "key/0");
+    assert_eq!(batch_calls[0].identifiers[1].key(), "key/1");
 
     // Verify counter didn't exceed max_delete + 1 (the triggering object)
     let counter_val = delete_counter.load(Ordering::SeqCst);
@@ -4267,7 +4267,7 @@ async fn check_max_delete_no_limit_returns_false() {
     let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
     let config = make_test_config(); // max_delete = None
     let counter = Arc::new(AtomicU64::new(0));
-    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+    let mut deleter = make_object_deleter_for_unit_test(config, boxed, counter);
 
     let obj = make_s3_object("key/1", 100);
     assert!(!deleter.check_max_delete(&obj).await.unwrap());
@@ -4281,7 +4281,7 @@ async fn check_max_delete_under_limit_returns_false() {
     let mut config = make_test_config();
     config.max_delete = Some(5);
     let counter = Arc::new(AtomicU64::new(0));
-    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+    let mut deleter = make_object_deleter_for_unit_test(config, boxed, counter);
 
     let obj = make_s3_object("key/1", 100);
     // Counter goes 0→1, which is ≤ 5
@@ -4297,7 +4297,7 @@ async fn check_max_delete_at_exact_limit_returns_false() {
     config.max_delete = Some(3);
     // Counter already at 2, fetch_add(1) → 3 which equals limit
     let counter = Arc::new(AtomicU64::new(2));
-    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+    let mut deleter = make_object_deleter_for_unit_test(config, boxed, counter);
 
     let obj = make_s3_object("key/1", 100);
     assert!(!deleter.check_max_delete(&obj).await.unwrap());
@@ -4313,7 +4313,7 @@ async fn check_max_delete_exceeds_limit_returns_true_and_cancels() {
     let cancellation_token: PipelineCancellationToken = CancellationToken::new();
     // Counter already at 2, fetch_add(1) → 3 which exceeds limit of 2
     let counter = Arc::new(AtomicU64::new(2));
-    let deleter =
+    let mut deleter =
         make_object_deleter_with_token(config, boxed, counter, cancellation_token.clone());
 
     let obj = make_s3_object("key/1", 100);
@@ -4328,7 +4328,7 @@ async fn check_max_delete_increments_counter() {
     let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
     let config = make_test_config(); // max_delete = None
     let counter = Arc::new(AtomicU64::new(5));
-    let deleter = make_object_deleter_for_unit_test(config, boxed, counter.clone());
+    let mut deleter = make_object_deleter_for_unit_test(config, boxed, counter.clone());
 
     let obj = make_s3_object("key/1", 100);
     deleter.check_max_delete(&obj).await.unwrap();
@@ -4343,7 +4343,7 @@ async fn check_max_delete_sends_stats_on_exceed() {
     let mut config = make_test_config();
     config.max_delete = Some(1);
     let counter = Arc::new(AtomicU64::new(1)); // next call → 2 > 1
-    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+    let mut deleter = make_object_deleter_for_unit_test(config, boxed, counter);
 
     let obj = make_s3_object("key/exceeded", 100);
     deleter.check_max_delete(&obj).await.unwrap();
@@ -4351,6 +4351,44 @@ async fn check_max_delete_sends_stats_on_exceed() {
     // Should have sent a DeleteError stat
     let stat = stats_receiver.recv().await.unwrap();
     assert!(matches!(stat, DeletionStatistics::DeleteError { key } if key == "key/exceeded"));
+}
+
+#[tokio::test]
+async fn check_max_delete_flushes_buffer_before_cancel() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    let mut config = make_test_config();
+    config.max_delete = Some(2);
+    let cancellation_token: PipelineCancellationToken = CancellationToken::new();
+    let counter = Arc::new(AtomicU64::new(2)); // next call exceeds limit
+
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+    let stage = make_stage_with_mock_and_token(
+        config,
+        boxed,
+        None,
+        Some(output_sender),
+        cancellation_token.clone(),
+    );
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), counter);
+
+    // Pre-fill buffer with an allowed object
+    deleter.buffer.push(make_s3_object("key/allowed", 500));
+
+    let obj = make_s3_object("key/exceeded", 100);
+    deleter.check_max_delete(&obj).await.unwrap();
+
+    // Buffer should have been flushed
+    assert_eq!(deleter.buffer.len(), 0);
+    // The allowed object should have been deleted
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].identifiers.len(), 1);
+    assert_eq!(batch_calls[0].identifiers[0].key(), "key/allowed");
+    // Pipeline should be cancelled
+    assert!(cancellation_token.is_cancelled());
 }
 
 // ===========================================================================

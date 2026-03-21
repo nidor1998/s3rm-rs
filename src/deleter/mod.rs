@@ -155,8 +155,7 @@ impl ObjectDeleter {
                         Ok(object) => {
                             self.process_object(object).await?;
                             // Check if process_object triggered cancellation
-                            // (e.g. max_delete threshold). Exit immediately without
-                            // flushing the buffer.
+                            // (e.g. max_delete threshold — buffer already flushed).
                             if self.base.cancellation_token.is_cancelled() {
                                 info!(worker_index = self.worker_index, "delete worker has been cancelled.");
                                 return Ok(());
@@ -185,10 +184,6 @@ impl ObjectDeleter {
     }
 
     async fn process_object(&mut self, object: S3Object) -> Result<()> {
-        if self.check_max_delete(&object).await? {
-            return Ok(());
-        }
-
         if self.apply_head_object_filters(&object).await? {
             return Ok(());
         }
@@ -197,12 +192,19 @@ impl ObjectDeleter {
             return Ok(());
         }
 
+        if self.check_max_delete(&object).await? {
+            return Ok(());
+        }
+
         self.buffer_object(object).await
     }
 
     /// Check max_delete threshold. Returns `Ok(true)` if the threshold was
     /// exceeded and the pipeline has been cancelled.
-    async fn check_max_delete(&self, object: &S3Object) -> Result<bool> {
+    ///
+    /// When the threshold is exceeded, the already-buffered objects are
+    /// flushed (deleted) before cancelling the pipeline.
+    async fn check_max_delete(&mut self, object: &S3Object) -> Result<bool> {
         let deleted_count = self.delete_counter.fetch_add(1, Ordering::SeqCst) + 1;
         let Some(max_delete) = self.base.config.max_delete else {
             return Ok(false);
@@ -211,6 +213,9 @@ impl ObjectDeleter {
         if deleted_count <= max_delete {
             return Ok(false);
         }
+
+        // Flush buffered objects that were already allowed before cancelling.
+        self.delete_buffered_objects().await?;
 
         self.base
             .send_stats(DeletionStatistics::DeleteError {

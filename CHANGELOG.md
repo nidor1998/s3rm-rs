@@ -13,10 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Size filters (`--filter-larger-size` / `--filter-smaller-size`) now use correct unsigned comparison internally
 - Improved error messages when individual object deletions fail — full error chain is now preserved in output
 
-### Security
-
-- Fix RUSTSEC-2026-0049: update `rustls-webpki` dependency
-
 ## [v1.2.0] - 2026-03-20
 
 ### Added

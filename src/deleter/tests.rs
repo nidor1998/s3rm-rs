@@ -810,13 +810,13 @@ async fn object_deleter_max_delete_threshold() {
     // Run deleter — should stop after max_delete threshold
     deleter.delete().await.unwrap();
 
-    // Objects 0 and 1 are buffered (counter ≤ 2), but when object 2 triggers
-    // the threshold (counter=3 > 2), the pipeline cancels without flushing.
+    // Objects 0 and 1 are buffered (counter ≤ 2). When object 2 triggers
+    // the threshold (counter=3 > 2), the buffer is flushed before cancelling.
     let batch_calls = mock.delete_objects_calls.lock().unwrap();
-    assert_eq!(batch_calls.len(), 0);
-
-    let single_calls = mock.delete_object_calls.lock().unwrap();
-    assert_eq!(single_calls.len(), 0);
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].identifiers.len(), 2);
+    assert_eq!(batch_calls[0].identifiers[0].key(), "key/0");
+    assert_eq!(batch_calls[0].identifiers[1].key(), "key/1");
 
     // Verify counter didn't exceed max_delete + 1 (the triggering object)
     let counter_val = delete_counter.load(Ordering::SeqCst);
@@ -4229,4 +4229,840 @@ fn mock_storage_set_warning_is_noop() {
     let (stats_sender, _) = async_channel::unbounded();
     let mock = MockStorage::new(stats_sender);
     mock.set_warning(); // no-op, just verify no panic
+}
+
+// ===========================================================================
+// Unit tests: check_max_delete
+// ===========================================================================
+
+/// Helper: build an ObjectDeleter without hooking up input/output channels.
+/// Useful for testing individual methods directly.
+fn make_object_deleter_for_unit_test(
+    config: Config,
+    mock_storage: Box<dyn StorageTrait + Send + Sync>,
+    delete_counter: Arc<AtomicU64>,
+) -> ObjectDeleter {
+    let stage = make_stage_with_mock(config, mock_storage, None, None);
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    ObjectDeleter::new(stage, 0, stats_report, delete_counter)
+}
+
+/// Helper with cancellation token access.
+fn make_object_deleter_with_token(
+    config: Config,
+    mock_storage: Box<dyn StorageTrait + Send + Sync>,
+    delete_counter: Arc<AtomicU64>,
+    cancellation_token: PipelineCancellationToken,
+) -> ObjectDeleter {
+    let stage =
+        make_stage_with_mock_and_token(config, mock_storage, None, None, cancellation_token);
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    ObjectDeleter::new(stage, 0, stats_report, delete_counter)
+}
+
+#[tokio::test]
+async fn check_max_delete_no_limit_returns_false() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    let config = make_test_config(); // max_delete = None
+    let counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    assert!(!deleter.check_max_delete(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn check_max_delete_under_limit_returns_false() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    let mut config = make_test_config();
+    config.max_delete = Some(5);
+    let counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    // Counter goes 0→1, which is ≤ 5
+    assert!(!deleter.check_max_delete(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn check_max_delete_at_exact_limit_returns_false() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    let mut config = make_test_config();
+    config.max_delete = Some(3);
+    // Counter already at 2, fetch_add(1) → 3 which equals limit
+    let counter = Arc::new(AtomicU64::new(2));
+    let mut deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    assert!(!deleter.check_max_delete(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn check_max_delete_exceeds_limit_returns_true_and_cancels() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    let mut config = make_test_config();
+    config.max_delete = Some(2);
+    let cancellation_token: PipelineCancellationToken = CancellationToken::new();
+    // Counter already at 2, fetch_add(1) → 3 which exceeds limit of 2
+    let counter = Arc::new(AtomicU64::new(2));
+    let mut deleter =
+        make_object_deleter_with_token(config, boxed, counter, cancellation_token.clone());
+
+    let obj = make_s3_object("key/1", 100);
+    assert!(deleter.check_max_delete(&obj).await.unwrap());
+    assert!(cancellation_token.is_cancelled());
+}
+
+#[tokio::test]
+async fn check_max_delete_increments_counter() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    let config = make_test_config(); // max_delete = None
+    let counter = Arc::new(AtomicU64::new(5));
+    let mut deleter = make_object_deleter_for_unit_test(config, boxed, counter.clone());
+
+    let obj = make_s3_object("key/1", 100);
+    deleter.check_max_delete(&obj).await.unwrap();
+    assert_eq!(counter.load(Ordering::SeqCst), 6);
+}
+
+#[tokio::test]
+async fn check_max_delete_sends_stats_on_exceed() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    let mut config = make_test_config();
+    config.max_delete = Some(1);
+    let counter = Arc::new(AtomicU64::new(1)); // next call → 2 > 1
+    let mut deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/exceeded", 100);
+    deleter.check_max_delete(&obj).await.unwrap();
+
+    // Should have sent a DeleteError stat
+    let stat = stats_receiver.recv().await.unwrap();
+    assert!(matches!(stat, DeletionStatistics::DeleteError { key } if key == "key/exceeded"));
+}
+
+#[tokio::test]
+async fn check_max_delete_flushes_buffer_before_cancel() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    let mut config = make_test_config();
+    config.max_delete = Some(2);
+    let cancellation_token: PipelineCancellationToken = CancellationToken::new();
+    let counter = Arc::new(AtomicU64::new(2)); // next call exceeds limit
+
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+    let stage = make_stage_with_mock_and_token(
+        config,
+        boxed,
+        None,
+        Some(output_sender),
+        cancellation_token.clone(),
+    );
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), counter);
+
+    // Pre-fill buffer with an allowed object
+    deleter.buffer.push(make_s3_object("key/allowed", 500));
+
+    let obj = make_s3_object("key/exceeded", 100);
+    deleter.check_max_delete(&obj).await.unwrap();
+
+    // Buffer should have been flushed
+    assert_eq!(deleter.buffer.len(), 0);
+    // The allowed object should have been deleted
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].identifiers.len(), 1);
+    assert_eq!(batch_calls[0].identifiers[0].key(), "key/allowed");
+    // Pipeline should be cancelled
+    assert!(cancellation_token.is_cancelled());
+}
+
+// ===========================================================================
+// Unit tests: apply_head_object_filters
+// ===========================================================================
+
+#[tokio::test]
+async fn apply_head_object_filters_no_filters_returns_false() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    let config = make_test_config(); // all filter_config regexes = None
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    assert!(!deleter.apply_head_object_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_head_object_filters_include_content_type_match_passes() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    *mock.head_object_content_type.lock().unwrap() = Some("text/plain".to_string());
+
+    let mut config = make_test_config();
+    config.filter_config.include_content_type_regex = Some(Regex::new("text/.*").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    // Content-type matches include regex → not filtered
+    assert!(!deleter.apply_head_object_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_head_object_filters_include_content_type_no_match_filters() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    *mock.head_object_content_type.lock().unwrap() = Some("image/png".to_string());
+
+    let mut config = make_test_config();
+    config.filter_config.include_content_type_regex = Some(Regex::new("text/.*").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    // Content-type doesn't match include regex → filtered out
+    assert!(deleter.apply_head_object_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_head_object_filters_exclude_content_type_match_filters() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    *mock.head_object_content_type.lock().unwrap() = Some("text/html".to_string());
+
+    let mut config = make_test_config();
+    config.filter_config.exclude_content_type_regex = Some(Regex::new("text/html").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    // Content-type matches exclude regex → filtered out
+    assert!(deleter.apply_head_object_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_head_object_filters_exclude_content_type_no_match_passes() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    *mock.head_object_content_type.lock().unwrap() = Some("application/json".to_string());
+
+    let mut config = make_test_config();
+    config.filter_config.exclude_content_type_regex = Some(Regex::new("text/html").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    // Content-type doesn't match exclude regex → passes
+    assert!(!deleter.apply_head_object_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_head_object_filters_include_metadata_match_passes() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    let mut meta = HashMap::new();
+    meta.insert("env".to_string(), "production".to_string());
+    *mock.head_object_metadata.lock().unwrap() = Some(meta);
+
+    let mut config = make_test_config();
+    config.filter_config.include_metadata_regex = Some(Regex::new("env=production").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    assert!(!deleter.apply_head_object_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_head_object_filters_include_metadata_no_match_filters() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    let mut meta = HashMap::new();
+    meta.insert("env".to_string(), "staging".to_string());
+    *mock.head_object_metadata.lock().unwrap() = Some(meta);
+
+    let mut config = make_test_config();
+    config.filter_config.include_metadata_regex = Some(Regex::new("env=production").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    assert!(deleter.apply_head_object_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_head_object_filters_exclude_metadata_match_filters() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    let mut meta = HashMap::new();
+    meta.insert("env".to_string(), "staging".to_string());
+    *mock.head_object_metadata.lock().unwrap() = Some(meta);
+
+    let mut config = make_test_config();
+    config.filter_config.exclude_metadata_regex = Some(Regex::new("env=staging").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    assert!(deleter.apply_head_object_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_head_object_filters_exclude_metadata_no_match_passes() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    let mut meta = HashMap::new();
+    meta.insert("env".to_string(), "production".to_string());
+    *mock.head_object_metadata.lock().unwrap() = Some(meta);
+
+    let mut config = make_test_config();
+    config.filter_config.exclude_metadata_regex = Some(Regex::new("env=staging").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    assert!(!deleter.apply_head_object_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_head_object_filters_no_content_type_include_filter_rejects() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    // Mock returns no content_type (None)
+
+    let mut config = make_test_config();
+    config.filter_config.include_content_type_regex = Some(Regex::new("text/.*").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    // include filter with None value → rejects
+    assert!(deleter.apply_head_object_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_head_object_filters_no_content_type_exclude_filter_passes() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    // Mock returns no content_type (None)
+
+    let mut config = make_test_config();
+    config.filter_config.exclude_content_type_regex = Some(Regex::new("text/.*").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    // exclude filter with None value → passes
+    assert!(!deleter.apply_head_object_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_head_object_filters_no_metadata_include_filter_rejects() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    // Mock returns no metadata (None)
+
+    let mut config = make_test_config();
+    config.filter_config.include_metadata_regex = Some(Regex::new("env=prod").unwrap());
+    // Also need a content-type filter or metadata filter to trigger head_object
+    // include_metadata_regex alone triggers needs_head_object = true
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    assert!(deleter.apply_head_object_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_head_object_filters_no_metadata_exclude_filter_passes() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    // Mock returns no metadata (None)
+
+    let mut config = make_test_config();
+    config.filter_config.exclude_metadata_regex = Some(Regex::new("env=prod").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    assert!(!deleter.apply_head_object_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_head_object_filters_head_object_error_cancels_pipeline() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    *mock.head_object_error.lock().unwrap() = Some(anyhow::anyhow!("access denied"));
+
+    let mut config = make_test_config();
+    config.filter_config.include_content_type_regex = Some(Regex::new(".*").unwrap());
+    let cancellation_token: PipelineCancellationToken = CancellationToken::new();
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter =
+        make_object_deleter_with_token(config, boxed, counter, cancellation_token.clone());
+
+    let obj = make_s3_object("key/1", 100);
+    let result = deleter.apply_head_object_filters(&obj).await;
+    assert!(result.is_err());
+    assert!(cancellation_token.is_cancelled());
+}
+
+#[tokio::test]
+async fn apply_head_object_filters_combined_content_type_and_metadata() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    *mock.head_object_content_type.lock().unwrap() = Some("text/plain".to_string());
+    let mut meta = HashMap::new();
+    meta.insert("env".to_string(), "production".to_string());
+    *mock.head_object_metadata.lock().unwrap() = Some(meta);
+
+    let mut config = make_test_config();
+    config.filter_config.include_content_type_regex = Some(Regex::new("text/.*").unwrap());
+    config.filter_config.include_metadata_regex = Some(Regex::new("env=production").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    // Both filters match → passes
+    assert!(!deleter.apply_head_object_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_head_object_filters_content_type_passes_metadata_rejects() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    *mock.head_object_content_type.lock().unwrap() = Some("text/plain".to_string());
+    let mut meta = HashMap::new();
+    meta.insert("env".to_string(), "staging".to_string());
+    *mock.head_object_metadata.lock().unwrap() = Some(meta);
+
+    let mut config = make_test_config();
+    config.filter_config.include_content_type_regex = Some(Regex::new("text/.*").unwrap());
+    config.filter_config.include_metadata_regex = Some(Regex::new("env=production").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    // Content-type matches but metadata doesn't → filtered
+    assert!(deleter.apply_head_object_filters(&obj).await.unwrap());
+}
+
+// ===========================================================================
+// Unit tests: apply_tag_filters
+// ===========================================================================
+
+#[tokio::test]
+async fn apply_tag_filters_no_filters_returns_false() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    let config = make_test_config();
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    assert!(!deleter.apply_tag_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_tag_filters_include_match_passes() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    *mock.tagging_response_tags.lock().unwrap() = Some(vec![
+        Tag::builder().key("env").value("prod").build().unwrap(),
+    ]);
+
+    let mut config = make_test_config();
+    config.filter_config.include_tag_regex = Some(Regex::new("env=prod").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    assert!(!deleter.apply_tag_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_tag_filters_include_no_match_filters() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    *mock.tagging_response_tags.lock().unwrap() = Some(vec![
+        Tag::builder().key("env").value("staging").build().unwrap(),
+    ]);
+
+    let mut config = make_test_config();
+    config.filter_config.include_tag_regex = Some(Regex::new("env=prod").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    assert!(deleter.apply_tag_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_tag_filters_exclude_match_filters() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    *mock.tagging_response_tags.lock().unwrap() = Some(vec![
+        Tag::builder().key("env").value("dev").build().unwrap(),
+    ]);
+
+    let mut config = make_test_config();
+    config.filter_config.exclude_tag_regex = Some(Regex::new("env=dev").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    assert!(deleter.apply_tag_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_tag_filters_exclude_no_match_passes() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    *mock.tagging_response_tags.lock().unwrap() = Some(vec![
+        Tag::builder().key("env").value("prod").build().unwrap(),
+    ]);
+
+    let mut config = make_test_config();
+    config.filter_config.exclude_tag_regex = Some(Regex::new("env=dev").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    assert!(!deleter.apply_tag_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_tag_filters_tagging_error_cancels_pipeline() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    *mock.tagging_error.lock().unwrap() = Some(anyhow::anyhow!("access denied"));
+
+    let mut config = make_test_config();
+    config.filter_config.include_tag_regex = Some(Regex::new(".*").unwrap());
+    let cancellation_token: PipelineCancellationToken = CancellationToken::new();
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter =
+        make_object_deleter_with_token(config, boxed, counter, cancellation_token.clone());
+
+    let obj = make_s3_object("key/1", 100);
+    let result = deleter.apply_tag_filters(&obj).await;
+    assert!(result.is_err());
+    assert!(cancellation_token.is_cancelled());
+}
+
+#[tokio::test]
+async fn apply_tag_filters_empty_tags_include_rejects() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    // Empty tags
+    *mock.tagging_response_tags.lock().unwrap() = Some(vec![]);
+
+    let mut config = make_test_config();
+    config.filter_config.include_tag_regex = Some(Regex::new("env=prod").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    // Empty formatted tags "" won't match "env=prod" → filtered
+    assert!(deleter.apply_tag_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_tag_filters_multiple_tags_sorted() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    *mock.tagging_response_tags.lock().unwrap() = Some(vec![
+        Tag::builder().key("z-tag").value("zval").build().unwrap(),
+        Tag::builder().key("a-tag").value("aval").build().unwrap(),
+    ]);
+
+    let mut config = make_test_config();
+    // Match sorted format: "a-tag=aval&z-tag=zval"
+    config.filter_config.include_tag_regex = Some(Regex::new("a-tag=aval&z-tag=zval").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    assert!(!deleter.apply_tag_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_tag_filters_combined_include_and_exclude() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    *mock.tagging_response_tags.lock().unwrap() = Some(vec![
+        Tag::builder().key("env").value("prod").build().unwrap(),
+        Tag::builder().key("team").value("backend").build().unwrap(),
+    ]);
+
+    let mut config = make_test_config();
+    config.filter_config.include_tag_regex = Some(Regex::new("env=prod").unwrap());
+    config.filter_config.exclude_tag_regex = Some(Regex::new("team=frontend").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    // Include matches, exclude doesn't match → passes
+    assert!(!deleter.apply_tag_filters(&obj).await.unwrap());
+}
+
+#[tokio::test]
+async fn apply_tag_filters_include_passes_exclude_rejects() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    *mock.tagging_response_tags.lock().unwrap() = Some(vec![
+        Tag::builder().key("env").value("prod").build().unwrap(),
+        Tag::builder().key("team").value("backend").build().unwrap(),
+    ]);
+
+    let mut config = make_test_config();
+    config.filter_config.include_tag_regex = Some(Regex::new("env=prod").unwrap());
+    config.filter_config.exclude_tag_regex = Some(Regex::new("team=backend").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    // Include matches, but exclude also matches → filtered
+    assert!(deleter.apply_tag_filters(&obj).await.unwrap());
+}
+
+// ===========================================================================
+// Unit tests: buffer_and_delete
+// ===========================================================================
+
+#[tokio::test]
+async fn buffer_and_delete_adds_to_buffer() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    let mut config = make_test_config();
+    config.batch_size = 1000; // large batch so no flush
+    let counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    assert_eq!(deleter.buffer.len(), 0);
+    deleter
+        .buffer_and_delete(make_s3_object("key/1", 100))
+        .await
+        .unwrap();
+    assert_eq!(deleter.buffer.len(), 1);
+    deleter
+        .buffer_and_delete(make_s3_object("key/2", 200))
+        .await
+        .unwrap();
+    assert_eq!(deleter.buffer.len(), 2);
+}
+
+#[tokio::test]
+async fn buffer_and_delete_flushes_at_batch_size() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    let mut config = make_test_config();
+    config.batch_size = 2; // small batch for testing
+    let counter = Arc::new(AtomicU64::new(0));
+
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+    let stage = make_stage_with_mock(config, boxed, None, Some(output_sender));
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report, counter);
+
+    // First object: buffer not full yet
+    deleter
+        .buffer_and_delete(make_s3_object("key/1", 100))
+        .await
+        .unwrap();
+    assert_eq!(deleter.buffer.len(), 1);
+    assert_eq!(mock.delete_objects_calls.lock().unwrap().len(), 0);
+
+    // Second object: reaches batch_size=2, triggers flush
+    deleter
+        .buffer_and_delete(make_s3_object("key/2", 200))
+        .await
+        .unwrap();
+    assert_eq!(deleter.buffer.len(), 0); // flushed
+    assert_eq!(mock.delete_objects_calls.lock().unwrap().len(), 1);
+}
+
+// ===========================================================================
+// Unit tests: handle_api_error
+// ===========================================================================
+
+#[tokio::test]
+async fn handle_api_error_non_404_returns_err_and_cancels() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    let config = make_test_config();
+    let cancellation_token: PipelineCancellationToken = CancellationToken::new();
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter =
+        make_object_deleter_with_token(config, boxed, counter, cancellation_token.clone());
+
+    let err = anyhow::anyhow!("access denied");
+    let result = deleter.handle_api_error(&err, "key/1", "head_object").await;
+    assert!(result.is_err());
+    let msg = result.unwrap_err().to_string();
+    assert!(msg.contains("head_object failed for key: key/1"));
+    assert!(cancellation_token.is_cancelled());
+}
+
+#[tokio::test]
+async fn handle_api_error_with_different_operation_name() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    let config = make_test_config();
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let err = anyhow::anyhow!("throttled");
+    let result = deleter
+        .handle_api_error(&err, "key/abc", "get_object_tagging")
+        .await;
+    assert!(result.is_err());
+    let msg = result.unwrap_err().to_string();
+    assert!(msg.contains("get_object_tagging failed for key: key/abc"));
+}
+
+// ===========================================================================
+// Unit tests: process_object (integration of sub-methods)
+// ===========================================================================
+
+#[tokio::test]
+async fn process_object_no_filters_buffers_object() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    let config = make_test_config();
+    let counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    deleter
+        .process_object(make_s3_object("key/1", 100))
+        .await
+        .unwrap();
+    assert_eq!(deleter.buffer.len(), 1);
+    assert_eq!(deleter.buffer[0].key(), "key/1");
+}
+
+#[tokio::test]
+async fn process_object_max_delete_exceeded_does_not_buffer() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    let mut config = make_test_config();
+    config.max_delete = Some(1);
+    let counter = Arc::new(AtomicU64::new(1)); // already at limit
+    let mut deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    deleter
+        .process_object(make_s3_object("key/1", 100))
+        .await
+        .unwrap();
+    assert_eq!(deleter.buffer.len(), 0); // not buffered
+}
+
+#[tokio::test]
+async fn process_object_head_filter_rejects_does_not_buffer() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    *mock.head_object_content_type.lock().unwrap() = Some("image/png".to_string());
+
+    let mut config = make_test_config();
+    config.filter_config.include_content_type_regex = Some(Regex::new("text/.*").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    deleter
+        .process_object(make_s3_object("key/1", 100))
+        .await
+        .unwrap();
+    assert_eq!(deleter.buffer.len(), 0);
+}
+
+#[tokio::test]
+async fn process_object_tag_filter_rejects_does_not_buffer() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    *mock.tagging_response_tags.lock().unwrap() = Some(vec![
+        Tag::builder().key("env").value("dev").build().unwrap(),
+    ]);
+
+    let mut config = make_test_config();
+    config.filter_config.include_tag_regex = Some(Regex::new("env=prod").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    deleter
+        .process_object(make_s3_object("key/1", 100))
+        .await
+        .unwrap();
+    assert_eq!(deleter.buffer.len(), 0);
+}
+
+#[tokio::test]
+async fn process_object_all_filters_pass_buffers_object() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    *mock.head_object_content_type.lock().unwrap() = Some("text/plain".to_string());
+    *mock.tagging_response_tags.lock().unwrap() = Some(vec![
+        Tag::builder().key("env").value("prod").build().unwrap(),
+    ]);
+
+    let mut config = make_test_config();
+    config.filter_config.include_content_type_regex = Some(Regex::new("text/.*").unwrap());
+    config.filter_config.include_tag_regex = Some(Regex::new("env=prod").unwrap());
+    let counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    deleter
+        .process_object(make_s3_object("key/1", 100))
+        .await
+        .unwrap();
+    assert_eq!(deleter.buffer.len(), 1);
 }

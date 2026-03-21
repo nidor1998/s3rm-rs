@@ -27,6 +27,8 @@ use crate::test_utils::{
 use crate::types::token::PipelineCancellationToken;
 use crate::types::{DeletionStatistics, S3Object};
 
+use single::extract_delete_object_error_code;
+
 // ---------------------------------------------------------------------------
 // Mock storage
 // ---------------------------------------------------------------------------
@@ -74,6 +76,9 @@ struct MockStorage {
     head_object_error: Arc<Mutex<Option<anyhow::Error>>>,
     /// If set, get_object_tagging returns this error.
     tagging_error: Arc<Mutex<Option<anyhow::Error>>>,
+    /// If set, delete_object returns this error (takes precedence over delete_object_error_keys).
+    /// Wrapped like the real storage layer: `anyhow!(SdkError).context(...)`.
+    delete_object_sdk_error: Arc<Mutex<Option<anyhow::Error>>>,
 }
 
 impl MockStorage {
@@ -90,6 +95,7 @@ impl MockStorage {
             batch_error_keys: Arc::new(Mutex::new(HashMap::new())),
             head_object_error: Arc::new(Mutex::new(None)),
             tagging_error: Arc::new(Mutex::new(None)),
+            delete_object_sdk_error: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -175,6 +181,11 @@ impl StorageTrait for MockStorage {
                 version_id: version_id.clone(),
                 if_match: if_match.clone(),
             });
+
+        // Return SDK error if set (takes precedence, fires once)
+        if let Some(err) = self.delete_object_sdk_error.lock().unwrap().take() {
+            return Err(err);
+        }
 
         // Check if this key should return an error
         let error_keys = self.delete_object_error_keys.lock().unwrap();
@@ -5065,4 +5076,513 @@ async fn process_object_all_filters_pass_buffers_object() {
         .await
         .unwrap();
     assert_eq!(deleter.buffer.len(), 1);
+}
+
+// ===========================================================================
+// Unit tests: extract_delete_object_error_code
+// ===========================================================================
+
+/// Helper to create an SdkError<DeleteObjectError> wrapped like the real storage layer.
+fn make_delete_object_sdk_error(code: &str, message: &str) -> anyhow::Error {
+    use aws_sdk_s3::operation::delete_object::DeleteObjectError;
+    use aws_smithy_runtime_api::http::StatusCode;
+
+    let service_err = DeleteObjectError::generic(
+        aws_smithy_types::error::ErrorMetadata::builder()
+            .code(code)
+            .message(message)
+            .build(),
+    );
+    let raw_response = aws_smithy_runtime_api::http::Response::new(
+        StatusCode::try_from(403).unwrap(),
+        SdkBody::from(""),
+    );
+    let sdk_error: SdkError<DeleteObjectError, Response<SdkBody>> =
+        SdkError::service_error(service_err, raw_response);
+    // Wrap like the real storage layer: anyhow!(SdkError).context(...)
+    anyhow::anyhow!(sdk_error).context("aws_sdk_s3::client::delete_object() failed.")
+}
+
+#[test]
+fn extract_error_code_from_sdk_error_access_denied() {
+    let err = make_delete_object_sdk_error("AccessDenied", "Access Denied");
+    assert_eq!(extract_delete_object_error_code(&err), "AccessDenied");
+}
+
+#[test]
+fn extract_error_code_from_sdk_error_no_such_key() {
+    let err = make_delete_object_sdk_error("NoSuchKey", "The specified key does not exist.");
+    assert_eq!(extract_delete_object_error_code(&err), "NoSuchKey");
+}
+
+#[test]
+fn extract_error_code_from_sdk_error_internal_error() {
+    let err = make_delete_object_sdk_error("InternalError", "We encountered an internal error.");
+    assert_eq!(extract_delete_object_error_code(&err), "InternalError");
+}
+
+#[test]
+fn extract_error_code_from_sdk_error_slow_down() {
+    let err = make_delete_object_sdk_error("SlowDown", "Please reduce your request rate.");
+    assert_eq!(extract_delete_object_error_code(&err), "SlowDown");
+}
+
+#[test]
+fn extract_error_code_from_sdk_error_service_unavailable() {
+    let err =
+        make_delete_object_sdk_error("ServiceUnavailable", "Service is temporarily unavailable.");
+    assert_eq!(extract_delete_object_error_code(&err), "ServiceUnavailable");
+}
+
+#[test]
+fn extract_error_code_from_plain_anyhow_error_returns_unknown() {
+    let err = anyhow::anyhow!("connection refused");
+    assert_eq!(extract_delete_object_error_code(&err), "unknown");
+}
+
+#[test]
+fn extract_error_code_from_non_service_sdk_error_returns_unknown() {
+    use aws_sdk_s3::operation::delete_object::DeleteObjectError;
+
+    // Timeout error (not a service error, no error code)
+    let sdk_error: SdkError<DeleteObjectError, Response<SdkBody>> =
+        SdkError::timeout_error("connection timed out");
+    let err = anyhow::anyhow!(sdk_error).context("delete_object() failed.");
+    assert_eq!(extract_delete_object_error_code(&err), "unknown");
+}
+
+#[test]
+fn extract_error_code_from_nested_context_chain() {
+    // Even with multiple context layers, the SdkError should be found
+    let base_err = make_delete_object_sdk_error("RequestTimeout", "Request timed out.");
+    let wrapped = base_err
+        .context("additional context")
+        .context("more context");
+    // Note: anyhow .context() on an Error creates a new chain, but the SdkError
+    // is at the root. chain() walks the chain, so it should still find it.
+    // However, .context() on anyhow::Error consumes the error and wraps it,
+    // so the chain is: "more context" -> "additional context" -> original chain.
+    assert_eq!(extract_delete_object_error_code(&wrapped), "RequestTimeout");
+}
+
+// ===========================================================================
+// Unit tests: SingleDeleter error_code extraction (integration with mock)
+// ===========================================================================
+
+#[tokio::test]
+async fn single_deleter_error_code_extracted_from_sdk_error() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Set up a realistic SdkError-based error
+    *mock.delete_object_sdk_error.lock().unwrap() = Some(make_delete_object_sdk_error(
+        "AccessDenied",
+        "Access Denied",
+    ));
+
+    let deleter = SingleDeleter::new(boxed);
+    let config = make_test_config();
+
+    let objects = vec![make_s3_object("key/denied", 200)];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    assert_eq!(result.failed.len(), 1);
+    assert_eq!(result.failed[0].key, "key/denied");
+    assert_eq!(
+        result.failed[0].error_code, "AccessDenied",
+        "Should extract specific S3 error code, not generic 'DeleteObjectError'"
+    );
+}
+
+#[tokio::test]
+async fn single_deleter_error_code_unknown_for_non_sdk_error() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Plain anyhow error (no SdkError in chain)
+    mock.delete_object_error_keys
+        .lock()
+        .unwrap()
+        .insert("key/fail".to_string(), "connection refused".to_string());
+
+    let deleter = SingleDeleter::new(boxed);
+    let config = make_test_config();
+
+    let objects = vec![make_s3_object("key/fail", 200)];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    assert_eq!(result.failed.len(), 1);
+    assert_eq!(
+        result.failed[0].error_code, "unknown",
+        "Non-SDK errors should have 'unknown' error code"
+    );
+}
+
+#[tokio::test]
+async fn single_deleter_error_code_internal_error() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    *mock.delete_object_sdk_error.lock().unwrap() = Some(make_delete_object_sdk_error(
+        "InternalError",
+        "Internal server error",
+    ));
+
+    let deleter = SingleDeleter::new(boxed);
+    let config = make_test_config();
+
+    let objects = vec![make_s3_object("key/internal", 200)];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    assert_eq!(result.failed.len(), 1);
+    assert_eq!(result.failed[0].error_code, "InternalError");
+}
+
+#[tokio::test]
+async fn single_deleter_error_message_preserved_with_error_code() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    *mock.delete_object_sdk_error.lock().unwrap() = Some(make_delete_object_sdk_error(
+        "AccessDenied",
+        "Access Denied",
+    ));
+
+    let deleter = SingleDeleter::new(boxed);
+    let config = make_test_config();
+
+    let objects = vec![make_s3_object("key/denied", 200)];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    assert_eq!(result.failed.len(), 1);
+    // error_message should contain the full error chain, not just the code
+    assert!(
+        !result.failed[0].error_message.is_empty(),
+        "error_message should not be empty"
+    );
+}
+
+#[tokio::test]
+async fn single_deleter_sends_delete_error_stats_on_sdk_error() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    *mock.delete_object_sdk_error.lock().unwrap() = Some(make_delete_object_sdk_error(
+        "AccessDenied",
+        "Access Denied",
+    ));
+
+    let deleter = SingleDeleter::new(boxed);
+    let config = make_test_config();
+
+    let objects = vec![make_s3_object("key/denied", 200)];
+    deleter.delete(&objects, &config).await.unwrap();
+
+    // Should have sent a DeleteError stat
+    let stat = stats_receiver.recv().await.unwrap();
+    assert!(
+        matches!(stat, DeletionStatistics::DeleteError { key } if key == "key/denied"),
+        "Should send DeleteError stat for the failed key"
+    );
+}
+
+// ===========================================================================
+// Unit tests: error chain preservation in delete_buffered_objects
+// ===========================================================================
+
+/// Mock Deleter that always returns Err to test error chain propagation.
+struct FailingDeleter {
+    error_message: String,
+}
+
+#[async_trait]
+impl Deleter for FailingDeleter {
+    async fn delete(&self, _objects: &[S3Object], _config: &Config) -> Result<DeleteResult> {
+        Err(anyhow::anyhow!("{}", self.error_message))
+    }
+}
+
+#[tokio::test]
+async fn delete_buffered_objects_error_chain_preserves_original_error() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    let config = make_test_config();
+    let cancellation_token: PipelineCancellationToken = CancellationToken::new();
+    let counter = Arc::new(AtomicU64::new(0));
+
+    let stage =
+        make_stage_with_mock_and_token(config, boxed, None, None, cancellation_token.clone());
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report, counter);
+
+    // Replace the deleter backend with our failing mock
+    deleter.deleter = Box::new(FailingDeleter {
+        error_message: "S3 InternalError: something went wrong".to_string(),
+    });
+
+    // Add an object to the buffer
+    deleter.buffer.push(make_s3_object("key/test", 100));
+
+    let result = deleter.delete_buffered_objects().await;
+    assert!(result.is_err(), "Should return error when deleter fails");
+
+    let err = result.unwrap_err();
+    let err_string = format!("{:#}", err);
+
+    // The error chain should contain BOTH the context message AND the original error
+    assert!(
+        err_string.contains("delete worker has been cancelled with error"),
+        "Error should contain the context message, got: {err_string}"
+    );
+    assert!(
+        err_string.contains("S3 InternalError: something went wrong"),
+        "Error chain should preserve the original error message, got: {err_string}"
+    );
+
+    // Pipeline should be cancelled
+    assert!(cancellation_token.is_cancelled());
+}
+
+#[tokio::test]
+async fn delete_buffered_objects_error_chain_preserves_sdk_error() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    let config = make_test_config();
+    let cancellation_token: PipelineCancellationToken = CancellationToken::new();
+    let counter = Arc::new(AtomicU64::new(0));
+
+    let stage =
+        make_stage_with_mock_and_token(config, boxed, None, None, cancellation_token.clone());
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report, counter);
+
+    // Use a FailingDeleter with an SDK-error-like message
+    deleter.deleter = Box::new(FailingDeleter {
+        error_message: "AccessDenied: User is not authorized".to_string(),
+    });
+
+    deleter.buffer.push(make_s3_object("key/denied", 100));
+
+    let result = deleter.delete_buffered_objects().await;
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let err_string = format!("{:#}", err);
+
+    assert!(
+        err_string.contains("AccessDenied"),
+        "Error chain should contain the original S3 error code, got: {err_string}"
+    );
+}
+
+// ===========================================================================
+// Unit tests: error chain preservation in handle_api_error
+// ===========================================================================
+
+#[tokio::test]
+async fn handle_api_error_preserves_original_error_in_chain() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    let config = make_test_config();
+    let cancellation_token: PipelineCancellationToken = CancellationToken::new();
+    let counter = Arc::new(AtomicU64::new(0));
+
+    let deleter =
+        make_object_deleter_with_token(config, boxed, counter, cancellation_token.clone());
+
+    let original_error = anyhow::anyhow!("connection refused by remote host");
+    let result = deleter
+        .handle_api_error(&original_error, "test-key", "head_object")
+        .await;
+
+    assert!(result.is_err(), "Non-404 error should return Err");
+    let err = result.unwrap_err();
+    let err_string = format!("{:#}", err);
+
+    // Should contain the context
+    assert!(
+        err_string.contains("head_object failed for key: test-key"),
+        "Error should contain operation context, got: {err_string}"
+    );
+    // Should preserve original error message
+    assert!(
+        err_string.contains("connection refused by remote host"),
+        "Error chain should preserve original error message, got: {err_string}"
+    );
+    // Pipeline should be cancelled
+    assert!(cancellation_token.is_cancelled());
+}
+
+#[tokio::test]
+async fn handle_api_error_preserves_different_operation_names() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    let config = make_test_config();
+    let counter = Arc::new(AtomicU64::new(0));
+
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let original_error = anyhow::anyhow!("timeout reached");
+    let result = deleter
+        .handle_api_error(&original_error, "some/key.txt", "get_object_tagging")
+        .await;
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    let err_string = format!("{:#}", err);
+
+    assert!(
+        err_string.contains("get_object_tagging failed for key: some/key.txt"),
+        "Should include operation name and key, got: {err_string}"
+    );
+    assert!(
+        err_string.contains("timeout reached"),
+        "Should preserve original error, got: {err_string}"
+    );
+}
+
+#[tokio::test]
+async fn handle_api_error_not_found_skips_without_error() {
+    use aws_sdk_s3::operation::head_object::HeadObjectError;
+    use aws_smithy_runtime_api::http::StatusCode;
+
+    init_dummy_tracing_subscriber();
+    let (stats_sender, stats_receiver) = async_channel::unbounded();
+    let (boxed, _mock) = make_mock_storage_boxed(stats_sender);
+    let config = make_test_config();
+    let cancellation_token: PipelineCancellationToken = CancellationToken::new();
+    let counter = Arc::new(AtomicU64::new(0));
+
+    let deleter =
+        make_object_deleter_with_token(config, boxed, counter, cancellation_token.clone());
+
+    // Create a proper 404 SdkError
+    let service_err = HeadObjectError::NotFound(
+        aws_sdk_s3::types::error::NotFound::builder()
+            .message("Not Found")
+            .build(),
+    );
+    let raw_response = aws_smithy_runtime_api::http::Response::new(
+        StatusCode::try_from(404).unwrap(),
+        SdkBody::from(""),
+    );
+    let sdk_error: SdkError<HeadObjectError, Response<SdkBody>> =
+        SdkError::service_error(service_err, raw_response);
+    let not_found_error: anyhow::Error = sdk_error.into();
+
+    let result = deleter
+        .handle_api_error(&not_found_error, "missing-key", "head_object")
+        .await;
+
+    // Should return Ok(true) to skip, not Err
+    assert!(result.is_ok());
+    assert!(result.unwrap(), "Should return true to skip the object");
+    // Pipeline should NOT be cancelled for 404
+    assert!(!cancellation_token.is_cancelled());
+
+    // Should have sent a DeleteSkip stat
+    let stat = stats_receiver.recv().await.unwrap();
+    assert!(matches!(stat, DeletionStatistics::DeleteSkip { key } if key == "missing-key"));
+}
+
+// ===========================================================================
+// Unit tests: ObjectDeleter end-to-end error chain with SingleDeleter
+// ===========================================================================
+
+#[tokio::test]
+async fn object_deleter_single_mode_sdk_error_preserves_error_code_in_event() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // Configure a realistic SdkError for the mock
+    *mock.delete_object_sdk_error.lock().unwrap() = Some(make_delete_object_sdk_error(
+        "AccessDenied",
+        "Access Denied",
+    ));
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.batch_size = 1; // Force SingleDeleter
+
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    input_sender
+        .send(make_s3_object("key/denied", 100))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // The deletion should be recorded as failed
+    assert_eq!(
+        stats_report.stats_failed_objects.load(Ordering::SeqCst),
+        1,
+        "Should record one failed deletion"
+    );
+
+    // Output should still forward the object
+    let forwarded = output_receiver.try_recv();
+    assert!(
+        forwarded.is_ok(),
+        "Object should still be forwarded to next stage"
+    );
+    drop(output_receiver);
+}
+
+// ===========================================================================
+// Property tests: extract_delete_object_error_code
+// ===========================================================================
+
+mod extract_error_code_properties {
+    use super::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig {
+            cases: 50,
+            timeout: 5000,
+            ..ProptestConfig::default()
+        })]
+
+        #[test]
+        fn never_panics_on_arbitrary_anyhow_error(msg in "[a-zA-Z0-9 _/.-]{1,100}") {
+            let err = anyhow::anyhow!("{}", msg);
+            let code = extract_delete_object_error_code(&err);
+            // Should always return a string, never panic
+            prop_assert_eq!(code, "unknown");
+        }
+
+        #[test]
+        fn preserves_known_error_codes(
+            code in prop::sample::select(vec![
+                "AccessDenied",
+                "InternalError",
+                "NoSuchKey",
+                "SlowDown",
+                "ServiceUnavailable",
+                "RequestTimeout",
+                "InvalidObjectState",
+                "NoSuchBucket",
+            ])
+        ) {
+            let err = make_delete_object_sdk_error(code, "test message");
+            let extracted = extract_delete_object_error_code(&err);
+            prop_assert_eq!(extracted, code);
+        }
+    }
 }

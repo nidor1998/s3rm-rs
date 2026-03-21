@@ -53,8 +53,8 @@ impl BatchDeleter {
     /// this method falls back to individual DeleteObject attempts with the
     /// configured retry count and interval.
     ///
-    /// Returns `Some(DeletedKey)` on success, or `Some(FailedKey)` wrapped in
-    /// `Err` variant if all retries are exhausted.
+    /// Returns `Ok(DeletedKey)` on success, or `Err(FailedKey)` if all retries
+    /// are exhausted.
     async fn retry_failed_key_with_single_delete(
         &self,
         key: &str,

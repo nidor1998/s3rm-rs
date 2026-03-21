@@ -259,7 +259,7 @@ impl ObjectDeleter {
                         content_type,
                         INCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME,
                         true,
-                    ) {
+                    )? {
                         self.emit_filter_skip(&object, INCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME)
                             .await;
                         return Ok(());
@@ -270,7 +270,7 @@ impl ObjectDeleter {
                         content_type,
                         EXCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME,
                         false,
-                    ) {
+                    )? {
                         self.emit_filter_skip(&object, EXCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME)
                             .await;
                         return Ok(());
@@ -288,7 +288,7 @@ impl ObjectDeleter {
                         formatted_metadata_ref,
                         INCLUDE_METADATA_REGEX_FILTER_NAME,
                         true,
-                    ) {
+                    )? {
                         self.emit_filter_skip(&object, INCLUDE_METADATA_REGEX_FILTER_NAME)
                             .await;
                         return Ok(());
@@ -299,7 +299,7 @@ impl ObjectDeleter {
                         formatted_metadata_ref,
                         EXCLUDE_METADATA_REGEX_FILTER_NAME,
                         false,
-                    ) {
+                    )? {
                         self.emit_filter_skip(&object, EXCLUDE_METADATA_REGEX_FILTER_NAME)
                             .await;
                         return Ok(());
@@ -354,7 +354,7 @@ impl ObjectDeleter {
                         formatted_tags_ref,
                         INCLUDE_TAG_REGEX_FILTER_NAME,
                         true,
-                    ) {
+                    )? {
                         self.emit_filter_skip(&object, INCLUDE_TAG_REGEX_FILTER_NAME)
                             .await;
                         return Ok(());
@@ -365,7 +365,7 @@ impl ObjectDeleter {
                         formatted_tags_ref,
                         EXCLUDE_TAG_REGEX_FILTER_NAME,
                         false,
-                    ) {
+                    )? {
                         self.emit_filter_skip(&object, EXCLUDE_TAG_REGEX_FILTER_NAME)
                             .await;
                         return Ok(());
@@ -608,10 +608,12 @@ impl ObjectDeleter {
 
     /// Evaluate a regex filter against an optional pre-formatted value.
     ///
-    /// Returns `true` if the object passes the filter (should proceed to deletion).
+    /// Returns `Ok(true)` if the object passes the filter (should proceed to deletion).
     /// - `regex` is `None` → filter disabled → always passes.
     /// - `formatted_value` is `None` → include filters reject, exclude filters pass.
     /// - Otherwise, include filters pass on match, exclude filters pass on non-match.
+    ///
+    /// Returns `Err` if the regex engine fails (e.g. backtracking limit exceeded).
     fn decide_delete_by_regex(
         &self,
         key: &str,
@@ -619,9 +621,9 @@ impl ObjectDeleter {
         formatted_value: Option<&str>,
         filter_name: &str,
         is_include: bool,
-    ) -> bool {
+    ) -> Result<bool> {
         let Some(regex) = regex else {
-            return true;
+            return Ok(true);
         };
 
         let Some(value) = formatted_value else {
@@ -631,10 +633,17 @@ impl ObjectDeleter {
                 key = key,
                 "value = None",
             );
-            return !is_include;
+            return Ok(!is_include);
         };
 
-        let is_match = regex.is_match(value).unwrap();
+        let is_match = regex.is_match(value).map_err(|e| {
+            anyhow!(
+                "regex match failed for filter '{}', key '{}': {}",
+                filter_name,
+                key,
+                e
+            )
+        })?;
 
         trace!(
             name = filter_name,
@@ -644,7 +653,7 @@ impl ObjectDeleter {
             is_match = is_match,
         );
 
-        if is_include { is_match } else { !is_match }
+        Ok(if is_include { is_match } else { !is_match })
     }
 }
 

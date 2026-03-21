@@ -185,228 +185,234 @@ impl ObjectDeleter {
     }
 
     async fn process_object(&mut self, object: S3Object) -> Result<()> {
-        // Check max_delete threshold
+        if self.check_max_delete(&object).await? {
+            return Ok(());
+        }
+
+        if self.apply_head_object_filters(&object).await? {
+            return Ok(());
+        }
+
+        if self.apply_tag_filters(&object).await? {
+            return Ok(());
+        }
+
+        self.buffer_object(object).await
+    }
+
+    /// Check max_delete threshold. Returns `Ok(true)` if the threshold was
+    /// exceeded and the pipeline has been cancelled.
+    async fn check_max_delete(&self, object: &S3Object) -> Result<bool> {
         let deleted_count = self.delete_counter.fetch_add(1, Ordering::SeqCst) + 1;
-        if let Some(max_delete) = self.base.config.max_delete {
-            if deleted_count > max_delete {
-                self.base
-                    .send_stats(DeletionStatistics::DeleteError {
-                        key: object.key().to_string(),
-                    })
-                    .await;
-                self.base.set_warning();
+        let Some(max_delete) = self.base.config.max_delete else {
+            return Ok(false);
+        };
 
-                let message = "--max-delete has been reached. delete operation has been cancelled.";
-                warn!(key = object.key(), message);
+        if deleted_count <= max_delete {
+            return Ok(false);
+        }
 
-                let mut event_data = EventData::new(EventType::DELETE_FAILED);
-                event_data.key = Some(object.key().to_string());
-                event_data.message = Some(message.to_string());
-                self.base
-                    .config
-                    .event_manager
-                    .trigger_event(event_data)
-                    .await;
+        self.base
+            .send_stats(DeletionStatistics::DeleteError {
+                key: object.key().to_string(),
+            })
+            .await;
+        self.base.set_warning();
 
-                self.base.cancellation_token.cancel();
-                return Ok(());
-            }
+        let message = "--max-delete has been reached. delete operation has been cancelled.";
+        warn!(key = object.key(), message);
+
+        let mut event_data = EventData::new(EventType::DELETE_FAILED);
+        event_data.key = Some(object.key().to_string());
+        event_data.message = Some(message.to_string());
+        self.base
+            .config
+            .event_manager
+            .trigger_event(event_data)
+            .await;
+
+        self.base.cancellation_token.cancel();
+        Ok(true)
+    }
+
+    /// Apply content-type and metadata filters via HeadObject.
+    /// Returns `Ok(true)` if the object was filtered out or an error occurred
+    /// that should skip further processing.
+    async fn apply_head_object_filters(&self, object: &S3Object) -> Result<bool> {
+        let fc = &self.base.config.filter_config;
+        let needs_head_object = fc.include_content_type_regex.is_some()
+            || fc.exclude_content_type_regex.is_some()
+            || fc.include_metadata_regex.is_some()
+            || fc.exclude_metadata_regex.is_some();
+
+        if !needs_head_object {
+            return Ok(false);
         }
 
         let key = object.key();
-
-        // --- Content-type / metadata filtering (requires HeadObject) ---
-        let needs_head_object = self
+        let head_result = self
             .base
-            .config
-            .filter_config
-            .include_content_type_regex
-            .is_some()
-            || self
-                .base
-                .config
-                .filter_config
-                .exclude_content_type_regex
-                .is_some()
-            || self
-                .base
-                .config
-                .filter_config
-                .include_metadata_regex
-                .is_some()
-            || self
-                .base
-                .config
-                .filter_config
-                .exclude_metadata_regex
-                .is_some();
+            .target
+            .head_object(key, object.version_id().map(|v| v.to_string()))
+            .await;
 
-        if needs_head_object {
-            let head_result = self
-                .base
-                .target
-                .head_object(key, object.version_id().map(|v| v.to_string()))
-                .await;
-
-            match head_result {
-                Ok(head_output) => {
-                    // Content-type filters
-                    let content_type = head_output.content_type();
-                    let fc = &self.base.config.filter_config;
-                    if !self.decide_delete_by_regex(
-                        key,
-                        fc.include_content_type_regex.as_ref(),
-                        content_type,
-                        INCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME,
-                        true,
-                    )? {
-                        self.emit_filter_skip(&object, INCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME)
-                            .await;
-                        return Ok(());
-                    }
-                    if !self.decide_delete_by_regex(
-                        key,
-                        fc.exclude_content_type_regex.as_ref(),
-                        content_type,
-                        EXCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME,
-                        false,
-                    )? {
-                        self.emit_filter_skip(&object, EXCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME)
-                            .await;
-                        return Ok(());
-                    }
-
-                    // Metadata filters
-                    let formatted_metadata = head_output
-                        .metadata()
-                        .filter(|m| !m.is_empty())
-                        .map(format_metadata);
-                    let formatted_metadata_ref = formatted_metadata.as_deref();
-                    if !self.decide_delete_by_regex(
-                        key,
-                        fc.include_metadata_regex.as_ref(),
-                        formatted_metadata_ref,
-                        INCLUDE_METADATA_REGEX_FILTER_NAME,
-                        true,
-                    )? {
-                        self.emit_filter_skip(&object, INCLUDE_METADATA_REGEX_FILTER_NAME)
-                            .await;
-                        return Ok(());
-                    }
-                    if !self.decide_delete_by_regex(
-                        key,
-                        fc.exclude_metadata_regex.as_ref(),
-                        formatted_metadata_ref,
-                        EXCLUDE_METADATA_REGEX_FILTER_NAME,
-                        false,
-                    )? {
-                        self.emit_filter_skip(&object, EXCLUDE_METADATA_REGEX_FILTER_NAME)
-                            .await;
-                        return Ok(());
-                    }
-                }
-                Err(e) => {
-                    if is_not_found_error(&e) {
-                        debug!(
-                            worker_index = self.worker_index,
-                            key = key,
-                            "object not found during head_object, skipping."
-                        );
-                        self.base
-                            .send_stats(DeletionStatistics::DeleteSkip {
-                                key: key.to_string(),
-                            })
-                            .await;
-                        return Ok(());
-                    }
-
-                    self.base.cancellation_token.cancel();
-                    error!(
-                        worker_index = self.worker_index,
-                        key = key,
-                        error = e.to_string(),
-                        "head_object failed."
-                    );
-                    return Err(anyhow!("head_object failed for key: {}", key));
-                }
+        let head_output = match head_result {
+            Ok(output) => output,
+            Err(e) => {
+                return self.handle_api_error(&e, key, "head_object").await;
             }
+        };
+
+        // Content-type filters
+        let content_type = head_output.content_type();
+        if !self.decide_delete_by_regex(
+            key,
+            fc.include_content_type_regex.as_ref(),
+            content_type,
+            INCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME,
+            true,
+        )? {
+            self.emit_filter_skip(object, INCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME)
+                .await;
+            return Ok(true);
+        }
+        if !self.decide_delete_by_regex(
+            key,
+            fc.exclude_content_type_regex.as_ref(),
+            content_type,
+            EXCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME,
+            false,
+        )? {
+            self.emit_filter_skip(object, EXCLUDE_CONTENT_TYPE_REGEX_FILTER_NAME)
+                .await;
+            return Ok(true);
         }
 
-        // --- Tag filtering (requires GetObjectTagging) ---
-        let needs_tagging = self.base.config.filter_config.include_tag_regex.is_some()
-            || self.base.config.filter_config.exclude_tag_regex.is_some();
-
-        if needs_tagging {
-            let tagging_result = self
-                .base
-                .target
-                .get_object_tagging(key, object.version_id().map(|v| v.to_string()))
+        // Metadata filters
+        let formatted_metadata = head_output
+            .metadata()
+            .filter(|m| !m.is_empty())
+            .map(format_metadata);
+        let formatted_metadata_ref = formatted_metadata.as_deref();
+        if !self.decide_delete_by_regex(
+            key,
+            fc.include_metadata_regex.as_ref(),
+            formatted_metadata_ref,
+            INCLUDE_METADATA_REGEX_FILTER_NAME,
+            true,
+        )? {
+            self.emit_filter_skip(object, INCLUDE_METADATA_REGEX_FILTER_NAME)
                 .await;
-
-            match tagging_result {
-                Ok(tagging_output) => {
-                    let formatted_tags = format_tags(tagging_output.tag_set());
-                    let formatted_tags_ref = Some(formatted_tags.as_str());
-                    let fc = &self.base.config.filter_config;
-                    if !self.decide_delete_by_regex(
-                        key,
-                        fc.include_tag_regex.as_ref(),
-                        formatted_tags_ref,
-                        INCLUDE_TAG_REGEX_FILTER_NAME,
-                        true,
-                    )? {
-                        self.emit_filter_skip(&object, INCLUDE_TAG_REGEX_FILTER_NAME)
-                            .await;
-                        return Ok(());
-                    }
-                    if !self.decide_delete_by_regex(
-                        key,
-                        fc.exclude_tag_regex.as_ref(),
-                        formatted_tags_ref,
-                        EXCLUDE_TAG_REGEX_FILTER_NAME,
-                        false,
-                    )? {
-                        self.emit_filter_skip(&object, EXCLUDE_TAG_REGEX_FILTER_NAME)
-                            .await;
-                        return Ok(());
-                    }
-                }
-                Err(e) => {
-                    if is_not_found_error(&e) {
-                        debug!(
-                            worker_index = self.worker_index,
-                            key = key,
-                            "object not found during get_object_tagging, skipping."
-                        );
-                        self.base
-                            .send_stats(DeletionStatistics::DeleteSkip {
-                                key: key.to_string(),
-                            })
-                            .await;
-                        return Ok(());
-                    }
-
-                    self.base.cancellation_token.cancel();
-                    error!(
-                        worker_index = self.worker_index,
-                        key = key,
-                        error = e.to_string(),
-                        "get_object_tagging failed."
-                    );
-                    return Err(anyhow!("get_object_tagging failed for key: {}", key));
-                }
-            }
+            return Ok(true);
+        }
+        if !self.decide_delete_by_regex(
+            key,
+            fc.exclude_metadata_regex.as_ref(),
+            formatted_metadata_ref,
+            EXCLUDE_METADATA_REGEX_FILTER_NAME,
+            false,
+        )? {
+            self.emit_filter_skip(object, EXCLUDE_METADATA_REGEX_FILTER_NAME)
+                .await;
+            return Ok(true);
         }
 
-        // --- Delegate deletion ---
-        // Buffer the object for batch/single deletion via the deleter backend.
-        // When if_match is enabled, BatchDeleter includes per-object ETags in the
-        // DeleteObjects request for conditional deletion.
+        Ok(false)
+    }
+
+    /// Apply tag filters via GetObjectTagging.
+    /// Returns `Ok(true)` if the object was filtered out or an error occurred
+    /// that should skip further processing.
+    async fn apply_tag_filters(&self, object: &S3Object) -> Result<bool> {
+        let fc = &self.base.config.filter_config;
+        let needs_tagging = fc.include_tag_regex.is_some() || fc.exclude_tag_regex.is_some();
+
+        if !needs_tagging {
+            return Ok(false);
+        }
+
+        let key = object.key();
+        let tagging_result = self
+            .base
+            .target
+            .get_object_tagging(key, object.version_id().map(|v| v.to_string()))
+            .await;
+
+        let tagging_output = match tagging_result {
+            Ok(output) => output,
+            Err(e) => {
+                return self.handle_api_error(&e, key, "get_object_tagging").await;
+            }
+        };
+
+        let formatted_tags = format_tags(tagging_output.tag_set());
+        let formatted_tags_ref = Some(formatted_tags.as_str());
+        if !self.decide_delete_by_regex(
+            key,
+            fc.include_tag_regex.as_ref(),
+            formatted_tags_ref,
+            INCLUDE_TAG_REGEX_FILTER_NAME,
+            true,
+        )? {
+            self.emit_filter_skip(object, INCLUDE_TAG_REGEX_FILTER_NAME)
+                .await;
+            return Ok(true);
+        }
+        if !self.decide_delete_by_regex(
+            key,
+            fc.exclude_tag_regex.as_ref(),
+            formatted_tags_ref,
+            EXCLUDE_TAG_REGEX_FILTER_NAME,
+            false,
+        )? {
+            self.emit_filter_skip(object, EXCLUDE_TAG_REGEX_FILTER_NAME)
+                .await;
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
+    /// Handle a not-found or fatal API error from HeadObject / GetObjectTagging.
+    /// Returns `Ok(true)` to skip the object on 404, or `Err` on fatal errors.
+    async fn handle_api_error(
+        &self,
+        error: &anyhow::Error,
+        key: &str,
+        operation: &str,
+    ) -> Result<bool> {
+        if is_not_found_error(error) {
+            debug!(
+                worker_index = self.worker_index,
+                key = key,
+                "object not found during {}, skipping.",
+                operation,
+            );
+            self.base
+                .send_stats(DeletionStatistics::DeleteSkip {
+                    key: key.to_string(),
+                })
+                .await;
+            return Ok(true);
+        }
+
+        self.base.cancellation_token.cancel();
+        error!(
+            worker_index = self.worker_index,
+            key = key,
+            error = error.to_string(),
+            "{} failed.",
+            operation,
+        );
+        Err(anyhow!("{} failed for key: {}", operation, key))
+    }
+
+    /// Buffer an object for batch deletion, flushing when the batch is full.
+    async fn buffer_object(&mut self, object: S3Object) -> Result<()> {
         self.buffer.push(object);
         if self.buffer.len() >= self.effective_batch_size {
             self.delete_buffered_objects().await?;
         }
-
         Ok(())
     }
 

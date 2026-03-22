@@ -1085,7 +1085,7 @@ async fn main() {
 **Supported target: Amazon S3 only.**
 
 Support for S3-compatible storage is on a best-effort basis and may behave differently.
-s3rm has been tested with Amazon S3. s3rm has comprehensive unit tests, property-based tests (proptest) covering 49 correctness properties, and 84 end-to-end integration tests across 14 test files.
+s3rm has been tested with Amazon S3. s3rm has comprehensive unit tests, property-based tests (proptest) covering 49 correctness properties, and 125 end-to-end integration tests across 17 test files.
 
 ### Running unit and property tests
 
@@ -1131,7 +1131,7 @@ Human engineers authored the requirements, design specifications, and s3sync ref
 | Property-based tests (proptest) | 41 proptest macros across 16 test files |
 | E2E integration tests | 125 tests across 17 test files, all verified against live AWS S3 |
 | Total tests | 1,031 passing, 0 failing |
-| Code coverage (llvm-cov) | 98.05% regions, 97.97% functions, 98.43% lines |
+| Code coverage (llvm-cov) | 98.07% regions, 97.97% functions, 98.43% lines |
 | Static analysis (clippy) | 0 warnings |
 | Dependency audit (cargo-deny) | advisories ok, bans ok, licenses ok, sources ok |
 | Security review (Claude Code) | No issues found |
@@ -1229,7 +1229,7 @@ The E2E tests run against live AWS S3 — no mocks. Every E2E test creates a rea
 - **33 binary tests**, all passing
 - **125 E2E tests** against live AWS S3 across 17 test files, all passing
 - **1,031 total tests**, zero failures
-- **98.05% region coverage, 97.97% function coverage, 98.43% line coverage** (measured by `cargo llvm-cov`)
+- **98.07% region coverage, 97.97% function coverage, 98.43% line coverage** (measured by `cargo llvm-cov`)
 - 15 property-based test files covering safety, versioning, optimistic locking, retry, logging, filters, Lua, rate limiting, cross-platform, library API, CI/CD, keep-latest-only, event callbacks, and additional edge cases
 
 #### Known limitations

@@ -970,7 +970,7 @@ pub struct CLIArgs {
     pub event_callback_lua_script: Option<String>,
     pub allow_lua_os_library: bool,
     pub lua_vm_memory_limit: String,  // human-readable (default "64MiB")
-    pub lua_callback_timeout_milliseconds: u64,    // milliseconds (default 10_000)
+    pub lua_callback_timeout: u64,    // milliseconds (default 10_000); mapped to Config.lua_callback_timeout_milliseconds
     pub allow_lua_unsafe_vm: bool,
 
     // Advanced
@@ -2021,7 +2021,7 @@ async fn test_batch_deletion_with_partial_failure() {
 - **Property Coverage**: 49 of 49 properties tested
 - **Critical Path Coverage**: 100% (deletion logic, safety checks, error handling)
 
-**Note**: Coverage includes unit tests and E2E tests (117 tests across 17 files). The remaining uncovered code is primarily in runtime paths that require live AWS infrastructure (S3 API calls, network error handlers).
+**Note**: Coverage includes unit tests and E2E tests (125 tests across 17 test files). The remaining uncovered code is primarily in runtime paths that require live AWS infrastructure (S3 API calls, network error handlers).
 
 ### Continuous Integration
 

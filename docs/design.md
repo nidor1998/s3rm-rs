@@ -120,6 +120,7 @@ impl DeletionPipeline {
     pub fn has_error(&self) -> bool;
     pub fn has_panic(&self) -> bool;
     pub fn get_errors_and_consume(&self) -> Option<Vec<anyhow::Error>>;
+    pub fn get_error_messages(&self) -> Option<Vec<String>>;
 
     // Check for warnings
     pub fn has_warning(&self) -> bool;
@@ -969,7 +970,7 @@ pub struct CLIArgs {
     pub event_callback_lua_script: Option<String>,
     pub allow_lua_os_library: bool,
     pub lua_vm_memory_limit: String,  // human-readable (default "64MiB")
-    pub lua_callback_timeout: u64,    // milliseconds (default 10_000)
+    pub lua_callback_timeout: u64,    // milliseconds (default 10_000); mapped to Config.lua_callback_timeout_milliseconds
     pub allow_lua_unsafe_vm: bool,
 
     // Advanced
@@ -1959,6 +1960,7 @@ macro_rules! e2e_timeout {
 | `tests/e2e_deletion.rs` | 7 | Basic deletion, batch mode, single mode, dry-run, force flag |
 | `tests/e2e_filter.rs` | 24 | Regex, size, time, content-type, metadata, tag, and combined filters |
 | `tests/e2e_keep_latest_only.rs` | 15 | Keep-latest-only version retention, edge cases, filter combinations |
+| `tests/e2e_listing.rs` | 12 | Parallel listing, delimiter partitioning, deep hierarchy traversal, Express One Zone listing |
 | `tests/e2e_safety.rs` | 4 | Safety feature tests - dry-run, max-delete |
 | `tests/e2e_versioning.rs` | 7 | Delete markers, all-versions deletion, prefix boundary versioned, parallel version listing, unversioned bucket fallback |
 | `tests/e2e_callback.rs` | 7 | Lua filter/event callbacks, Rust event callbacks, event data validation |
@@ -1966,7 +1968,7 @@ macro_rules! e2e_timeout {
 | `tests/e2e_performance.rs` | 5 | Worker scaling, batch throughput, rate limiting, large object counts |
 | `tests/e2e_tracing.rs` | 7 | Verbosity levels, JSON logging, color output, structured fields |
 | `tests/e2e_retry.rs` | 3 | Retry on transient errors, force retry, error continuation |
-| `tests/e2e_error.rs` | 7 | Error handling, exit codes, partial failure, invalid config |
+| `tests/e2e_error.rs` | 11 | Error handling, exit codes, partial failure, invalid config |
 | `tests/e2e_aws_config.rs` | 4 | Credential loading, region config, custom endpoint, profile |
 | `tests/e2e_combined.rs` | 7 | Multi-filter combinations, pipeline integration scenarios |
 | `tests/e2e_stats.rs` | 2 | Statistics accuracy, event callback stats reporting |
@@ -2013,13 +2015,13 @@ async fn test_batch_deletion_with_partial_failure() {
 
 ### Test Coverage Goals
 
-- **Line Coverage**: >97% (current: 97.95% as of 2026-02-28, via `cargo llvm-cov report` combining lib+bin+E2E)
-- **Region Coverage**: >97% (current: 97.45%)
-- **Function Coverage**: >96% (current: 96.69%)
+- **Line Coverage**: >98% (current: 98.43% as of 2026-03-22, via `cargo llvm-cov report` combining lib+bin+E2E)
+- **Region Coverage**: >98% (current: 98.07%)
+- **Function Coverage**: >97% (current: 97.97%)
 - **Property Coverage**: 49 of 49 properties tested
 - **Critical Path Coverage**: 100% (deletion logic, safety checks, error handling)
 
-**Note**: Coverage includes unit tests (740 lib, 32 binary) and E2E tests (109 tests across 16 files). The remaining uncovered code is primarily in runtime paths that require live AWS infrastructure (S3 API calls, network error handlers).
+**Note**: Coverage includes unit tests and E2E tests (125 tests across 17 test files). The remaining uncovered code is primarily in runtime paths that require live AWS infrastructure (S3 API calls, network error handlers).
 
 ### Continuous Integration
 
@@ -2087,13 +2089,13 @@ tokio = { version = "1.50.0", features = ["full"] }
 tokio-util = "0.7.18"
 
 # AWS SDK (same versions as s3sync)
-aws-config = { version = "1.8.14", features = ["behavior-version-latest"] }
-aws-runtime = "1.7.1"
-aws-sdk-s3 = "1.124.0"
-aws-smithy-runtime-api = "1.11.5"
-aws-smithy-types = "1.4.5"
-aws-smithy-types-convert = { version = "0.60.13", features = ["convert-chrono"] }
-aws-types = "1.3.13"
+aws-config = { version = "1.8.15", features = ["behavior-version-latest"] }
+aws-runtime = "1.7.2"
+aws-sdk-s3 = "1.127.0"
+aws-smithy-runtime-api = "1.11.6"
+aws-smithy-types = "1.4.7"
+aws-smithy-types-convert = { version = "0.60.14", features = ["convert-chrono"] }
+aws-types = "1.3.14"
 
 # CLI (same as s3sync)
 clap = { version = "4.6.0", features = ["derive", "env", "cargo", "string"] }

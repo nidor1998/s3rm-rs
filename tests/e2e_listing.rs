@@ -736,3 +736,163 @@ async fn e2e_5k_hierarchy_delete_without_prefix() {
     .await
     .expect("e2e_5k_hierarchy_delete_without_prefix timed out");
 }
+
+// ---------------------------------------------------------------------------
+// Express One Zone: 5,000 complex hierarchical objects with parallel listing
+// ---------------------------------------------------------------------------
+
+/// Returns the availability zone ID for Express One Zone directory buckets.
+///
+/// Reads `S3RM_E2E_AZ_ID` from the environment; falls back to `apne1-az4`
+/// (ap-northeast-1 AZ 4) which is a commonly available Express One Zone AZ.
+fn express_az_id() -> String {
+    std::env::var("S3RM_E2E_AZ_ID").unwrap_or_else(|_| "apne1-az4".to_string())
+}
+
+#[tokio::test]
+async fn e2e_5k_hierarchy_express_one_zone_delete_with_prefix() {
+    tokio::time::timeout(LARGE_HIERARCHY_TIMEOUT, async {
+        // Purpose: Verify that 5,000 objects in a deeply nested hierarchy are
+        //          correctly listed and deleted on an Express One Zone directory
+        //          bucket when targeting a sub-prefix with parallel listing.
+        //          Express One Zone buckets require --allow-parallel-listings-in-
+        //          express-one-zone to enable parallel listing; without it the
+        //          pipeline falls back to sequential listing.
+        //
+        // Setup:   Express One Zone directory bucket with 5,000 objects under "hier/".
+        //          Target only "hier/dept-0/" (2,500 objects).
+        //          Use --allow-parallel-listings-in-express-one-zone with 4 workers.
+        //
+        // Expected: Exactly 2,500 objects deleted; 2,500 remain under dept-1/.
+
+        let az_id = express_az_id();
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_directory_bucket_name(&az_id);
+        helper.create_directory_bucket(&bucket, &az_id).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        // Upload 5,000 objects
+        let objects = generate_hierarchy_objects("hier");
+        helper.put_objects_parallel(&bucket, objects).await;
+
+        // Verify pre-state
+        let pre_count = helper.count_objects(&bucket, "hier/").await;
+        assert_eq!(pre_count, 5_000, "Should start with 5,000 objects");
+
+        // Delete only dept-0 (2,500 objects)
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/hier/dept-0/"),
+            "--allow-parallel-listings-in-express-one-zone",
+            "--max-parallel-listings",
+            "4",
+            "--max-parallel-listing-max-depth",
+            "4",
+            "--worker-size",
+            "16",
+            "--batch-size",
+            "500",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(
+            !result.has_error,
+            "Pipeline should complete without errors: {:?}",
+            result.errors
+        );
+        assert_eq!(
+            result.stats.stats_deleted_objects, 2_500,
+            "Should delete exactly 2,500 objects under dept-0/"
+        );
+        assert_eq!(
+            result.stats.stats_failed_objects, 0,
+            "No objects should fail"
+        );
+
+        // Verify dept-0 is empty
+        let dept0_remaining = helper.count_objects(&bucket, "hier/dept-0/").await;
+        assert_eq!(dept0_remaining, 0, "dept-0/ should be completely empty");
+
+        // Verify the other 2,500 objects remain
+        let total_remaining = helper.count_objects(&bucket, "hier/").await;
+        assert_eq!(
+            total_remaining, 2_500,
+            "2,500 objects should remain in dept-1/"
+        );
+
+        guard.cleanup().await;
+    })
+    .await
+    .expect("e2e_5k_hierarchy_express_one_zone_delete_with_prefix timed out");
+}
+
+#[tokio::test]
+async fn e2e_5k_hierarchy_express_one_zone_delete_without_prefix() {
+    tokio::time::timeout(LARGE_HIERARCHY_TIMEOUT, async {
+        // Purpose: Verify that 5,000 objects in a deeply nested hierarchy are
+        //          correctly listed and deleted on an Express One Zone directory
+        //          bucket when targeting the entire bucket (empty prefix).
+        //          Uses --allow-parallel-listings-in-express-one-zone for parallel
+        //          listing from the root.
+        //
+        // Setup:   Express One Zone directory bucket with 5,000 objects.
+        //          Target "s3://bucket/" (empty prefix).
+        //          Use --allow-parallel-listings-in-express-one-zone with 4 workers.
+        //
+        // Expected: All 5,000 objects deleted; bucket is empty.
+
+        let az_id = express_az_id();
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_directory_bucket_name(&az_id);
+        helper.create_directory_bucket(&bucket, &az_id).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        // Upload 5,000 objects
+        let objects = generate_hierarchy_objects("root");
+        helper.put_objects_parallel(&bucket, objects).await;
+
+        // Verify pre-state
+        let pre_count = helper.count_objects(&bucket, "").await;
+        assert_eq!(pre_count, 5_000, "Should start with 5,000 objects");
+
+        // Delete everything in the bucket (empty prefix)
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/"),
+            "--allow-parallel-listings-in-express-one-zone",
+            "--max-parallel-listings",
+            "4",
+            "--max-parallel-listing-max-depth",
+            "3",
+            "--worker-size",
+            "16",
+            "--batch-size",
+            "500",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(
+            !result.has_error,
+            "Pipeline should complete without errors: {:?}",
+            result.errors
+        );
+        assert_eq!(
+            result.stats.stats_deleted_objects, 5_000,
+            "Should delete all 5,000 objects"
+        );
+        assert_eq!(
+            result.stats.stats_failed_objects, 0,
+            "No objects should fail"
+        );
+
+        // Verify bucket is empty
+        let remaining = helper.count_objects(&bucket, "").await;
+        assert_eq!(remaining, 0, "Bucket should be completely empty");
+
+        guard.cleanup().await;
+    })
+    .await
+    .expect("e2e_5k_hierarchy_express_one_zone_delete_without_prefix timed out");
+}

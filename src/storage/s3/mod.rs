@@ -510,7 +510,10 @@ impl S3Storage {
                             code,
                             msg,
                         );
-                        anyhow::anyhow!(e).context("aws_sdk_s3::client::list_objects_v2() failed.")
+                        anyhow::anyhow!(e).context(format!(
+                            "aws_sdk_s3::client::list_objects_v2() failed. s3://{}/{}",
+                            self.bucket, prefix
+                        ))
                     })?;
 
                 let objects = output
@@ -558,8 +561,10 @@ impl S3Storage {
                             code,
                             msg,
                         );
-                        anyhow::anyhow!(e)
-                            .context("aws_sdk_s3::client::list_object_versions() failed.")
+                        anyhow::anyhow!(e).context(format!(
+                            "aws_sdk_s3::client::list_object_versions() failed. s3://{}/{}",
+                            self.bucket, prefix
+                        ))
                     })?;
 
                 let mut objects: Vec<S3Object> = output
@@ -1721,5 +1726,10 @@ mod tests {
             .list_with_parallel(ListingMode::Objects, "", &sender, 1000, 1, permit)
             .await;
         assert!(result.is_err());
+        let err_msg = format!("{:#}", result.unwrap_err());
+        assert!(
+            err_msg.contains("my-prefix/"),
+            "Error should reference the resolved prefix 'my-prefix/', got: {err_msg}"
+        );
     }
 }

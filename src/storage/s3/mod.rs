@@ -112,6 +112,48 @@ struct S3Storage {
     listing_worker_semaphore: Arc<tokio::sync::Semaphore>,
 }
 
+/// Listing mode for S3 object enumeration.
+///
+/// Used to unify the parallel and sequential listing logic for both
+/// ListObjectsV2 and ListObjectVersions APIs.
+#[derive(Clone, Copy)]
+enum ListingMode {
+    /// List current objects (non-versioned) via ListObjectsV2 API.
+    Objects,
+    /// List all object versions and delete markers via ListObjectVersions API.
+    Versions,
+}
+
+impl ListingMode {
+    /// Returns a label for log messages (e.g. "object" or "object version").
+    fn label(&self) -> &'static str {
+        match self {
+            Self::Objects => "object",
+            Self::Versions => "object version",
+        }
+    }
+}
+
+/// A normalized page of listing results from either S3 listing API.
+///
+/// Abstracts over the differences between ListObjectsV2Output and
+/// ListObjectVersionsOutput so that paging/recursion logic can be shared.
+#[derive(Debug)]
+struct ListPage {
+    /// S3 objects found at this level (converted to S3Object).
+    objects: Vec<S3Object>,
+    /// Sub-prefixes (common prefixes / "directories") discovered via delimiter.
+    sub_prefixes: Vec<String>,
+    /// Whether there are more results to fetch.
+    is_truncated: bool,
+    /// Next continuation token (ListObjectsV2 only).
+    continuation_token: Option<String>,
+    /// Next key marker (ListObjectVersions only).
+    key_marker: Option<String>,
+    /// Next version ID marker (ListObjectVersions only).
+    version_id_marker: Option<String>,
+}
+
 #[async_trait]
 impl StorageTrait for S3Storage {
     fn is_express_onezone_storage(&self) -> bool {
@@ -119,227 +161,13 @@ impl StorageTrait for S3Storage {
     }
 
     async fn list_objects(&self, sender: &Sender<S3Object>, max_keys: i32) -> Result<()> {
-        // Dispatch to parallel listing if configured (adapted from s3sync)
-        if self.config.max_parallel_listings > 1 {
-            if !self.is_express_onezone_storage() {
-                tracing::debug!(
-                    "Using parallel listing with {} workers.",
-                    self.config.max_parallel_listings
-                );
-                let permit = self
-                    .listing_worker_semaphore
-                    .clone()
-                    .acquire_owned()
-                    .await
-                    .expect("listing semaphore closed unexpectedly");
-                return self
-                    .list_objects_with_parallel("", sender, max_keys, 1, permit)
-                    .await
-                    .context("Failed to parallel object listing.");
-            } else if self.config.allow_parallel_listings_in_express_one_zone {
-                tracing::debug!(
-                    "Using parallel listing with {} workers (Express One Zone).",
-                    self.config.max_parallel_listings
-                );
-                let permit = self
-                    .listing_worker_semaphore
-                    .clone()
-                    .acquire_owned()
-                    .await
-                    .expect("listing semaphore closed unexpectedly");
-                return self
-                    .list_objects_with_parallel("", sender, max_keys, 1, permit)
-                    .await
-                    .context("Failed to parallel object listing.");
-            }
-        }
-
-        // Sequential listing fallback
-        tracing::debug!("Disabled parallel listing.");
-        let mut continuation_token: Option<String> = None;
-
-        loop {
-            if self.cancellation_token.is_cancelled() {
-                tracing::info!("Listing cancelled");
-                break;
-            }
-
-            self.exec_rate_limit_objects_per_sec().await;
-
-            let output = self
-                .client
-                .as_ref()
-                .expect("S3 client not initialized")
-                .list_objects_v2()
-                .set_request_payer(self.request_payer.clone())
-                .bucket(&self.bucket)
-                .prefix(&self.prefix)
-                .set_continuation_token(continuation_token.clone())
-                .max_keys(max_keys)
-                .send()
-                .await
-                .map_err(|e| {
-                    let (s3_error_code, s3_error_message) = extract_sdk_error_details(&e);
-                    tracing::error!(
-                        bucket = self.bucket,
-                        prefix = self.prefix,
-                        s3_error_code = s3_error_code,
-                        s3_error_message = s3_error_message,
-                        "S3 ListObjectsV2 API call failed for s3://{}/{}: {} ({}).",
-                        self.bucket,
-                        self.prefix,
-                        s3_error_code,
-                        s3_error_message,
-                    );
-                    anyhow::anyhow!(e).context("aws_sdk_s3::client::list_objects_v2() failed.")
-                })?;
-
-            for object in output.contents() {
-                if self.cancellation_token.is_cancelled() {
-                    return Ok(());
-                }
-
-                let s3_object = S3Object::NotVersioning(aws_sdk_s3::types::Object::clone(object));
-                if let Err(e) = sender
-                    .send(s3_object)
-                    .await
-                    .context("async_channel::Sender::send() failed.")
-                {
-                    return if !sender.is_closed() { Err(e) } else { Ok(()) };
-                }
-            }
-
-            if output.is_truncated() == Some(true) {
-                continuation_token = output.next_continuation_token().map(String::from);
-            } else {
-                break;
-            }
-        }
-
-        Ok(())
+        self.list_dispatch(ListingMode::Objects, sender, max_keys)
+            .await
     }
 
     async fn list_object_versions(&self, sender: &Sender<S3Object>, max_keys: i32) -> Result<()> {
-        // Dispatch to parallel listing if configured
-        if self.config.max_parallel_listings > 1 {
-            if !self.is_express_onezone_storage() {
-                tracing::debug!(
-                    "Using parallel version listing with {} workers.",
-                    self.config.max_parallel_listings
-                );
-                let permit = self
-                    .listing_worker_semaphore
-                    .clone()
-                    .acquire_owned()
-                    .await
-                    .expect("listing semaphore closed unexpectedly");
-                return self
-                    .list_object_versions_with_parallel("", sender, max_keys, 1, permit)
-                    .await
-                    .context("Failed to parallel object version listing.");
-            } else if self.config.allow_parallel_listings_in_express_one_zone {
-                tracing::debug!(
-                    "Using parallel version listing with {} workers (Express One Zone).",
-                    self.config.max_parallel_listings
-                );
-                let permit = self
-                    .listing_worker_semaphore
-                    .clone()
-                    .acquire_owned()
-                    .await
-                    .expect("listing semaphore closed unexpectedly");
-                return self
-                    .list_object_versions_with_parallel("", sender, max_keys, 1, permit)
-                    .await
-                    .context("Failed to parallel object version listing.");
-            }
-        }
-
-        // Sequential listing fallback
-        tracing::debug!("Disabled parallel version listing.");
-        let mut key_marker: Option<String> = None;
-        let mut version_id_marker: Option<String> = None;
-
-        loop {
-            if self.cancellation_token.is_cancelled() {
-                tracing::info!("Version listing cancelled");
-                break;
-            }
-
-            self.exec_rate_limit_objects_per_sec().await;
-
-            let output = self
-                .client
-                .as_ref()
-                .expect("S3 client not initialized")
-                .list_object_versions()
-                .set_request_payer(self.request_payer.clone())
-                .bucket(&self.bucket)
-                .prefix(&self.prefix)
-                .set_key_marker(key_marker.clone())
-                .set_version_id_marker(version_id_marker.clone())
-                .max_keys(max_keys)
-                .send()
-                .await
-                .map_err(|e| {
-                    let (s3_error_code, s3_error_message) = extract_sdk_error_details(&e);
-                    tracing::error!(
-                        bucket = self.bucket,
-                        prefix = self.prefix,
-                        s3_error_code = s3_error_code,
-                        s3_error_message = s3_error_message,
-                        "S3 ListObjectVersions API call failed for s3://{}/{}: {} ({}).",
-                        self.bucket,
-                        self.prefix,
-                        s3_error_code,
-                        s3_error_message,
-                    );
-                    anyhow::anyhow!(e).context("aws_sdk_s3::client::list_object_versions() failed.")
-                })?;
-
-            // Send object versions
-            for version in output.versions() {
-                if self.cancellation_token.is_cancelled() {
-                    return Ok(());
-                }
-
-                let s3_object =
-                    S3Object::Versioning(aws_sdk_s3::types::ObjectVersion::clone(version));
-                if let Err(e) = sender
-                    .send(s3_object)
-                    .await
-                    .context("async_channel::Sender::send() failed.")
-                {
-                    return if !sender.is_closed() { Err(e) } else { Ok(()) };
-                }
-            }
-
-            // Send delete markers
-            for marker in output.delete_markers() {
-                if self.cancellation_token.is_cancelled() {
-                    return Ok(());
-                }
-
-                let s3_object =
-                    S3Object::DeleteMarker(aws_sdk_s3::types::DeleteMarkerEntry::clone(marker));
-                if let Err(e) = sender
-                    .send(s3_object)
-                    .await
-                    .context("async_channel::Sender::send() failed.")
-                {
-                    return if !sender.is_closed() { Err(e) } else { Ok(()) };
-                }
-            }
-
-            if output.is_truncated() == Some(true) {
-                key_marker = output.next_key_marker().map(String::from);
-                version_id_marker = output.next_version_id_marker().map(String::from);
-            } else {
-                break;
-            }
-        }
-
-        Ok(())
+        self.list_dispatch(ListingMode::Versions, sender, max_keys)
+            .await
     }
 
     async fn head_object(&self, key: &str, version_id: Option<String>) -> Result<HeadObjectOutput> {
@@ -550,9 +378,252 @@ impl S3Storage {
         }
     }
 
+    /// Dispatch listing to parallel or sequential based on configuration.
+    ///
+    /// Adapted from s3sync's parallel/sequential dispatch pattern.
+    async fn list_dispatch(
+        &self,
+        mode: ListingMode,
+        sender: &Sender<S3Object>,
+        max_keys: i32,
+    ) -> Result<()> {
+        if self.config.max_parallel_listings > 1 {
+            let use_parallel = !self.is_express_onezone_storage()
+                || self.config.allow_parallel_listings_in_express_one_zone;
+
+            if use_parallel {
+                let express_suffix = if self.is_express_onezone_storage() {
+                    " (Express One Zone)"
+                } else {
+                    ""
+                };
+                tracing::debug!(
+                    "Using parallel {} listing with {} workers{}.",
+                    mode.label(),
+                    self.config.max_parallel_listings,
+                    express_suffix,
+                );
+                let permit = self
+                    .listing_worker_semaphore
+                    .clone()
+                    .acquire_owned()
+                    .await
+                    .expect("listing semaphore closed unexpectedly");
+                return self
+                    .list_with_parallel(mode, "", sender, max_keys, 1, permit)
+                    .await
+                    .context(format!("Failed to parallel {} listing.", mode.label()));
+            }
+        }
+
+        // Sequential listing fallback
+        tracing::debug!("Disabled parallel {} listing.", mode.label());
+        self.list_sequential(mode, sender, max_keys).await
+    }
+
+    /// Sequential listing fallback for both objects and object versions.
+    async fn list_sequential(
+        &self,
+        mode: ListingMode,
+        sender: &Sender<S3Object>,
+        max_keys: i32,
+    ) -> Result<()> {
+        let mut continuation_token: Option<String> = None;
+        let mut key_marker: Option<String> = None;
+        let mut version_id_marker: Option<String> = None;
+
+        loop {
+            if self.cancellation_token.is_cancelled() {
+                tracing::info!("{} listing cancelled", mode.label());
+                break;
+            }
+
+            self.exec_rate_limit_objects_per_sec().await;
+
+            let page = self
+                .fetch_list_page(
+                    mode,
+                    &self.prefix,
+                    None,
+                    max_keys,
+                    continuation_token.clone(),
+                    key_marker.clone(),
+                    version_id_marker.clone(),
+                )
+                .await?;
+
+            if self.send_listed_objects(page.objects, sender).await? {
+                return Ok(());
+            }
+
+            if page.is_truncated {
+                continuation_token = page.continuation_token;
+                key_marker = page.key_marker;
+                version_id_marker = page.version_id_marker;
+            } else {
+                break;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Fetch a single page of listing results from the appropriate S3 API.
+    ///
+    /// Normalizes the response into a `ListPage` regardless of which listing
+    /// API was called, so callers don't need to handle the two output types.
+    #[allow(clippy::too_many_arguments)]
+    async fn fetch_list_page(
+        &self,
+        mode: ListingMode,
+        prefix: &str,
+        delimiter: Option<String>,
+        max_keys: i32,
+        continuation_token: Option<String>,
+        key_marker: Option<String>,
+        version_id_marker: Option<String>,
+    ) -> Result<ListPage> {
+        let client = self.client.as_ref().expect("S3 client not initialized");
+
+        match mode {
+            ListingMode::Objects => {
+                let output = client
+                    .list_objects_v2()
+                    .set_request_payer(self.request_payer.clone())
+                    .bucket(&self.bucket)
+                    .prefix(prefix)
+                    .set_delimiter(delimiter)
+                    .set_continuation_token(continuation_token)
+                    .max_keys(max_keys)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        let (code, msg) = extract_sdk_error_details(&e);
+                        tracing::error!(
+                            bucket = self.bucket,
+                            prefix = prefix,
+                            s3_error_code = code,
+                            s3_error_message = msg,
+                            "S3 ListObjectsV2 API call failed for s3://{}/{}: {} ({}).",
+                            self.bucket,
+                            prefix,
+                            code,
+                            msg,
+                        );
+                        anyhow::anyhow!(e).context(format!(
+                            "aws_sdk_s3::client::list_objects_v2() failed. s3://{}/{}",
+                            self.bucket, prefix
+                        ))
+                    })?;
+
+                let objects = output
+                    .contents()
+                    .iter()
+                    .map(|o| S3Object::NotVersioning(aws_sdk_s3::types::Object::clone(o)))
+                    .collect();
+                let sub_prefixes = output
+                    .common_prefixes()
+                    .iter()
+                    .filter_map(|cp| cp.prefix().map(String::from))
+                    .collect();
+
+                Ok(ListPage {
+                    objects,
+                    sub_prefixes,
+                    is_truncated: output.is_truncated() == Some(true),
+                    continuation_token: output.next_continuation_token().map(String::from),
+                    key_marker: None,
+                    version_id_marker: None,
+                })
+            }
+            ListingMode::Versions => {
+                let output = client
+                    .list_object_versions()
+                    .set_request_payer(self.request_payer.clone())
+                    .bucket(&self.bucket)
+                    .prefix(prefix)
+                    .set_delimiter(delimiter)
+                    .set_key_marker(key_marker)
+                    .set_version_id_marker(version_id_marker)
+                    .max_keys(max_keys)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        let (code, msg) = extract_sdk_error_details(&e);
+                        tracing::error!(
+                            bucket = self.bucket,
+                            prefix = prefix,
+                            s3_error_code = code,
+                            s3_error_message = msg,
+                            "S3 ListObjectVersions API call failed for s3://{}/{}: {} ({}).",
+                            self.bucket,
+                            prefix,
+                            code,
+                            msg,
+                        );
+                        anyhow::anyhow!(e).context(format!(
+                            "aws_sdk_s3::client::list_object_versions() failed. s3://{}/{}",
+                            self.bucket, prefix
+                        ))
+                    })?;
+
+                let mut objects: Vec<S3Object> = output
+                    .versions()
+                    .iter()
+                    .map(|v| S3Object::Versioning(aws_sdk_s3::types::ObjectVersion::clone(v)))
+                    .collect();
+                objects.extend(output.delete_markers().iter().map(|m| {
+                    S3Object::DeleteMarker(aws_sdk_s3::types::DeleteMarkerEntry::clone(m))
+                }));
+                let sub_prefixes = output
+                    .common_prefixes()
+                    .iter()
+                    .filter_map(|cp| cp.prefix().map(String::from))
+                    .collect();
+
+                Ok(ListPage {
+                    objects,
+                    sub_prefixes,
+                    is_truncated: output.is_truncated() == Some(true),
+                    continuation_token: None,
+                    key_marker: output.next_key_marker().map(String::from),
+                    version_id_marker: output.next_version_id_marker().map(String::from),
+                })
+            }
+        }
+    }
+
+    /// Send listed objects to the channel, checking for cancellation.
+    ///
+    /// Returns `Ok(true)` if listing should stop (cancellation or channel closed),
+    /// `Ok(false)` if all objects were sent successfully.
+    async fn send_listed_objects(
+        &self,
+        objects: Vec<S3Object>,
+        sender: &Sender<S3Object>,
+    ) -> Result<bool> {
+        for s3_object in objects {
+            if self.cancellation_token.is_cancelled() {
+                return Ok(true);
+            }
+            if let Err(e) = sender
+                .send(s3_object)
+                .await
+                .context("async_channel::Sender::send() failed.")
+            {
+                return if !sender.is_closed() {
+                    Err(e)
+                } else {
+                    Ok(true)
+                };
+            }
+        }
+        Ok(false)
+    }
+
     /// Recursive parallel listing using S3 delimiter-based prefix partitioning.
     ///
-    /// Adapted from s3sync's `list_objects_with_parallel` algorithm:
+    /// Adapted from s3sync's parallel listing algorithm:
     /// 1. Up to `max_parallel_listing_max_depth`, uses `Delimiter="/"` to discover
     ///    sub-prefixes (common prefixes) alongside objects at the current level.
     /// 2. Objects at the current level are sent directly to the channel.
@@ -562,8 +633,9 @@ impl S3Storage {
     ///    initialized to `config.max_parallel_listings`).
     /// 5. Beyond `max_parallel_listing_max_depth`, no delimiter is set, so listing
     ///    enumerates all objects under the prefix sequentially.
-    fn list_objects_with_parallel<'a>(
+    fn list_with_parallel<'a>(
         &'a self,
+        mode: ListingMode,
         prefix: &'a str,
         sender: &'a Sender<S3Object>,
         max_keys: i32,
@@ -571,8 +643,7 @@ impl S3Storage {
         permit: tokio::sync::OwnedSemaphorePermit,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
         Box::pin(async move {
-            let is_root_prefix = prefix.is_empty();
-            let prefix = if is_root_prefix {
+            let prefix = if prefix.is_empty() {
                 self.prefix.clone()
             } else {
                 prefix.to_string()
@@ -588,159 +659,6 @@ impl S3Storage {
 
             let mut current_permit = Some(permit);
             let mut continuation_token: Option<String> = None;
-
-            loop {
-                if self.cancellation_token.is_cancelled() {
-                    break;
-                }
-
-                self.exec_rate_limit_objects_per_sec().await;
-
-                let output = self
-                    .client
-                    .as_ref()
-                    .expect("S3 client not initialized")
-                    .list_objects_v2()
-                    .set_request_payer(self.request_payer.clone())
-                    .bucket(&self.bucket)
-                    .prefix(&prefix)
-                    .set_delimiter(delimiter.clone())
-                    .set_continuation_token(continuation_token.clone())
-                    .max_keys(max_keys)
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        let (s3_error_code, s3_error_message) = extract_sdk_error_details(&e);
-                        tracing::error!(
-                            bucket = self.bucket,
-                            prefix = prefix,
-                            s3_error_code = s3_error_code,
-                            s3_error_message = s3_error_message,
-                            "S3 ListObjectsV2 API call failed for s3://{}/{}: {} ({}).",
-                            self.bucket,
-                            prefix,
-                            s3_error_code,
-                            s3_error_message,
-                        );
-                        anyhow::anyhow!(e).context("Failed to list objects in parallel listing")
-                    })?;
-
-                // Send objects found at this level
-                for object in output.contents() {
-                    if self.cancellation_token.is_cancelled() {
-                        return Ok(());
-                    }
-
-                    let s3_object =
-                        S3Object::NotVersioning(aws_sdk_s3::types::Object::clone(object));
-                    if let Err(e) = sender
-                        .send(s3_object)
-                        .await
-                        .context("async_channel::Sender::send() failed.")
-                    {
-                        return if !sender.is_closed() { Err(e) } else { Ok(()) };
-                    }
-                }
-
-                // For each common prefix (sub-directory), spawn a parallel task
-                let common_prefixes = output.common_prefixes();
-                if !common_prefixes.is_empty() {
-                    let mut join_set = JoinSet::new();
-
-                    for common_prefix in common_prefixes {
-                        if self.cancellation_token.is_cancelled() {
-                            break;
-                        }
-
-                        if let Some(sub_prefix) = common_prefix.prefix() {
-                            let storage = self.clone();
-                            let sub_prefix = sub_prefix.to_string();
-                            let sender = sender.clone();
-
-                            // Release current permit before acquiring new ones for sub-tasks
-                            if let Some(p) = current_permit.take() {
-                                drop(p);
-                            }
-
-                            // Acquire a new permit (bounded by max_parallel_listings)
-                            let new_permit = self
-                                .listing_worker_semaphore
-                                .clone()
-                                .acquire_owned()
-                                .await
-                                .expect("listing semaphore closed unexpectedly");
-
-                            join_set.spawn(async move {
-                                storage
-                                    .list_objects_with_parallel(
-                                        &sub_prefix,
-                                        &sender,
-                                        max_keys,
-                                        current_depth + 1,
-                                        new_permit,
-                                    )
-                                    .await
-                                    .context("Failed to list objects in sub-prefix")
-                            });
-                        }
-                    }
-
-                    // Wait for all sub-prefix tasks to complete
-                    while let Some(join_result) = join_set.join_next().await {
-                        match join_result {
-                            Err(join_error) => {
-                                self.cancellation_token.cancel();
-                                return Err(anyhow::anyhow!(join_error));
-                            }
-                            Ok(Err(task_error)) => {
-                                self.cancellation_token.cancel();
-                                return Err(task_error);
-                            }
-                            Ok(Ok(())) => {}
-                        }
-                    }
-                }
-
-                if output.is_truncated() != Some(true) {
-                    break;
-                }
-
-                continuation_token = output.next_continuation_token().map(String::from);
-            }
-
-            if let Some(permit) = current_permit {
-                drop(permit);
-            }
-
-            Ok(())
-        })
-    }
-
-    fn list_object_versions_with_parallel<'a>(
-        &'a self,
-        prefix: &'a str,
-        sender: &'a Sender<S3Object>,
-        max_keys: i32,
-        current_depth: usize,
-        permit: tokio::sync::OwnedSemaphorePermit,
-    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
-        Box::pin(async move {
-            let is_root_prefix = prefix.is_empty();
-            let prefix = if is_root_prefix {
-                self.prefix.clone()
-            } else {
-                prefix.to_string()
-            };
-
-            // Use delimiter "/" to discover sub-prefixes up to max depth
-            let delimiter = if current_depth <= self.config.max_parallel_listing_max_depth as usize
-            {
-                Some("/".to_string())
-            } else {
-                None
-            };
-
-            let mut current_permit = Some(permit);
             let mut key_marker: Option<String> = None;
             let mut version_id_marker: Option<String> = None;
 
@@ -751,112 +669,61 @@ impl S3Storage {
 
                 self.exec_rate_limit_objects_per_sec().await;
 
-                let output = self
-                    .client
-                    .as_ref()
-                    .expect("S3 client not initialized")
-                    .list_object_versions()
-                    .set_request_payer(self.request_payer.clone())
-                    .bucket(&self.bucket)
-                    .prefix(&prefix)
-                    .set_delimiter(delimiter.clone())
-                    .set_key_marker(key_marker.clone())
-                    .set_version_id_marker(version_id_marker.clone())
-                    .max_keys(max_keys)
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        let (s3_error_code, s3_error_message) = extract_sdk_error_details(&e);
-                        tracing::error!(
-                            bucket = self.bucket,
-                            prefix = prefix,
-                            s3_error_code = s3_error_code,
-                            s3_error_message = s3_error_message,
-                            "S3 ListObjectVersions API call failed for s3://{}/{}: {} ({}).",
-                            self.bucket,
-                            prefix,
-                            s3_error_code,
-                            s3_error_message,
-                        );
-                        anyhow::anyhow!(e)
-                            .context("Failed to list object versions in parallel listing")
-                    })?;
+                let page = self
+                    .fetch_list_page(
+                        mode,
+                        &prefix,
+                        delimiter.clone(),
+                        max_keys,
+                        continuation_token.clone(),
+                        key_marker.clone(),
+                        version_id_marker.clone(),
+                    )
+                    .await?;
 
-                // Send object versions found at this level
-                for version in output.versions() {
-                    if self.cancellation_token.is_cancelled() {
-                        return Ok(());
-                    }
-
-                    let s3_object =
-                        S3Object::Versioning(aws_sdk_s3::types::ObjectVersion::clone(version));
-                    if let Err(e) = sender
-                        .send(s3_object)
-                        .await
-                        .context("async_channel::Sender::send() failed.")
-                    {
-                        return if !sender.is_closed() { Err(e) } else { Ok(()) };
-                    }
-                }
-
-                // Send delete markers found at this level
-                for marker in output.delete_markers() {
-                    if self.cancellation_token.is_cancelled() {
-                        return Ok(());
-                    }
-
-                    let s3_object =
-                        S3Object::DeleteMarker(aws_sdk_s3::types::DeleteMarkerEntry::clone(marker));
-                    if let Err(e) = sender
-                        .send(s3_object)
-                        .await
-                        .context("async_channel::Sender::send() failed.")
-                    {
-                        return if !sender.is_closed() { Err(e) } else { Ok(()) };
-                    }
+                // Send objects found at this level
+                if self.send_listed_objects(page.objects, sender).await? {
+                    return Ok(());
                 }
 
                 // For each common prefix (sub-directory), spawn a parallel task
-                let common_prefixes = output.common_prefixes();
-                if !common_prefixes.is_empty() {
+                if !page.sub_prefixes.is_empty() {
                     let mut join_set = JoinSet::new();
 
-                    for common_prefix in common_prefixes {
+                    for sub_prefix in page.sub_prefixes {
                         if self.cancellation_token.is_cancelled() {
                             break;
                         }
 
-                        if let Some(sub_prefix) = common_prefix.prefix() {
-                            let storage = self.clone();
-                            let sub_prefix = sub_prefix.to_string();
-                            let sender = sender.clone();
+                        let storage = self.clone();
+                        let sender = sender.clone();
 
-                            // Release current permit before acquiring new ones for sub-tasks
-                            if let Some(p) = current_permit.take() {
-                                drop(p);
-                            }
-
-                            // Acquire a new permit (bounded by max_parallel_listings)
-                            let new_permit = self
-                                .listing_worker_semaphore
-                                .clone()
-                                .acquire_owned()
-                                .await
-                                .expect("listing semaphore closed unexpectedly");
-
-                            join_set.spawn(async move {
-                                storage
-                                    .list_object_versions_with_parallel(
-                                        &sub_prefix,
-                                        &sender,
-                                        max_keys,
-                                        current_depth + 1,
-                                        new_permit,
-                                    )
-                                    .await
-                                    .context("Failed to list object versions in sub-prefix")
-                            });
+                        // Release current permit before acquiring new ones for sub-tasks
+                        if let Some(p) = current_permit.take() {
+                            drop(p);
                         }
+
+                        // Acquire a new permit (bounded by max_parallel_listings)
+                        let new_permit = self
+                            .listing_worker_semaphore
+                            .clone()
+                            .acquire_owned()
+                            .await
+                            .expect("listing semaphore closed unexpectedly");
+
+                        join_set.spawn(async move {
+                            storage
+                                .list_with_parallel(
+                                    mode,
+                                    &sub_prefix,
+                                    &sender,
+                                    max_keys,
+                                    current_depth + 1,
+                                    new_permit,
+                                )
+                                .await
+                                .context(format!("Failed to list {}s in sub-prefix", mode.label()))
+                        });
                     }
 
                     // Wait for all sub-prefix tasks to complete
@@ -875,12 +742,13 @@ impl S3Storage {
                     }
                 }
 
-                if output.is_truncated() != Some(true) {
+                if !page.is_truncated {
                     break;
                 }
 
-                key_marker = output.next_key_marker().map(String::from);
-                version_id_marker = output.next_version_id_marker().map(String::from);
+                continuation_token = page.continuation_token;
+                key_marker = page.key_marker;
+                version_id_marker = page.version_id_marker;
             }
 
             if let Some(permit) = current_permit {
@@ -1331,5 +1199,537 @@ mod tests {
 
         // Must return immediately without touching the rate limiter.
         storage.exec_rate_limit_objects_per_sec_n(0).await;
+    }
+
+    // ---------------------------------------------------------------
+    // ListingMode tests
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn listing_mode_label_objects() {
+        assert_eq!(ListingMode::Objects.label(), "object");
+    }
+
+    #[test]
+    fn listing_mode_label_versions() {
+        assert_eq!(ListingMode::Versions.label(), "object version");
+    }
+
+    // ---------------------------------------------------------------
+    // Helper: create S3Storage with access to cancellation token
+    // ---------------------------------------------------------------
+
+    fn make_s3_storage_with_token(
+        bucket: &str,
+        prefix: &str,
+    ) -> (S3Storage, crate::types::token::PipelineCancellationToken) {
+        let config = make_test_config(bucket, prefix);
+        let cancellation_token = crate::types::token::create_pipeline_cancellation_token();
+        let ct = cancellation_token.clone();
+        let (stats_sender, _) = async_channel::unbounded();
+        let storage = S3Storage {
+            config,
+            bucket: bucket.to_string(),
+            prefix: prefix.to_string(),
+            cancellation_token,
+            client: None,
+            request_payer: None,
+            stats_sender,
+            rate_limit_objects_per_sec: None,
+            has_warning: Arc::new(AtomicBool::new(false)),
+            listing_worker_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
+        };
+        (storage, ct)
+    }
+
+    // ---------------------------------------------------------------
+    // send_listed_objects tests
+    // ---------------------------------------------------------------
+
+    #[tokio::test]
+    async fn send_listed_objects_empty_vec() {
+        let (storage, _ct) = make_s3_storage_with_token("b", "p/");
+        let (sender, _receiver) = async_channel::unbounded();
+
+        let result = storage.send_listed_objects(vec![], &sender).await.unwrap();
+        assert!(!result, "empty vec should return false (not stopped)");
+    }
+
+    #[tokio::test]
+    async fn send_listed_objects_sends_all_not_versioned() {
+        let (storage, _ct) = make_s3_storage_with_token("b", "p/");
+        let (sender, receiver) = async_channel::unbounded();
+
+        let objects = vec![
+            S3Object::NotVersioning(
+                aws_sdk_s3::types::Object::builder()
+                    .key("file1.txt")
+                    .build(),
+            ),
+            S3Object::NotVersioning(
+                aws_sdk_s3::types::Object::builder()
+                    .key("file2.txt")
+                    .build(),
+            ),
+            S3Object::NotVersioning(
+                aws_sdk_s3::types::Object::builder()
+                    .key("file3.txt")
+                    .build(),
+            ),
+        ];
+
+        let stopped = storage.send_listed_objects(objects, &sender).await.unwrap();
+        assert!(!stopped);
+
+        // All three should be received
+        let r1 = receiver.recv().await.unwrap();
+        assert_eq!(r1.key(), "file1.txt");
+        let r2 = receiver.recv().await.unwrap();
+        assert_eq!(r2.key(), "file2.txt");
+        let r3 = receiver.recv().await.unwrap();
+        assert_eq!(r3.key(), "file3.txt");
+        assert!(receiver.try_recv().is_err(), "no more objects");
+    }
+
+    #[tokio::test]
+    async fn send_listed_objects_sends_versioned_and_delete_markers() {
+        let (storage, _ct) = make_s3_storage_with_token("b", "p/");
+        let (sender, receiver) = async_channel::unbounded();
+
+        let objects = vec![
+            S3Object::Versioning(
+                aws_sdk_s3::types::ObjectVersion::builder()
+                    .key("v1.txt")
+                    .version_id("vid-1")
+                    .build(),
+            ),
+            S3Object::DeleteMarker(
+                aws_sdk_s3::types::DeleteMarkerEntry::builder()
+                    .key("dm1.txt")
+                    .version_id("vid-dm")
+                    .build(),
+            ),
+        ];
+
+        let stopped = storage.send_listed_objects(objects, &sender).await.unwrap();
+        assert!(!stopped);
+
+        let r1 = receiver.recv().await.unwrap();
+        assert!(matches!(r1, S3Object::Versioning(_)));
+        assert_eq!(r1.key(), "v1.txt");
+
+        let r2 = receiver.recv().await.unwrap();
+        assert!(matches!(r2, S3Object::DeleteMarker(_)));
+        assert_eq!(r2.key(), "dm1.txt");
+    }
+
+    #[tokio::test]
+    async fn send_listed_objects_cancelled_before_send() {
+        let (storage, ct) = make_s3_storage_with_token("b", "p/");
+        let (sender, receiver) = async_channel::unbounded();
+
+        ct.cancel();
+
+        let objects = vec![S3Object::NotVersioning(
+            aws_sdk_s3::types::Object::builder()
+                .key("should-not-send.txt")
+                .build(),
+        )];
+
+        let stopped = storage.send_listed_objects(objects, &sender).await.unwrap();
+        assert!(stopped, "should stop when cancelled");
+        assert!(
+            receiver.try_recv().is_err(),
+            "nothing should have been sent"
+        );
+    }
+
+    #[tokio::test]
+    async fn send_listed_objects_closed_channel_returns_ok_true() {
+        let (storage, _ct) = make_s3_storage_with_token("b", "p/");
+        let (sender, receiver) = async_channel::unbounded::<S3Object>();
+
+        // Close the channel
+        receiver.close();
+
+        let objects = vec![S3Object::NotVersioning(
+            aws_sdk_s3::types::Object::builder()
+                .key("ignored.txt")
+                .build(),
+        )];
+
+        let stopped = storage.send_listed_objects(objects, &sender).await.unwrap();
+        assert!(stopped, "should stop when channel is closed");
+    }
+
+    #[tokio::test]
+    async fn send_listed_objects_bounded_channel_close_mid_send() {
+        let (storage, _ct) = make_s3_storage_with_token("b", "p/");
+        // Bounded channel with capacity 1
+        let (sender, receiver) = async_channel::bounded::<S3Object>(1);
+
+        let objects = vec![
+            S3Object::NotVersioning(
+                aws_sdk_s3::types::Object::builder()
+                    .key("first.txt")
+                    .build(),
+            ),
+            S3Object::NotVersioning(
+                aws_sdk_s3::types::Object::builder()
+                    .key("second.txt")
+                    .build(),
+            ),
+        ];
+
+        // Spawn a task that receives first object then closes channel
+        let recv_handle = tokio::spawn(async move {
+            let obj = receiver.recv().await.unwrap();
+            assert_eq!(obj.key(), "first.txt");
+            receiver.close();
+        });
+
+        let stopped = storage.send_listed_objects(objects, &sender).await.unwrap();
+        assert!(stopped, "should stop when channel is closed mid-send");
+        recv_handle.await.unwrap();
+    }
+
+    // ---------------------------------------------------------------
+    // list_sequential: cancelled immediately
+    // ---------------------------------------------------------------
+
+    #[tokio::test]
+    async fn list_sequential_objects_cancelled_immediately() {
+        let (storage, ct) = make_s3_storage_with_token("b", "p/");
+        let (sender, _receiver) = async_channel::unbounded();
+
+        ct.cancel();
+
+        // Should return Ok(()) without trying to call S3 API (no client needed)
+        let result = storage
+            .list_sequential(ListingMode::Objects, &sender, 1000)
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn list_sequential_versions_cancelled_immediately() {
+        let (storage, ct) = make_s3_storage_with_token("b", "p/");
+        let (sender, _receiver) = async_channel::unbounded();
+
+        ct.cancel();
+
+        let result = storage
+            .list_sequential(ListingMode::Versions, &sender, 1000)
+            .await;
+        assert!(result.is_ok());
+    }
+
+    // ---------------------------------------------------------------
+    // list_dispatch: parallel vs sequential routing
+    // ---------------------------------------------------------------
+
+    #[tokio::test]
+    async fn list_dispatch_sequential_when_single_worker() {
+        // max_parallel_listings=1 → sequential path → cancel immediately → Ok(())
+        let (storage, ct) = make_s3_storage_with_token("b", "p/");
+        assert_eq!(storage.config.max_parallel_listings, 1);
+        let (sender, _receiver) = async_channel::unbounded();
+
+        ct.cancel();
+
+        let result = storage
+            .list_dispatch(ListingMode::Objects, &sender, 1000)
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn list_dispatch_express_onezone_blocks_parallel_by_default() {
+        // Express One Zone + max_parallel>1 but no allow flag → sequential fallback.
+        // We verify by checking the error message: the parallel path wraps with
+        // "Failed to parallel object listing." while the sequential path does not.
+        let mut config = make_test_config("bucket--az1--x-s3", "prefix/");
+        config.max_parallel_listings = 4;
+        config.max_parallel_listing_max_depth = 1;
+        config.allow_parallel_listings_in_express_one_zone = false;
+        config.target_client_config = Some(make_fast_failing_client_config());
+
+        let (storage, _, _) =
+            create_test_storage(&config, Some(make_fast_failing_client_config())).await;
+
+        let (sender, _receiver) = async_channel::unbounded();
+        let result = storage.list_objects(&sender, 1000).await;
+
+        assert!(result.is_err());
+        let err_msg = format!("{:#}", result.unwrap_err());
+        // Sequential path error: "list_objects_v2() failed" without parallel wrapper
+        assert!(
+            err_msg.contains("list_objects_v2() failed"),
+            "Expected sequential path error, got: {err_msg}"
+        );
+        assert!(
+            !err_msg.contains("Failed to parallel"),
+            "Should NOT take parallel path for express one zone without allow flag, got: {err_msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_dispatch_parallel_objects_api_failure() {
+        // max_parallel>1, non-express, with a real fast-failing client → parallel path
+        let mut config = make_test_config("test-bucket", "prefix/");
+        config.max_parallel_listings = 4;
+        config.max_parallel_listing_max_depth = 1;
+        config.target_client_config = Some(make_fast_failing_client_config());
+
+        let (storage, _, _) =
+            create_test_storage(&config, Some(make_fast_failing_client_config())).await;
+
+        let (sender, _receiver) = async_channel::unbounded();
+        let result = storage.list_objects(&sender, 1000).await;
+
+        assert!(result.is_err());
+        let err_msg = format!("{:#}", result.unwrap_err());
+        // The parallel path wraps with "Failed to parallel object listing."
+        assert!(
+            err_msg.contains("Failed to parallel object listing"),
+            "Expected parallel path error context, got: {err_msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_dispatch_parallel_versions_api_failure() {
+        let mut config = make_test_config("test-bucket", "prefix/");
+        config.max_parallel_listings = 4;
+        config.max_parallel_listing_max_depth = 1;
+        config.target_client_config = Some(make_fast_failing_client_config());
+
+        let (storage, _, _) =
+            create_test_storage(&config, Some(make_fast_failing_client_config())).await;
+
+        let (sender, _receiver) = async_channel::unbounded();
+        let result = storage.list_object_versions(&sender, 1000).await;
+
+        assert!(result.is_err());
+        let err_msg = format!("{:#}", result.unwrap_err());
+        assert!(
+            err_msg.contains("Failed to parallel object version listing"),
+            "Expected parallel path error context, got: {err_msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_dispatch_express_onezone_allows_parallel_when_configured() {
+        // Express One Zone + allow flag + max_parallel>1 → parallel path (fails on API)
+        let mut config = make_test_config("bucket--az1--x-s3", "prefix/");
+        config.max_parallel_listings = 2;
+        config.max_parallel_listing_max_depth = 1;
+        config.allow_parallel_listings_in_express_one_zone = true;
+        config.target_client_config = Some(make_fast_failing_client_config());
+
+        let (storage, _, _) =
+            create_test_storage(&config, Some(make_fast_failing_client_config())).await;
+
+        let (sender, _receiver) = async_channel::unbounded();
+        let result = storage.list_objects(&sender, 1000).await;
+
+        assert!(result.is_err());
+        let err_msg = format!("{:#}", result.unwrap_err());
+        // Should take parallel path
+        assert!(
+            err_msg.contains("Failed to parallel object listing"),
+            "Expected parallel path error context, got: {err_msg}"
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // fetch_list_page: error messages
+    // ---------------------------------------------------------------
+
+    #[tokio::test]
+    async fn fetch_list_page_objects_error_message() {
+        let mut config = make_test_config("test-bucket", "prefix/");
+        config.target_client_config = Some(make_fast_failing_client_config());
+
+        let cancellation_token = crate::types::token::create_pipeline_cancellation_token();
+        let (stats_sender, _) = async_channel::unbounded();
+
+        let client_config = make_fast_failing_client_config();
+        let client = Some(Arc::new(client_config.create_client().await));
+
+        let storage = S3Storage {
+            config,
+            bucket: "test-bucket".to_string(),
+            prefix: "prefix/".to_string(),
+            cancellation_token,
+            client,
+            request_payer: None,
+            stats_sender,
+            rate_limit_objects_per_sec: None,
+            has_warning: Arc::new(AtomicBool::new(false)),
+            listing_worker_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
+        };
+
+        let result = storage
+            .fetch_list_page(
+                ListingMode::Objects,
+                "prefix/",
+                None,
+                1000,
+                None,
+                None,
+                None,
+            )
+            .await;
+        assert!(result.is_err());
+        let err_msg = format!("{:#}", result.unwrap_err());
+        assert!(
+            err_msg.contains("list_objects_v2() failed"),
+            "Expected list_objects_v2 error, got: {err_msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_list_page_versions_error_message() {
+        let mut config = make_test_config("test-bucket", "prefix/");
+        config.target_client_config = Some(make_fast_failing_client_config());
+
+        let cancellation_token = crate::types::token::create_pipeline_cancellation_token();
+        let (stats_sender, _) = async_channel::unbounded();
+
+        let client_config = make_fast_failing_client_config();
+        let client = Some(Arc::new(client_config.create_client().await));
+
+        let storage = S3Storage {
+            config,
+            bucket: "test-bucket".to_string(),
+            prefix: "prefix/".to_string(),
+            cancellation_token,
+            client,
+            request_payer: None,
+            stats_sender,
+            rate_limit_objects_per_sec: None,
+            has_warning: Arc::new(AtomicBool::new(false)),
+            listing_worker_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
+        };
+
+        let result = storage
+            .fetch_list_page(
+                ListingMode::Versions,
+                "prefix/",
+                None,
+                1000,
+                None,
+                None,
+                None,
+            )
+            .await;
+        assert!(result.is_err());
+        let err_msg = format!("{:#}", result.unwrap_err());
+        assert!(
+            err_msg.contains("list_object_versions() failed"),
+            "Expected list_object_versions error, got: {err_msg}"
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // list_with_parallel: cancelled immediately
+    // ---------------------------------------------------------------
+
+    #[tokio::test]
+    async fn list_with_parallel_cancelled_immediately() {
+        let (mut storage, ct) = make_s3_storage_with_token("b", "p/");
+        storage.config.max_parallel_listings = 2;
+        storage.listing_worker_semaphore = Arc::new(tokio::sync::Semaphore::new(2));
+        let (sender, _receiver) = async_channel::unbounded();
+
+        ct.cancel();
+
+        let permit = storage
+            .listing_worker_semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+
+        let result = storage
+            .list_with_parallel(ListingMode::Objects, "", &sender, 1000, 1, permit)
+            .await;
+        assert!(
+            result.is_ok(),
+            "cancelled parallel listing should return Ok"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_with_parallel_versions_cancelled_immediately() {
+        let (mut storage, ct) = make_s3_storage_with_token("b", "p/");
+        storage.config.max_parallel_listings = 2;
+        storage.listing_worker_semaphore = Arc::new(tokio::sync::Semaphore::new(2));
+        let (sender, _receiver) = async_channel::unbounded();
+
+        ct.cancel();
+
+        let permit = storage
+            .listing_worker_semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+
+        let result = storage
+            .list_with_parallel(ListingMode::Versions, "", &sender, 1000, 1, permit)
+            .await;
+        assert!(result.is_ok());
+    }
+
+    // ---------------------------------------------------------------
+    // list_with_parallel: empty prefix uses self.prefix
+    // ---------------------------------------------------------------
+
+    #[tokio::test]
+    async fn list_with_parallel_empty_prefix_uses_storage_prefix() {
+        // With an empty prefix and a fast-failing client, the error message
+        // should reference the storage's own prefix (verifying prefix resolution).
+        let mut config = make_test_config("test-bucket", "my-prefix/");
+        config.max_parallel_listings = 2;
+        config.max_parallel_listing_max_depth = 1;
+        config.target_client_config = Some(make_fast_failing_client_config());
+
+        let cancellation_token = crate::types::token::create_pipeline_cancellation_token();
+        let (stats_sender, _) = async_channel::unbounded();
+        let client_config = make_fast_failing_client_config();
+        let client = Some(Arc::new(client_config.create_client().await));
+
+        let storage = S3Storage {
+            config,
+            bucket: "test-bucket".to_string(),
+            prefix: "my-prefix/".to_string(),
+            cancellation_token,
+            client,
+            request_payer: None,
+            stats_sender,
+            rate_limit_objects_per_sec: None,
+            has_warning: Arc::new(AtomicBool::new(false)),
+            listing_worker_semaphore: Arc::new(tokio::sync::Semaphore::new(2)),
+        };
+
+        let (sender, _receiver) = async_channel::unbounded();
+        let permit = storage
+            .listing_worker_semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+
+        // Empty prefix "" → should resolve to "my-prefix/"
+        let result = storage
+            .list_with_parallel(ListingMode::Objects, "", &sender, 1000, 1, permit)
+            .await;
+        assert!(result.is_err());
+        let err_msg = format!("{:#}", result.unwrap_err());
+        assert!(
+            err_msg.contains("my-prefix/"),
+            "Error should reference the resolved prefix 'my-prefix/', got: {err_msg}"
+        );
     }
 }

@@ -93,7 +93,7 @@ This demo shows Express One Zone deleting approximately 34,000 objects per secon
     * [-v](#-v)
     * [--aws-sdk-tracing](#--aws-sdk-tracing)
     * [--auto-complete-shell](#--auto-complete-shell)
-    * [-h/--help](#-h--help)
+    * [--help](#--help)
 - [All command line options](#all-command-line-options)
 - [CI/CD Integration](#cicd-integration)
 - [Library API](#library-api)
@@ -832,7 +832,7 @@ s3rm --auto-complete-shell powershell
 s3rm --auto-complete-shell elvish
 ```
 
-### -h/--help
+### --help
 
 For more information, see `s3rm --help`.
 

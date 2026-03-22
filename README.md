@@ -834,7 +834,7 @@ s3rm --auto-complete-shell elvish
 
 ### -h/--help
 
-For more information, see `s3rm -h`.
+For more information, see `s3rm --help`.
 
 ## All command line options
 

@@ -84,8 +84,7 @@ async fn e2e_filter_delete_marker_only_basic() {
         // Delete first 3 objects via normal API (creates delete markers)
         let mut delete_marker_ids = Vec::new();
         for i in 0..NUM_DELETED {
-            let dm_vid =
-                create_delete_marker(&helper, &bucket, &format!("data/file{i}.dat")).await;
+            let dm_vid = create_delete_marker(&helper, &bucket, &format!("data/file{i}.dat")).await;
             delete_marker_ids.push(dm_vid);
         }
 
@@ -99,8 +98,14 @@ async fn e2e_filter_delete_marker_only_basic() {
             .iter()
             .filter(|(k, _)| !k.starts_with("[delete-marker]"))
             .count();
-        assert_eq!(pre_markers, NUM_DELETED, "Should have {NUM_DELETED} delete markers before");
-        assert_eq!(pre_objects, NUM_OBJECTS, "Should have {NUM_OBJECTS} object versions before");
+        assert_eq!(
+            pre_markers, NUM_DELETED,
+            "Should have {NUM_DELETED} delete markers before"
+        );
+        assert_eq!(
+            pre_objects, NUM_OBJECTS,
+            "Should have {NUM_OBJECTS} object versions before"
+        );
 
         // Run with --filter-delete-marker-only
         let config = TestHelper::build_config(vec![
@@ -277,12 +282,18 @@ async fn e2e_filter_delete_marker_only_all_markers() {
                 .version_id(vid)
                 .send()
                 .await
-                .unwrap_or_else(|e| panic!("Failed to permanently delete {key} version {vid}: {e}"));
+                .unwrap_or_else(|e| {
+                    panic!("Failed to permanently delete {key} version {vid}: {e}")
+                });
         }
 
         // Verify: only delete markers remain
         let pre_versions = helper.list_object_versions(&bucket).await;
-        assert_eq!(pre_versions.len(), NUM_OBJECTS, "Should have {NUM_OBJECTS} items");
+        assert_eq!(
+            pre_versions.len(),
+            NUM_OBJECTS,
+            "Should have {NUM_OBJECTS} items"
+        );
         let pre_markers = pre_versions
             .iter()
             .filter(|(k, _)| k.starts_with("[delete-marker]"))
@@ -374,7 +385,11 @@ async fn e2e_filter_delete_marker_only_with_include_regex() {
 
         // Pre-conditions: 10 versions + 10 delete markers = 20 items
         let pre_versions = helper.list_object_versions(&bucket).await;
-        assert_eq!(pre_versions.len(), 20, "Should have 20 items before pipeline");
+        assert_eq!(
+            pre_versions.len(),
+            20,
+            "Should have 20 items before pipeline"
+        );
 
         let config = TestHelper::build_config(vec![
             &format!("s3://{bucket}/data/"),
@@ -466,7 +481,11 @@ async fn e2e_filter_delete_marker_only_dry_run() {
         }
 
         let pre_versions = helper.list_object_versions(&bucket).await;
-        assert_eq!(pre_versions.len(), NUM_OBJECTS + NUM_DELETED, "Pre-condition check");
+        assert_eq!(
+            pre_versions.len(),
+            NUM_OBJECTS + NUM_DELETED,
+            "Pre-condition check"
+        );
 
         let config = TestHelper::build_config(vec![
             &format!("s3://{bucket}/data/"),
@@ -539,12 +558,20 @@ async fn e2e_filter_delete_marker_only_multiple_versions_and_markers() {
 
         // Verify: 12 items total (6 versions + 6 markers)
         let pre_versions = helper.list_object_versions(&bucket).await;
-        assert_eq!(pre_versions.len(), NUM_KEYS * 4, "Should have 12 items before");
+        assert_eq!(
+            pre_versions.len(),
+            NUM_KEYS * 4,
+            "Should have 12 items before"
+        );
         let pre_marker_count = pre_versions
             .iter()
             .filter(|(k, _)| k.starts_with("[delete-marker]"))
             .count();
-        assert_eq!(pre_marker_count, NUM_KEYS * 2, "Should have 6 delete markers");
+        assert_eq!(
+            pre_marker_count,
+            NUM_KEYS * 2,
+            "Should have 6 delete markers"
+        );
 
         let config = TestHelper::build_config(vec![
             &format!("s3://{bucket}/data/"),
@@ -689,7 +716,11 @@ async fn e2e_filter_delete_marker_only_respects_prefix() {
 
         // Verify: 12 items total (6 per prefix: 3 versions + 3 markers)
         let pre_versions = helper.list_object_versions(&bucket).await;
-        assert_eq!(pre_versions.len(), 12, "Should have 12 items before pipeline");
+        assert_eq!(
+            pre_versions.len(),
+            12,
+            "Should have 12 items before pipeline"
+        );
 
         let config = TestHelper::build_config(vec![
             &format!("s3://{bucket}/target/"),

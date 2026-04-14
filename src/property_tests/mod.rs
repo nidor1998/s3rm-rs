@@ -6,6 +6,7 @@
 //! Note: `indicator_properties` remains in `bin/s3rm/` because it belongs
 //! to the binary crate and imports binary-local modules.
 
+mod access_key_masking_properties;
 mod additional_properties;
 mod aws_config_properties;
 mod cicd_properties;

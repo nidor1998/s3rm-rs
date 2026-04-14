@@ -61,6 +61,7 @@ This demo shows Express One Zone deleting approximately 34,000 objects per secon
     * [Combined filters](#combined-filters)
     * [Delete all versions](#delete-all-versions)
     * [Keep only latest versions](#keep-only-latest-versions)
+    * [Delete only delete markers](#delete-only-delete-markers)
     * [Set a deletion limit](#set-a-deletion-limit)
     * [Custom endpoint](#custom-endpoint)
     * [Specify credentials](#specify-credentials)
@@ -171,6 +172,7 @@ S3 versioned buckets store multiple versions of each object. s3rm handles all sc
 - **Default behavior** — creates delete markers (objects appear deleted but previous versions are preserved)
 - **`--delete-all-versions`** — permanently removes every version of matching objects, including delete markers
 - **`--keep-latest-only`** — retains only the latest version of each object, deleting all older versions (requires `--delete-all-versions`)
+- **`--filter-delete-marker-only`** — deletes only delete markers, leaving all object versions intact (requires `--delete-all-versions`)
 
 ### S3 Express One Zone support
 
@@ -542,6 +544,16 @@ s3rm --keep-latest-only --delete-all-versions --force s3://my-bucket/data/
 
 This is useful for enforcing version retention policies — it cleans up old versions while preserving the current state of every object. Can be combined with `--filter-include-regex` or `--filter-exclude-regex` to target specific keys.
 
+### Delete only delete markers
+
+On versioned buckets, delete only the delete markers while leaving all object versions intact:
+
+```bash
+s3rm --filter-delete-marker-only --delete-all-versions --force s3://my-bucket/data/
+```
+
+This is useful for "undeleting" objects — removing the delete markers makes the underlying object versions visible again. Can be combined with other filters like `--filter-include-regex` to target specific keys.
+
 ### Set a deletion limit
 
 Stop after deleting 1,000 objects (safety net for large buckets):
@@ -620,20 +632,21 @@ If an object fails after all retries are exhausted, s3rm logs the failure and co
 
 s3rm filters objects in the following order:
 
-1. `--filter-mtime-before`
-2. `--filter-mtime-after`
-3. `--filter-smaller-size`
-4. `--filter-larger-size`
-5. `--filter-include-regex`
-6. `--filter-exclude-regex`
-7. `--keep-latest-only`
-8. `FilterCallback (--filter-callback-lua-script / UserDefinedFilterCallback)`
-9. `--filter-include-content-type-regex`
-10. `--filter-exclude-content-type-regex`
-11. `--filter-include-metadata-regex`
-12. `--filter-exclude-metadata-regex`
-13. `--filter-include-tag-regex`
-14. `--filter-exclude-tag-regex`
+1. `--filter-delete-marker-only`
+2. `--filter-mtime-before`
+3. `--filter-mtime-after`
+4. `--filter-smaller-size`
+5. `--filter-larger-size`
+6. `--filter-include-regex`
+7. `--filter-exclude-regex`
+8. `--keep-latest-only`
+9. `FilterCallback (--filter-callback-lua-script / UserDefinedFilterCallback)`
+10. `--filter-include-content-type-regex`
+11. `--filter-exclude-content-type-regex`
+12. `--filter-include-metadata-regex`
+13. `--filter-exclude-metadata-regex`
+14. `--filter-include-tag-regex`
+15. `--filter-exclude-tag-regex`
 
 Filters that require additional API calls (content type, metadata, tags) are applied last to minimize unnecessary requests.
 
@@ -856,6 +869,7 @@ For more information, see `s3rm --help`.
 
 | Option | Description |
 |--------|-------------|
+| `--filter-delete-marker-only` | Delete only delete markers (requires `--delete-all-versions`) |
 | `--filter-include-regex` | Delete only objects whose key matches this regex |
 | `--filter-exclude-regex` | Skip objects whose key matches this regex |
 | `--filter-include-content-type-regex` | Delete only objects whose content type matches |
@@ -1225,12 +1239,12 @@ The E2E tests run against live AWS S3 — no mocks. Every E2E test creates a rea
 
 #### Test suite summary
 
-- **873 library unit/property tests** (including property-based tests from 15 property test files), all passing
+- **923 library unit/property tests** (including property-based tests from 16 property test files), all passing
 - **33 binary tests**, all passing
-- **125 E2E tests** against live AWS S3 across 17 test files, all passing
-- **1,031 total tests**, zero failures
-- **98.07% region coverage, 97.97% function coverage, 98.43% line coverage** (measured by `cargo llvm-cov`)
-- 15 property-based test files covering safety, versioning, optimistic locking, retry, logging, filters, Lua, rate limiting, cross-platform, library API, CI/CD, keep-latest-only, event callbacks, and additional edge cases
+- **133 E2E tests** against live AWS S3 across 18 test files, all passing
+- **1,089 total tests**, zero failures
+- **98.13% region coverage, 98.06% function coverage, 98.48% line coverage** (measured by `cargo llvm-cov`)
+- 16 property-based test files covering safety, versioning, optimistic locking, retry, logging, filters, Lua, rate limiting, cross-platform, library API, CI/CD, keep-latest-only, event callbacks, and additional edge cases
 
 #### Known limitations
 

@@ -251,3 +251,16 @@ s3rm-rs is architected as a library-first design, where all core functionality i
 10. WHERE --keep-latest-only is used with --dry-run, THE S3rm_Tool SHALL report simulated deletion statistics without actually deleting any versions
 11. WHERE --keep-latest-only is used with --max-delete, THE S3rm_Tool SHALL stop deleting after the specified limit is reached
 12. THE --keep-latest-only feature SHALL operate correctly when distributed across multiple concurrent workers
+
+### Requirement 15: Delete Marker Only Filtering
+
+**User Story:** As a user managing versioned S3 buckets, I want to delete only delete markers so that I can clean up stale delete markers without affecting actual object versions.
+
+#### Acceptance Criteria
+
+1. WHERE the --filter-delete-marker-only flag is provided, THE S3rm_Tool SHALL delete only objects that are delete markers (S3Object::DeleteMarker variant), filtering out all versioned objects and non-versioned objects
+2. THE --filter-delete-marker-only flag SHALL require --delete-all-versions to be specified (enforced at CLI parse time)
+3. THE DeleteMarkerOnlyFilter SHALL be inserted as the FIRST filter in the pipeline (before MtimeBeforeFilter), to eliminate non-marker objects early and reduce work for downstream filters
+4. THE DeleteMarkerOnlyFilter SHALL pass both latest and non-latest delete markers
+5. WHERE --filter-delete-marker-only is used with other filters, THE S3rm_Tool SHALL apply delete-marker-only filtering first, then apply remaining filters to the surviving delete markers
+6. WHERE --filter-delete-marker-only is used with --dry-run, THE S3rm_Tool SHALL report simulated deletion statistics without actually deleting any delete markers

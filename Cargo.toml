@@ -1,6 +1,6 @@
 [package]
 name = "s3rm-rs"
-version = "1.2.2"
+version = "1.3.0"
 edition = "2024"
 authors = ["nidor1998 <nidor1998@gmail.com>"]
 description = "Fast Amazon S3 object deletion tool."
@@ -34,13 +34,13 @@ thiserror = "2.0.18"
 # Async runtime (same as s3sync)
 async-trait = "0.1.89"
 async-channel = "2.5.0"
-tokio = { version = "1.50.0", features = ["full"] }
+tokio = { version = "1.51.1", features = ["full"] }
 tokio-util = "0.7.18"
 
 # AWS SDK (same versions as s3sync)
 aws-config = { version = "1.8.15", features = ["behavior-version-latest"] }
 aws-runtime = "1.7.2"
-aws-sdk-s3 = "1.127.0"
+aws-sdk-s3 = "1.129.0"
 aws-smithy-runtime-api = "1.11.6"
 aws-smithy-types = "1.4.7"
 aws-smithy-types-convert = { version = "0.60.14", features = ["convert-chrono"] }
@@ -48,7 +48,7 @@ aws-types = "1.3.14"
 
 # CLI (same as s3sync)
 clap = { version = "4.6.0", features = ["derive", "env", "cargo", "string"] }
-clap_complete = "4.6.0"
+clap_complete = "4.6.2"
 clap-verbosity-flag = "3.0.4"
 
 # Date/time
@@ -97,7 +97,7 @@ shadow-rs = { version = "1.7.1", optional = true }
 [dev-dependencies]
 proptest = "1.11"
 once_cell = "1.21.4"
-uuid = { version = "1.22.0", features = ["v4"] }
+uuid = { version = "1.23.0", features = ["v4"] }
 nix = { version = "0.31.2", features = ["process", "signal"] }
 tempfile = "3.27.0"
 rusty-fork = "0.3.1"

@@ -166,6 +166,16 @@ pub struct CLIArgs {
     )]
     pub keep_latest_only: bool,
 
+    /// Delete only delete markers (requires --delete-all-versions)
+    #[arg(
+        long,
+        env,
+        default_value_t = false,
+        requires = "delete_all_versions",
+        help_heading = "Filtering"
+    )]
+    pub filter_delete_marker_only: bool,
+
     // -----------------------------------------------------------------------
     // Filter options (same as s3sync)
     // -----------------------------------------------------------------------
@@ -589,6 +599,7 @@ impl CLIArgs {
             larger_size,
             smaller_size,
             keep_latest_only: self.keep_latest_only,
+            delete_marker_only: self.filter_delete_marker_only,
         })
     }
 

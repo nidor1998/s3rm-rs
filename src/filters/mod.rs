@@ -23,6 +23,7 @@ use crate::stage::{SendResult, Stage};
 use crate::types::event_callback::{EventData, EventType};
 use crate::types::{DeletionStatistics, S3Object};
 
+pub mod delete_marker_only;
 pub mod exclude_regex;
 pub mod include_regex;
 pub mod keep_latest_only;
@@ -32,6 +33,7 @@ pub mod mtime_before;
 pub mod smaller_size;
 pub mod user_defined;
 
+pub use delete_marker_only::DeleteMarkerOnlyFilter;
 pub use exclude_regex::ExcludeRegexFilter;
 pub use include_regex::IncludeRegexFilter;
 pub use keep_latest_only::KeepLatestOnlyFilter;

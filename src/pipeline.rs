@@ -20,8 +20,8 @@ use crate::config::Config;
 use crate::deleter::ObjectDeleter;
 use crate::filters::user_defined::UserDefinedFilter;
 use crate::filters::{
-    ExcludeRegexFilter, IncludeRegexFilter, KeepLatestOnlyFilter, LargerSizeFilter,
-    MtimeAfterFilter, MtimeBeforeFilter, ObjectFilter, SmallerSizeFilter,
+    DeleteMarkerOnlyFilter, ExcludeRegexFilter, IncludeRegexFilter, KeepLatestOnlyFilter,
+    LargerSizeFilter, MtimeAfterFilter, MtimeBeforeFilter, ObjectFilter, SmallerSizeFilter,
 };
 use crate::lister::ObjectLister;
 use crate::safety::SafetyChecker;
@@ -241,6 +241,15 @@ impl DeletionPipeline {
             ));
         }
 
+        // --filter-delete-marker-only requires --delete-all-versions. The CLI
+        // enforces this via clap's `requires`, but the library API can construct
+        // Config directly, so validate at runtime to prevent a silent no-op.
+        if self.config.filter_config.delete_marker_only && !self.config.delete_all_versions {
+            return Err(anyhow::anyhow!(
+                "--filter-delete-marker-only requires --delete-all-versions."
+            ));
+        }
+
         // --if-match is incompatible with --delete-all-versions. S3 does not
         // support If-Match conditional headers when deleting by version_id
         // (returns NotImplemented). The CLI enforces this via clap's
@@ -259,11 +268,19 @@ impl DeletionPipeline {
         if self.config.delete_all_versions {
             let versioning_enabled = self.target.is_versioning_enabled().await?;
             if !versioning_enabled {
-                // --keep-latest-only requires a versioned bucket; error out.
+                // --keep-latest-only cannot be used on a non-versioned bucket.
                 if self.config.filter_config.keep_latest_only {
                     return Err(anyhow::anyhow!(
-                        "--keep-latest-only requires a versioning-enabled bucket, \
-                         but the target bucket does not have versioning enabled."
+                        "--keep-latest-only cannot be used on a non-versioned bucket."
+                    ));
+                }
+                // --filter-delete-marker-only cannot be used on a non-versioned
+                // bucket. Error out rather than silently clearing
+                // delete_all_versions, which would turn this into a confusing
+                // no-op.
+                if self.config.filter_config.delete_marker_only {
+                    return Err(anyhow::anyhow!(
+                        "--filter-delete-marker-only cannot be used on a non-versioned bucket."
                     ));
                 }
                 self.config.delete_all_versions = false;
@@ -482,13 +499,25 @@ impl DeletionPipeline {
     /// configuration is set. Filters are chained in this order:
     /// 1. MtimeBeforeFilter
     /// 2. MtimeAfterFilter
-    /// 3. SmallerSizeFilter
-    /// 4. LargerSizeFilter
-    /// 5. IncludeRegexFilter
-    /// 6. ExcludeRegexFilter
-    /// 7. UserDefinedFilter (Lua/Rust callback)
+    /// 1. DeleteMarkerOnlyFilter
+    /// 2. MtimeBeforeFilter
+    /// 3. MtimeAfterFilter
+    /// 4. SmallerSizeFilter
+    /// 5. LargerSizeFilter
+    /// 6. IncludeRegexFilter
+    /// 7. ExcludeRegexFilter
+    /// 8. KeepLatestOnlyFilter
+    /// 9. UserDefinedFilter (Lua/Rust callback)
     fn filter_objects(&self, objects_list: Receiver<S3Object>) -> Receiver<S3Object> {
         let mut previous_stage_receiver = objects_list;
+
+        // DeleteMarkerOnlyFilter (first — eliminates non-markers early)
+        if self.config.filter_config.delete_marker_only {
+            let (stage, new_receiver) =
+                self.create_spsc_stage(Some(previous_stage_receiver), self.has_warning.clone());
+            self.spawn_filter(Box::new(DeleteMarkerOnlyFilter::new(stage)));
+            previous_stage_receiver = new_receiver;
+        }
 
         // MtimeBeforeFilter
         if self.config.filter_config.before_time.is_some() {
@@ -1623,6 +1652,93 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("--if-match cannot be used with --delete-all-versions")
+        );
+    }
+
+    #[tokio::test]
+    async fn pipeline_delete_marker_only_without_delete_all_versions_errors() {
+        init_dummy_tracing_subscriber();
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        let storage: Storage = Box::new(ListingMockStorage {
+            objects: vec![],
+            stats_sender,
+            has_warning: has_warning.clone(),
+        });
+
+        let mut config = create_test_config();
+        config.force = true;
+        config.filter_config.delete_marker_only = true;
+        config.delete_all_versions = false;
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let mut pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token,
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        // Should error: delete_marker_only requires delete_all_versions
+        let result = pipeline.check_prerequisites().await;
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("--filter-delete-marker-only requires --delete-all-versions")
+        );
+    }
+
+    #[tokio::test]
+    async fn pipeline_delete_marker_only_on_non_versioned_bucket_errors() {
+        init_dummy_tracing_subscriber();
+
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let has_warning = Arc::new(AtomicBool::new(false));
+        // ListingMockStorage.is_versioning_enabled() returns false
+        let storage: Storage = Box::new(ListingMockStorage {
+            objects: vec![],
+            stats_sender,
+            has_warning: has_warning.clone(),
+        });
+
+        let mut config = create_test_config();
+        config.force = true;
+        config.filter_config.delete_marker_only = true;
+        config.delete_all_versions = true;
+        let cancellation_token = create_pipeline_cancellation_token();
+
+        let mut pipeline = DeletionPipeline {
+            config,
+            target: storage,
+            cancellation_token,
+            stats_receiver,
+            has_error: Arc::new(AtomicBool::new(false)),
+            has_panic: Arc::new(AtomicBool::new(false)),
+            has_warning,
+            errors: Arc::new(Mutex::new(VecDeque::new())),
+            ready: true,
+            prerequisites_checked: false,
+            deletion_stats_report: Arc::new(DeletionStatsReport::new()),
+        };
+
+        // Should error: non-versioned bucket + delete_marker_only
+        let result = pipeline.check_prerequisites().await;
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("--filter-delete-marker-only cannot be used on a non-versioned bucket")
         );
     }
 

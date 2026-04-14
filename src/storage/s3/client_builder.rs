@@ -61,15 +61,22 @@ impl ClientConfig {
             crate::types::S3Credentials::Profile(profile_name) => {
                 let mut builder = aws_config::profile::ProfileFileCredentialsProvider::builder();
 
-                if let Some(aws_shared_credentials_file) = self
+                let aws_config_file = self.client_config_location.aws_config_file.as_ref();
+                let aws_credentials_file = self
                     .client_config_location
                     .aws_shared_credentials_file
-                    .as_ref()
-                {
-                    let profile_files = EnvConfigFiles::builder()
-                        .with_file(EnvConfigFileKind::Credentials, aws_shared_credentials_file)
-                        .build();
-                    builder = builder.profile_files(profile_files)
+                    .as_ref();
+
+                if aws_config_file.is_some() || aws_credentials_file.is_some() {
+                    let mut files_builder = EnvConfigFiles::builder();
+                    if let Some(path) = aws_config_file {
+                        files_builder = files_builder.with_file(EnvConfigFileKind::Config, path);
+                    }
+                    if let Some(path) = aws_credentials_file {
+                        files_builder =
+                            files_builder.with_file(EnvConfigFileKind::Credentials, path);
+                    }
+                    builder = builder.profile_files(files_builder.build());
                 }
 
                 config_loader =
@@ -84,11 +91,21 @@ impl ClientConfig {
         let mut builder = aws_config::profile::ProfileFileRegionProvider::builder();
 
         if let crate::types::S3Credentials::Profile(profile_name) = &self.credential {
-            if let Some(aws_config_file) = self.client_config_location.aws_config_file.as_ref() {
-                let profile_files = EnvConfigFiles::builder()
-                    .with_file(EnvConfigFileKind::Config, aws_config_file)
-                    .build();
-                builder = builder.profile_files(profile_files);
+            let aws_config_file = self.client_config_location.aws_config_file.as_ref();
+            let aws_credentials_file = self
+                .client_config_location
+                .aws_shared_credentials_file
+                .as_ref();
+
+            if aws_config_file.is_some() || aws_credentials_file.is_some() {
+                let mut files_builder = EnvConfigFiles::builder();
+                if let Some(path) = aws_config_file {
+                    files_builder = files_builder.with_file(EnvConfigFileKind::Config, path);
+                }
+                if let Some(path) = aws_credentials_file {
+                    files_builder = files_builder.with_file(EnvConfigFileKind::Credentials, path);
+                }
+                builder = builder.profile_files(files_builder.build());
             }
             builder = builder.profile_name(profile_name)
         }
@@ -176,6 +193,7 @@ mod tests {
     use super::*;
     use crate::test_utils::init_dummy_tracing_subscriber;
     use crate::types::{AccessKeys, ClientConfigLocation};
+    use aws_sdk_s3::config::ProvideCredentials;
     use aws_smithy_types::checksum_config::RequestChecksumCalculation;
 
     #[tokio::test]
@@ -577,6 +595,239 @@ mod tests {
         assert!(timeout_config.connect_timeout().is_some());
         assert!(timeout_config.read_timeout().is_none());
         assert!(timeout_config.has_timeouts());
+    }
+
+    // ===================================================================
+    // Profile file wiring tests — verify that both aws_config_file and
+    // aws_shared_credentials_file are passed to both the credentials
+    // provider and the region provider.
+    // ===================================================================
+
+    /// Helper: build a profile-based ClientConfig with the given file paths.
+    fn profile_client_config(
+        aws_config_file: Option<&str>,
+        aws_shared_credentials_file: Option<&str>,
+        profile_name: &str,
+        region: Option<&str>,
+    ) -> ClientConfig {
+        ClientConfig {
+            client_config_location: ClientConfigLocation {
+                aws_config_file: aws_config_file.map(Into::into),
+                aws_shared_credentials_file: aws_shared_credentials_file.map(Into::into),
+            },
+            credential: crate::types::S3Credentials::Profile(profile_name.to_string()),
+            region: region.map(|r| r.to_string()),
+            endpoint_url: Some("https://localhost".to_string()),
+            force_path_style: false,
+            retry_config: crate::config::RetryConfig {
+                aws_max_attempts: 1,
+                initial_backoff_milliseconds: 100,
+            },
+            cli_timeout_config: crate::config::CLITimeoutConfig {
+                operation_timeout_milliseconds: None,
+                operation_attempt_timeout_milliseconds: None,
+                connect_timeout_milliseconds: None,
+                read_timeout_milliseconds: None,
+            },
+            disable_stalled_stream_protection: false,
+            request_checksum_calculation: RequestChecksumCalculation::WhenRequired,
+            accelerate: false,
+            request_payer: None,
+        }
+    }
+
+    /// Both files provided — credentials resolve from credentials file.
+    #[tokio::test]
+    async fn profile_credentials_resolved_with_both_files() {
+        init_dummy_tracing_subscriber();
+
+        let config = profile_client_config(
+            Some("./test_data/test_config/config"),
+            Some("./test_data/test_config/credentials"),
+            "aws",
+            None,
+        );
+
+        let sdk_config = config.load_sdk_config().await;
+        let provider = sdk_config.credentials_provider().unwrap();
+        let creds = provider.provide_credentials().await.unwrap();
+
+        assert_eq!(creds.access_key_id(), "my_aws_profile_access_key");
+        assert_eq!(
+            creds.secret_access_key(),
+            "my_aws_profile_secret_access_key"
+        );
+        assert_eq!(creds.session_token(), Some("my_aws_profile_session_token"));
+    }
+
+    /// Both files provided — region resolves from config file.
+    #[tokio::test]
+    async fn profile_region_resolved_with_both_files() {
+        init_dummy_tracing_subscriber();
+
+        let config = profile_client_config(
+            Some("./test_data/test_config/config"),
+            Some("./test_data/test_config/credentials"),
+            "aws",
+            None, // no CLI override — should fall back to config file
+        );
+
+        let sdk_config = config.load_sdk_config().await;
+
+        assert_eq!(sdk_config.region().unwrap().to_string(), "ap-northeast-1");
+    }
+
+    /// Only credentials file — credentials resolve, region uses CLI value.
+    #[tokio::test]
+    async fn profile_credentials_resolved_with_credentials_file_only() {
+        init_dummy_tracing_subscriber();
+
+        let config = profile_client_config(
+            None,
+            Some("./test_data/test_config/credentials"),
+            "aws",
+            Some("us-east-1"),
+        );
+
+        let sdk_config = config.load_sdk_config().await;
+        let provider = sdk_config.credentials_provider().unwrap();
+        let creds = provider.provide_credentials().await.unwrap();
+
+        assert_eq!(creds.access_key_id(), "my_aws_profile_access_key");
+        assert_eq!(
+            creds.secret_access_key(),
+            "my_aws_profile_secret_access_key"
+        );
+
+        assert_eq!(sdk_config.region().unwrap().to_string(), "us-east-1");
+    }
+
+    /// Only config file — credentials defined in the config file are resolved.
+    /// This is the primary scenario for the aws_config_file fix: profiles
+    /// can define credentials in ~/.aws/config (e.g. for SSO, source_profile,
+    /// or direct keys). Before the fix, the credentials provider never
+    /// received the config file path, so these credentials would not resolve.
+    #[tokio::test]
+    async fn profile_credentials_resolved_from_config_file_only() {
+        init_dummy_tracing_subscriber();
+
+        let config = profile_client_config(
+            Some("./test_data/test_config_creds_in_config/config"),
+            None,
+            "creds-in-config",
+            None,
+        );
+
+        let sdk_config = config.load_sdk_config().await;
+        let provider = sdk_config.credentials_provider().unwrap();
+        let creds = provider.provide_credentials().await.unwrap();
+
+        assert_eq!(creds.access_key_id(), "config_file_access_key");
+        assert_eq!(creds.secret_access_key(), "config_file_secret_key");
+    }
+
+    /// Only config file — region resolves from config file.
+    #[tokio::test]
+    async fn profile_region_resolved_from_config_file_only() {
+        init_dummy_tracing_subscriber();
+
+        let config = profile_client_config(
+            Some("./test_data/test_config_creds_in_config/config"),
+            None,
+            "creds-in-config",
+            None,
+        );
+
+        let sdk_config = config.load_sdk_config().await;
+
+        assert_eq!(sdk_config.region().unwrap().to_string(), "eu-central-1");
+    }
+
+    /// Both files, credentials in config file (not credentials file) —
+    /// verifies the credentials provider searches the config file.
+    #[tokio::test]
+    async fn profile_credentials_in_config_with_both_files() {
+        init_dummy_tracing_subscriber();
+
+        let config = profile_client_config(
+            Some("./test_data/test_config_creds_in_config/config"),
+            Some("./test_data/test_config_creds_in_config/credentials"),
+            "creds-in-config",
+            None,
+        );
+
+        let sdk_config = config.load_sdk_config().await;
+        let provider = sdk_config.credentials_provider().unwrap();
+        let creds = provider.provide_credentials().await.unwrap();
+
+        // "creds-in-config" profile only exists in the config file,
+        // so credentials must come from there.
+        assert_eq!(creds.access_key_id(), "config_file_access_key");
+        assert_eq!(creds.secret_access_key(), "config_file_secret_key");
+    }
+
+    /// Default profile — both files provided, credentials from credentials file.
+    #[tokio::test]
+    async fn profile_default_credentials_with_both_files() {
+        init_dummy_tracing_subscriber();
+
+        let config = profile_client_config(
+            Some("./test_data/test_config/config"),
+            Some("./test_data/test_config/credentials"),
+            "default",
+            None,
+        );
+
+        let sdk_config = config.load_sdk_config().await;
+        let provider = sdk_config.credentials_provider().unwrap();
+        let creds = provider.provide_credentials().await.unwrap();
+
+        assert_eq!(creds.access_key_id(), "my_default_profile_access_key");
+        assert_eq!(
+            creds.secret_access_key(),
+            "my_default_profile_secret_access_key"
+        );
+        assert_eq!(
+            creds.session_token(),
+            Some("my_default_profile_session_token")
+        );
+    }
+
+    /// Default profile — region from config file.
+    #[tokio::test]
+    async fn profile_default_region_from_config_file() {
+        init_dummy_tracing_subscriber();
+
+        let config = profile_client_config(
+            Some("./test_data/test_config/config"),
+            Some("./test_data/test_config/credentials"),
+            "default",
+            None,
+        );
+
+        let sdk_config = config.load_sdk_config().await;
+
+        assert_eq!(sdk_config.region().unwrap().to_string(), "us-west-1");
+    }
+
+    /// CLI region overrides config file region.
+    #[tokio::test]
+    async fn profile_cli_region_overrides_config_file() {
+        init_dummy_tracing_subscriber();
+
+        let config = profile_client_config(
+            Some("./test_data/test_config/config"),
+            Some("./test_data/test_config/credentials"),
+            "aws",
+            Some("cli-override-region"),
+        );
+
+        let sdk_config = config.load_sdk_config().await;
+
+        assert_eq!(
+            sdk_config.region().unwrap().to_string(),
+            "cli-override-region"
+        );
     }
 
     #[tokio::test]

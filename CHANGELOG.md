@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.3.0] - 2026-04-14
+
+### Added
+
+- `--filter-delete-marker-only` option to delete only delete markers while leaving all object versions intact (requires `--delete-all-versions`). Useful for "undeleting" objects by removing delete markers so underlying versions become visible again. Can be combined with other filters like `--filter-include-regex`
+- E2E tests for delete-marker-only filtering across 8 scenarios (`tests/e2e_delete_marker_only.rs`)
+
+### Changed
+
+- Updated dependencies: `tokio` 1.50→1.51, `aws-sdk-s3` 1.127→1.129, `clap_complete` 4.6.0→4.6.2, `uuid` 1.22→1.23, plus 36 transitive dependency updates
+
 ## [v1.2.2] - 2026-03-22
 
 ### Changed

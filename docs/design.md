@@ -2022,13 +2022,13 @@ async fn test_batch_deletion_with_partial_failure() {
 
 ### Test Coverage Goals
 
-- **Line Coverage**: >98% (current: 98.43% as of 2026-03-22, via `cargo llvm-cov report` combining lib+bin+E2E)
-- **Region Coverage**: >98% (current: 98.07%)
-- **Function Coverage**: >97% (current: 97.97%)
+- **Line Coverage**: >98% (current: 98.49% as of 2026-04-14, via `cargo llvm-cov report` combining lib+bin+E2E)
+- **Region Coverage**: >98% (current: 98.14%)
+- **Function Coverage**: >98% (current: 98.07%)
 - **Property Coverage**: 49 of 49 properties tested
 - **Critical Path Coverage**: 100% (deletion logic, safety checks, error handling)
 
-**Note**: Coverage includes unit tests and E2E tests (125 tests across 17 test files). The remaining uncovered code is primarily in runtime paths that require live AWS infrastructure (S3 API calls, network error handlers).
+**Note**: Coverage includes unit tests and E2E tests across 18 test files. The remaining uncovered code is primarily in runtime paths that require live AWS infrastructure (S3 API calls, network error handlers).
 
 ### Continuous Integration
 

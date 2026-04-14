@@ -775,3 +775,48 @@ async fn e2e_filter_delete_marker_only_respects_prefix() {
         guard.cleanup().await;
     });
 }
+
+// ---------------------------------------------------------------------------
+// Rejects non-versioned bucket
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_filter_delete_marker_only_rejects_non_versioned_bucket() {
+    e2e_timeout!(async {
+        // Purpose: Verify that --filter-delete-marker-only returns an error when
+        //          the target bucket does not have versioning enabled.
+        // Setup:   Create standard (non-versioned) bucket; upload 5 objects.
+        // Expected: Pipeline reports error; objects remain untouched.
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_bucket(&bucket).await; // non-versioned
+
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..5 {
+            helper
+                .put_object(&bucket, &format!("data/file{i}.dat"), vec![b'd'; 100])
+                .await;
+        }
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--filter-delete-marker-only",
+            "--delete-all-versions",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(
+            result.has_error,
+            "Pipeline should report error for --filter-delete-marker-only on non-versioned bucket"
+        );
+
+        // Objects should still exist (deletion was not performed)
+        let remaining = helper.count_objects(&bucket, "data/").await;
+        assert_eq!(remaining, 5, "All objects should remain untouched");
+
+        guard.cleanup().await;
+    });
+}

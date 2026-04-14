@@ -269,6 +269,7 @@ pub struct FilterConfig {
     pub larger_size: Option<u64>,
     pub smaller_size: Option<u64>,
     pub keep_latest_only: bool,
+    pub delete_marker_only: bool,
 }
 
 #[cfg(test)]

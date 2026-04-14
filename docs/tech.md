@@ -12,7 +12,7 @@
 - Clap (CLI argument parsing)
 - Tracing (structured logging)
 - mlua (Lua VM integration for callbacks)
-- Regex (pattern matching for filters)
+- fancy-regex (pattern matching for filters)
 - Indicatif (progress bars)
 
 ## Architecture Pattern

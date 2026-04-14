@@ -108,15 +108,16 @@ async fn run(mut config: Config) -> Result<()> {
     {
         let cancellation_token = create_pipeline_cancellation_token();
 
-        ctrl_c_handler::spawn_ctrl_c_handler(cancellation_token.clone());
-
         let start_time = tokio::time::Instant::now();
         debug!("deletion pipeline start.");
 
-        let mut pipeline = DeletionPipeline::new(config.clone(), cancellation_token).await;
+        let mut pipeline = DeletionPipeline::new(config.clone(), cancellation_token.clone()).await;
 
         // Check prerequisites (confirmation prompt) before starting the indicator,
         // so the progress bar doesn't interfere with the prompt.
+        // The Ctrl+C handler is spawned AFTER this so that the default OS
+        // SIGINT handler remains active during the blocking stdin read,
+        // allowing Ctrl+C to terminate the process immediately at the prompt.
         if let Err(e) = pipeline.check_prerequisites().await {
             pipeline.close_stats_sender();
             if is_cancelled_error(&e) {
@@ -128,6 +129,10 @@ async fn run(mut config: Config) -> Result<()> {
             error!("{}", e);
             std::process::exit(code);
         }
+
+        // Now that the blocking prompt is done, install the async Ctrl+C
+        // handler for graceful pipeline shutdown.
+        ctrl_c_handler::spawn_ctrl_c_handler(cancellation_token);
 
         let indicator_join_handle = indicator::show_indicator(
             pipeline.get_stats_receiver(),

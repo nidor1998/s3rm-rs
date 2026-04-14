@@ -1,0 +1,7 @@
+[default]
+region = us-west-2
+
+[profile creds-in-config]
+aws_access_key_id = config_file_access_key
+aws_secret_access_key = config_file_secret_key
+region = eu-central-1

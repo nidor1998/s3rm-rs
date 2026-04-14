@@ -516,10 +516,30 @@ impl Debug for AccessKeys {
             .session_token
             .as_ref()
             .map_or("None", |_| "** redacted **");
-        keys.field("access_key", &self.access_key)
+        let masked_access_key = mask_access_key(&self.access_key);
+        keys.field("access_key", &masked_access_key)
             .field("secret_access_key", &"** redacted **")
             .field("session_token", &session_token);
         keys.finish()
+    }
+}
+
+/// Masks an access key, showing only the first 4 and last 4 characters.
+///
+/// Keys shorter than 9 characters are fully masked.
+pub(crate) fn mask_access_key(key: &str) -> String {
+    const PREFIX_LEN: usize = 4;
+    const SUFFIX_LEN: usize = 4;
+    if key.len() < PREFIX_LEN + SUFFIX_LEN + 1 {
+        "*".repeat(key.len())
+    } else {
+        let masked_len = key.len() - PREFIX_LEN - SUFFIX_LEN;
+        format!(
+            "{}{}{}",
+            &key[..PREFIX_LEN],
+            "*".repeat(masked_len),
+            &key[key.len() - SUFFIX_LEN..]
+        )
     }
 }
 
@@ -684,9 +704,132 @@ mod tests {
         };
         let debug_string = format!("{access_keys:?}");
 
+        assert!(debug_string.contains("access_key: \"AKIA************MPLE\""));
         assert!(debug_string.contains("secret_access_key: \"** redacted **\""));
         assert!(debug_string.contains("session_token: \"** redacted **\""));
         assert!(!debug_string.contains("wJalrXUtnFEMI"));
+        assert!(!debug_string.contains("AKIAIOSFODNN7EXAMPLE"));
+    }
+
+    #[test]
+    fn mask_access_key_empty_string() {
+        assert_eq!(super::mask_access_key(""), "");
+    }
+
+    #[test]
+    fn mask_access_key_single_char() {
+        assert_eq!(super::mask_access_key("A"), "*");
+    }
+
+    #[test]
+    fn mask_access_key_short_keys_fully_masked() {
+        assert_eq!(super::mask_access_key("AB"), "**");
+        assert_eq!(super::mask_access_key("ABCD"), "****");
+        assert_eq!(super::mask_access_key("ABCDEFG"), "*******");
+    }
+
+    #[test]
+    fn mask_access_key_eight_chars_fully_masked() {
+        // Exactly PREFIX_LEN + SUFFIX_LEN = 8, still fully masked
+        assert_eq!(super::mask_access_key("ABCDEFGH"), "********");
+    }
+
+    #[test]
+    fn mask_access_key_nine_chars_threshold() {
+        // First key length where partial masking applies: first 4 + 1 masked + last 4
+        assert_eq!(super::mask_access_key("ABCDEFGHI"), "ABCD*FGHI");
+    }
+
+    #[test]
+    fn mask_access_key_ten_chars() {
+        assert_eq!(super::mask_access_key("ABCDEFGHIJ"), "ABCD**GHIJ");
+    }
+
+    #[test]
+    fn mask_access_key_standard_aws_key() {
+        // AWS access key IDs are 20 characters starting with AKIA
+        let masked = super::mask_access_key("AKIAIOSFODNN7EXAMPLE");
+        assert_eq!(masked, "AKIA************MPLE");
+        assert_eq!(masked.len(), 20);
+    }
+
+    #[test]
+    fn mask_access_key_preserves_length() {
+        for len in 0..=30 {
+            let input: String = "X".repeat(len);
+            let masked = super::mask_access_key(&input);
+            assert_eq!(
+                masked.len(),
+                input.len(),
+                "Masked output length must equal input length for {len}-char key"
+            );
+        }
+    }
+
+    #[test]
+    fn mask_access_key_prefix_and_suffix_preserved() {
+        let masked = super::mask_access_key("AKIAIOSFODNN7EXAMPLE");
+        assert!(masked.starts_with("AKIA"));
+        assert!(masked.ends_with("MPLE"));
+    }
+
+    #[test]
+    fn mask_access_key_middle_fully_masked() {
+        let masked = super::mask_access_key("AKIAIOSFODNN7EXAMPLE");
+        // Middle 12 chars should all be '*'
+        let middle = &masked[4..16];
+        assert!(
+            middle.chars().all(|c| c == '*'),
+            "Middle portion should be all asterisks, got: {middle}"
+        );
+    }
+
+    #[test]
+    fn mask_access_key_no_original_middle_leaked() {
+        let original = "AKIAIOSFODNN7EXAMPLE";
+        let masked = super::mask_access_key(original);
+        // The middle portion "IOSFODNN7EXA" must not appear in masked output
+        let original_middle = &original[4..16];
+        assert!(
+            !masked.contains(original_middle),
+            "Masked output must not contain the original middle portion"
+        );
+    }
+
+    #[test]
+    fn mask_access_key_short_key_no_chars_leaked() {
+        // For fully-masked keys, no original characters should be visible
+        let original = "ABCDEFGH";
+        let masked = super::mask_access_key(original);
+        assert!(
+            masked.chars().all(|c| c == '*'),
+            "Fully masked key should contain only asterisks"
+        );
+    }
+
+    #[test]
+    fn debug_access_keys_without_session_token() {
+        let access_keys = AccessKeys {
+            access_key: "AKIAIOSFODNN7EXAMPLE".to_string(),
+            secret_access_key: "secret".to_string(),
+            session_token: None,
+        };
+        let debug_string = format!("{access_keys:?}");
+        assert!(debug_string.contains("access_key: \"AKIA************MPLE\""));
+        assert!(debug_string.contains("session_token: \"None\""));
+        assert!(!debug_string.contains("AKIAIOSFODNN7EXAMPLE"));
+    }
+
+    #[test]
+    fn debug_access_keys_with_short_key() {
+        let access_keys = AccessKeys {
+            access_key: "SHORT".to_string(),
+            secret_access_key: "secret".to_string(),
+            session_token: None,
+        };
+        let debug_string = format!("{access_keys:?}");
+        assert!(debug_string.contains("access_key: \"*****\""));
+        assert!(!debug_string.contains("SHORT"));
     }
 
     // --- ObjectKeyMap tests (Task 3.1) ---

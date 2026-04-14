@@ -20,8 +20,8 @@ use crate::config::Config;
 use crate::deleter::ObjectDeleter;
 use crate::filters::user_defined::UserDefinedFilter;
 use crate::filters::{
-    ExcludeRegexFilter, IncludeRegexFilter, KeepLatestOnlyFilter, LargerSizeFilter,
-    MtimeAfterFilter, MtimeBeforeFilter, ObjectFilter, SmallerSizeFilter,
+    DeleteMarkerOnlyFilter, ExcludeRegexFilter, IncludeRegexFilter, KeepLatestOnlyFilter,
+    LargerSizeFilter, MtimeAfterFilter, MtimeBeforeFilter, ObjectFilter, SmallerSizeFilter,
 };
 use crate::lister::ObjectLister;
 use crate::safety::SafetyChecker;
@@ -482,13 +482,25 @@ impl DeletionPipeline {
     /// configuration is set. Filters are chained in this order:
     /// 1. MtimeBeforeFilter
     /// 2. MtimeAfterFilter
-    /// 3. SmallerSizeFilter
-    /// 4. LargerSizeFilter
-    /// 5. IncludeRegexFilter
-    /// 6. ExcludeRegexFilter
-    /// 7. UserDefinedFilter (Lua/Rust callback)
+    /// 1. DeleteMarkerOnlyFilter
+    /// 2. MtimeBeforeFilter
+    /// 3. MtimeAfterFilter
+    /// 4. SmallerSizeFilter
+    /// 5. LargerSizeFilter
+    /// 6. IncludeRegexFilter
+    /// 7. ExcludeRegexFilter
+    /// 8. KeepLatestOnlyFilter
+    /// 9. UserDefinedFilter (Lua/Rust callback)
     fn filter_objects(&self, objects_list: Receiver<S3Object>) -> Receiver<S3Object> {
         let mut previous_stage_receiver = objects_list;
+
+        // DeleteMarkerOnlyFilter (first — eliminates non-markers early)
+        if self.config.filter_config.delete_marker_only {
+            let (stage, new_receiver) =
+                self.create_spsc_stage(Some(previous_stage_receiver), self.has_warning.clone());
+            self.spawn_filter(Box::new(DeleteMarkerOnlyFilter::new(stage)));
+            previous_stage_receiver = new_receiver;
+        }
 
         // MtimeBeforeFilter
         if self.config.filter_config.before_time.is_some() {

@@ -12,7 +12,7 @@
 │   ├── terminator.rs       # Terminator stage
 │   ├── config/             # Configuration and argument parsing
 │   ├── storage/            # Storage trait and S3 implementation
-│   ├── filters/            # Filter stages (regex, size, time, keep-latest-only, Lua)
+│   ├── filters/            # Filter stages (regex, size, time, delete-marker-only, keep-latest-only, Lua)
 │   ├── deleter/            # Deletion components (batch, single, worker)
 │   ├── callback/           # Callback managers (event, filter)
 │   ├── safety/             # Safety features (confirmation, dry-run)
@@ -35,21 +35,28 @@
 │   ├── event.lua           # Example Lua event callback script
 │   └── library_usage.rs    # Example Rust library usage
 ├── test_data/              # Test data files
-│   └── test_config/        # Mock AWS config/credentials for testing
+│   ├── test_config/        # Mock AWS config/credentials for testing
+│   └── test_config_creds_in_config/ # Mock AWS config with credentials in config file
 ├── docs/                   # Permanent documentation (requirements, design, product, tech, structure, e2e_test_cases)
 ├── steering/
-│   └── init_build/         # Active build phase (tasks, phase README)
+│   ├── init_build/         # Initial build phase (tasks, phase README, e2e test plan)
+│   ├── v1.0.1/             # v1.0.1 release phase
+│   ├── v1.0.2/             # v1.0.2 release phase
+│   ├── v1.1.0/             # v1.1.0 release phase
+│   └── v1.1.1/             # v1.1.1 release phase
 ├── tests/                  # E2E integration tests (gated behind #[cfg(e2e_test)], require AWS credentials with s3rm-e2e-test profile)
 │   ├── common/
 │   │   └── mod.rs          # Shared E2E test infrastructure (TestHelper, BucketGuard, etc.)
 │   ├── e2e_aws_config.rs   # AWS configuration tests (4 tests)
 │   ├── e2e_callback.rs     # Callback tests - Lua and Rust (7 tests)
 │   ├── e2e_combined.rs     # Combined feature tests (7 tests)
+│   ├── e2e_delete_marker_only.rs # Delete-marker-only filter tests
 │   ├── e2e_deletion.rs     # Deletion mode tests (7 tests)
 │   ├── e2e_error.rs        # Error handling and exit code tests (7 tests)
 │   ├── e2e_express_one_zone.rs # Express One Zone directory bucket tests (3 tests)
 │   ├── e2e_filter.rs       # Filter tests - regex, size, time, etc. (24 tests)
 │   ├── e2e_keep_latest_only.rs # Keep-latest-only version retention tests (15 tests)
+│   ├── e2e_listing.rs      # Object listing tests
 │   ├── e2e_optimistic.rs   # Optimistic locking / If-Match tests (4 tests)
 │   ├── e2e_performance.rs  # Performance configuration tests (5 tests)
 │   ├── e2e_retry.rs        # Retry and timeout tests (3 tests)
@@ -94,6 +101,7 @@ src/
 ├── lister.rs               # ObjectLister (reused from s3sync) + Property 5 tests
 ├── filters/
 │   ├── mod.rs              # ObjectFilter trait, ObjectFilterBase
+│   ├── delete_marker_only.rs # DeleteMarkerOnlyFilter (passes only delete markers)
 │   ├── mtime_before.rs     # MtimeBeforeFilter
 │   ├── mtime_after.rs      # MtimeAfterFilter
 │   ├── smaller_size.rs     # SmallerSizeFilter
@@ -129,6 +137,7 @@ src/
 │   └── token.rs            # PipelineCancellationToken type alias
 ├── property_tests/          # Root-level property-based tests (consolidated)
 │   ├── mod.rs               # Module declarations
+│   ├── access_key_masking_properties.rs # Access key masking tests
 │   ├── lib_properties.rs    # Library API (Properties 44-47)
 │   ├── versioning_properties.rs  # Versioning (Properties 25-28)
 │   ├── retry_properties.rs       # Retry/error handling (Properties 29-30)
@@ -182,8 +191,8 @@ src/
 
 Tests are co-located with source code or collected under `tests/`:
 - Unit tests in `#[cfg(test)]` modules within each source file
-- Property-based tests in `src/property_tests/` (15 files); `indicator_properties.rs` in `bin/s3rm/`
+- Property-based tests in `src/property_tests/` (16 files); `indicator_properties.rs` in `bin/s3rm/`
 - E2E integration tests in `tests/e2e_*.rs` files, each gated behind `#[cfg(e2e_test)]`
   - Require live AWS credentials configured under the `s3rm-e2e-test` AWS profile
   - Shared helpers (bucket setup/teardown, object seeding, assertion utilities) live in `tests/common/mod.rs`
-  - 109 test cases total across 16 test files covering deletion, filtering, versioning, safety, callbacks, tracing, retry, optimistic locking, performance, statistics, error handling, AWS config, Express One Zone, keep-latest-only, combined, and stress scenarios
+  - 18 test files covering deletion, filtering, versioning, safety, callbacks, tracing, retry, optimistic locking, performance, statistics, error handling, AWS config, Express One Zone, keep-latest-only, delete-marker-only, listing, combined, and stress scenarios

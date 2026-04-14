@@ -312,14 +312,15 @@ impl DeletionPipeline {
 **Streaming Pipeline Diagram**:
 ```mermaid
 graph LR
-    List[ObjectLister] -->|Channel| F1[MtimeBeforeFilter]
+    List[ObjectLister] -->|Channel| F0[DeleteMarkerOnlyFilter]
+    F0 -->|Channel| F1[MtimeBeforeFilter]
     F1 -->|Channel| F2[MtimeAfterFilter]
     F2 -->|Channel| F3[SmallerSizeFilter]
     F3 -->|Channel| F4[LargerSizeFilter]
     F4 -->|Channel| F5[IncludeRegexFilter]
     F5 -->|Channel| F6[ExcludeRegexFilter]
-    F6 -->|Channel| F7[UserDefinedFilter]
-    F7 -->|Channel| F8[KeepLatestOnlyFilter]
+    F6 -->|Channel| F7[KeepLatestOnlyFilter]
+    F7 -->|Channel| F8[UserDefinedFilter]
     F8 -->|MPMC Channel| D1[ObjectDeleter Worker 1]
     F8 -->|MPMC Channel| D2[ObjectDeleter Worker 2]
     F8 -->|MPMC Channel| D3[ObjectDeleter Worker N]
@@ -332,14 +333,15 @@ graph LR
 1. **Check Prerequisites** (via `check_prerequisites()`): Validate configuration, handle confirmation prompt (dry-run skips confirmation but pipeline still runs fully). If `delete_all_versions` is set but the bucket is not versioned: with `--keep-latest-only`, return an error (versioning required); otherwise, silently clear the flag so the pipeline proceeds with normal deletion. Also validates that `--if-match` is not combined with `--delete-all-versions`. Called separately before `run()` so the progress bar doesn't interfere with prompts.
 2. **List Stage**: Spawn ObjectLister to list target objects into channel
 3. **Filter Stages**: Chain filter stages (each reads from previous, writes to next)
+   - DeleteMarkerOnlyFilter (if `--filter-delete-marker-only` is set; passes only delete markers, eliminates non-markers early)
    - MtimeBeforeFilter (if configured)
    - MtimeAfterFilter (if configured)
    - SmallerSizeFilter (if configured)
    - LargerSizeFilter (if configured)
    - IncludeRegexFilter (if configured)
    - ExcludeRegexFilter (if configured)
-   - UserDefinedFilter (Lua callback, if configured)
    - KeepLatestOnlyFilter (if `--keep-latest-only` is set; filters out latest versions, passes non-latest for deletion)
+   - UserDefinedFilter (Lua/Rust callback, if configured)
 4. **Delete Stage**: Spawn multiple ObjectDeleter workers (MPMC pattern)
 5. **Terminate Stage**: Consume final output and close channels
 
@@ -433,6 +435,9 @@ pub struct LargerSizeFilter  { /* ObjectFilterBase + Stage */ }
 // Regex filters for key patterns (use ObjectFilterBase internally)
 pub struct IncludeRegexFilter { /* ObjectFilterBase + Stage */ }
 pub struct ExcludeRegexFilter { /* ObjectFilterBase + Stage */ }
+
+// Delete-marker-only filter (passes only delete markers, filters out all other object types)
+pub struct DeleteMarkerOnlyFilter { /* ObjectFilterBase + Stage */ }
 
 // User-defined filter (Lua/Rust callbacks via FilterManager)
 pub struct UserDefinedFilter { /* Stage */ }
@@ -907,6 +912,7 @@ pub struct CLIArgs {
     pub delete_all_versions: bool,
     pub max_delete: Option<u64>,  // value_parser range(1..)
     pub keep_latest_only: bool,   // requires delete_all_versions; conflicts with most filters
+    pub filter_delete_marker_only: bool, // requires delete_all_versions; passes only delete markers
 
     // Filtering (same as s3sync)
     pub filter_include_regex: Option<String>,
@@ -1119,7 +1125,7 @@ s3rm s3://my-bucket/ --filter-mtime-before 2023-01-01 --worker-size 100
 
 Options are organized into clear categories matching s3sync's help structure:
 - **General**: dry-run, force, show-no-progress, delete-all-versions, max-delete, keep-latest-only
-- **Filtering**: Regex, size, time filters (identical to s3sync)
+- **Filtering**: Regex, size, time, delete-marker-only filters (identical to s3sync plus delete-marker-only)
 - **Tracing/Logging**: Verbosity, JSON, color control, AWS SDK tracing, span events
 - **AWS Configuration**: Credentials, region, endpoint (target-* only, no source-*)
 - **Performance**: Worker count, batch-size, parallel listings, rate limiting (identical to s3sync)
@@ -1404,6 +1410,7 @@ pub struct FilterConfig {
     pub larger_size: Option<u64>,
     pub smaller_size: Option<u64>,
     pub keep_latest_only: bool,
+    pub delete_marker_only: bool,
 }
 
 ```

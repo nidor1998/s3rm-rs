@@ -4,10 +4,9 @@ S3 object deletion tool built in Rust. Library-first design with streaming pipel
 
 ## Absolute Rules
 
+- **Nerver commit**
 - **No unsolicited refactoring** — only refactor when explicitly asked
 - **No unsolicited test changes** — confirm before modifying any tests
-- **No autonomous commits** — never run `git commit` without explicit human approval
-- **No auto `/check-commit-push`** — only run when the user explicitly asks
 
 ## Build & Verify
 

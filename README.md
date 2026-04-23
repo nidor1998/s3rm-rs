@@ -1435,6 +1435,15 @@ We recommend trying s3rm in a test environment first — such as a non-productio
 
 > This tool was created in about a week. Although considerable human effort has been invested in this project, users are advised to test it in a safe, non-production environment (such as a test environment) before applying it in real-world scenarios.
 
+## Contributing
+
+- Suggestions and bug reports are welcome, but responses are not guaranteed.
+- Pull requests for new features are generally not accepted, as they may conflict with the design philosophy.
+- If you find this project useful, feel free to fork and modify it as you wish.
+
+🔒 I consider this project to be “complete” and will maintain it only minimally going forward.  
+However, I intend to keep the AWS SDK for Rust and other dependencies up to date monthly.
+
 ## License
 
 This project is licensed under the Apache-2.0 License.

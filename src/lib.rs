@@ -5,6 +5,8 @@ s3rm-rs is a fast Amazon S3 object deletion tool.
 It can be used to delete objects from S3 buckets with powerful filtering,
 safety features, and versioning support.
 
+**NOTE: s3rm-rs library is assumed to be used like a way that you use s3rm-rs CLI. If you want to control more finely, instead of using s3rm-rs library, we recommend using AWS SDK for Rust or aws-s3-transfer-manager-rs(developer preview) directly.**
+
 ## Features
 
 - **High Performance**: Parallel deletion using S3 batch API (up to 1000 objects per request)
@@ -104,6 +106,8 @@ Use `allow_lua_os_library` and `allow_lua_unsafe_vm` on [`Config`] to relax rest
 
 For more information, see the [s3sync documentation](https://github.com/nidor1998/s3sync)
 as s3rm-rs shares the same Lua integration.
+
+**NOTE: Each type of callback is registered only once. Lua scripting support CLI arguments are disabled if you use custom callbacks.**
 */
 
 #![allow(clippy::collapsible_if)]

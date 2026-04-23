@@ -1,1 +1,8 @@
-> **Important:** All code, tests, and documentation in this repository are created and maintained exclusively by AI. We do not accept pull requests. If you find a bug or have a feature request, please [open an issue](https://github.com/nidor1998/s3rm-rs/issues) instead — describe your request in the ticket, and we'll consider having AI handle it.
+**Contributing**
+
+- Suggestions and bug reports are welcome, but responses are not guaranteed.
+- Pull requests for new features are generally not accepted, as they may conflict with the design philosophy.
+- If you find this project useful, feel free to fork and modify it as you wish.
+
+🔒 I consider this project to be “complete” and will maintain it only minimally going forward.  
+However, I intend to keep the AWS SDK for Rust and other dependencies up to date monthly.

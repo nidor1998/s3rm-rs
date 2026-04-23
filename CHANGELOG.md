@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.3.1] - 2026-04-24
+
+### Security
+
+- Eliminate the unpatched `rustls-webpki 0.101.7` (RUSTSEC-2026-0098, -0099, -0104) from the dependency graph. The TLS stack now uses only the patched `rustls-webpki 0.103.13`.
+
+### Changed
+
+- Update AWS SDK dependencies to latest compatible versions: `aws-config` 1.8.15→1.8.16, `aws-runtime` 1.7.2→1.7.3, `aws-sdk-s3` 1.129→1.131, `aws-smithy-runtime-api` 1.11.6→1.12, `aws-types` 1.3.14→1.3.15, plus transitive updates
+
 ## [v1.3.0] - 2026-04-14
 
 ### Added

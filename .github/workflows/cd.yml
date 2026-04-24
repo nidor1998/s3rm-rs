@@ -34,7 +34,7 @@ jobs:
           rustup update
 
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          cargo build --release --target x86_64-unknown-linux-gnu
+          cargo build --locked --release --target x86_64-unknown-linux-gnu
 
           cd target/x86_64-unknown-linux-gnu/release
           tar czvf $RELEASE_NAME.tar.gz $BINARY_NAME
@@ -80,7 +80,7 @@ jobs:
           rustup target add x86_64-unknown-linux-musl
 
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          cargo build --profile release-min-size --target x86_64-unknown-linux-musl
+          cargo build --locked --profile release-min-size --target x86_64-unknown-linux-musl
 
           cd target/x86_64-unknown-linux-musl/release-min-size
           tar czvf $RELEASE_NAME.tar.gz $BINARY_NAME
@@ -126,7 +126,7 @@ jobs:
           rustup update
 
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          cargo build --release --target aarch64-unknown-linux-gnu
+          cargo build --locked --release --target aarch64-unknown-linux-gnu
 
           cd target/aarch64-unknown-linux-gnu/release
           tar czvf $RELEASE_NAME.tar.gz $BINARY_NAME
@@ -172,7 +172,7 @@ jobs:
           rustup target add aarch64-unknown-linux-musl
 
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          cargo build --profile release-min-size --target aarch64-unknown-linux-musl
+          cargo build --locked --profile release-min-size --target aarch64-unknown-linux-musl
 
           cd target/aarch64-unknown-linux-musl/release-min-size
           tar czvf $RELEASE_NAME.tar.gz $BINARY_NAME
@@ -223,7 +223,7 @@ jobs:
       - name: checkout
         uses: actions/checkout@v6
       - name: cargo build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --locked --release --target ${{ matrix.target }}
       - name: Packaging final binary
         shell: bash
         run: |
@@ -276,3 +276,24 @@ jobs:
           draft: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-crates-io:
+    name: publish to crates.io
+    needs: [ publish-release ]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+      - name: install rust toolchain
+        run: rustup update
+      - name: authenticate with crates.io
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+      - name: publish to crates.io
+        run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}

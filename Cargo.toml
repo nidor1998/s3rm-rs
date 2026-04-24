@@ -1,6 +1,6 @@
 [package]
 name = "s3rm-rs"
-version = "1.3.1"
+version = "1.3.2"
 edition = "2024"
 authors = ["nidor1998 <nidor1998@gmail.com>"]
 description = "Fast Amazon S3 object deletion tool."
@@ -67,7 +67,7 @@ urlencoding = "2.1.3"
 leaky-bucket = "1.1.2"
 
 # Regex (same as s3sync)
-fancy-regex = "0.17.0"
+fancy-regex = "0.18.0"
 
 # Security (same as s3sync)
 zeroize = "1.8.2"

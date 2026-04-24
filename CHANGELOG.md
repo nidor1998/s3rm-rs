@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.3.2] - 2026-04-24
+
+### Added
+
+- GitHub Artifact Attestations (SLSA build provenance) for all release tarballs via `actions/attest-build-provenance@v4`. Release artifacts can now be verified with `gh attestation verify <tar.gz> --owner nidor1998`
+- Automated crates.io publishing in the release workflow (`publish-crates-io` job) using `rust-lang/crates-io-auth-action@v1` with OIDC trusted publishing
+
+### Changed
+
+- Updated vulnerability reporting policy in `SECURITY.md` to direct reports to GitHub's private "Report a vulnerability" feature (Security tab) instead of public issues
+- Bump `softprops/action-gh-release` v2→v3 in the release workflow
+- Release builds now pass `--locked` to `cargo build` so published tarballs are built against the exact versions recorded in `Cargo.lock`
+- Update dependency: `fancy-regex` 0.17.0→0.18.0
+
 ## [v1.3.1] - 2026-04-24
 
 ### Security

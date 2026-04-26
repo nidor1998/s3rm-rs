@@ -26,6 +26,8 @@ This demo shows Express One Zone deleting approximately 34,000 objects per secon
 - [Overview](#overview)
     * [Why s3rm?](#why-s3rm)
     * [How it works](#how-it-works)
+    * [Scope](#scope)
+    * [Non-Goals](#non-goals)
 - [Features](#features)
     * [High performance](#high-performance)
     * [Powerful filtering](#powerful-filtering)
@@ -138,6 +140,23 @@ ObjectLister → [Filters] → ObjectDeleter Workers → Terminator
 ```
 
 Objects stream through the pipeline one stage at a time. The lister fetches keys from S3 using parallel pagination, filters narrow down which objects to delete, and a pool of concurrent workers executes batch deletions against the S3 API. Nothing is loaded into memory all at once — s3rm handles buckets of any size with constant memory usage.
+
+### Scope
+
+s3rm is a deletion-only tool. It is **not** intended to be a drop-in replacement for, or behaviorally compatible with, any other S3 client — examples include the AWS CLI (`aws s3 rm`, `aws s3api delete-object[s]`), `s5cmd rm`, `s3cmd del`, `rclone delete`, `mc rm`, etc., but the same applies to any S3 deletion or transfer tool. Its command-line flags, filter semantics, confirmation prompts, and exit codes are designed around fast parallel batch deletion with safety guardrails — not interoperability with another tool's interface. Flag names, output formats, and behavior will not be adjusted to match any external tool, and scripts written against another S3 client should not be expected to work with s3rm unmodified. If you need full S3 functionality (copy, sync, list, presign, multipart upload, etc.) or compatibility with a specific tool's flag set, use that tool.
+
+### Non-Goals
+
+The following are explicitly out of scope and will not be added, regardless of demand:
+
+- S3 operations other than object deletion (copy, sync, move, list, presign, multipart upload, tagging writes, policy/ACL changes, etc.). s3rm only deletes; for transfers use [s3sync](https://github.com/nidor1998/s3sync) or [s3util](https://github.com/nidor1998/s3util-rs), for listing use [s3ls](https://github.com/nidor1998/s3ls-rs), and for general S3 operations use the [AWS CLI](https://aws.amazon.com/cli/).
+- Recovering, restoring, or "undeleting" objects. Once s3rm issues a successful `DeleteObject(s)` call, recovery is the responsibility of S3 versioning, MFA Delete, replication, or external backups — s3rm provides no rollback.
+- Glob or wildcard expansion in S3 prefixes. The prefix you specify is passed to S3 as a literal string match. For pattern-based matching, use `--filter-include-regex` / `--filter-exclude-regex`, or a Lua / Rust filter callback, evaluated client-side after listing.
+- APIs other than `ListObjectsV2`, `ListObjectVersions`, `DeleteObjects`, `DeleteObject`, and the metadata/tag reads required by the corresponding filters (`HeadObject`, `GetObjectTagging`). Other S3 APIs are out of scope.
+- Compatibility with other S3 clients — neither in flag names and behavior, nor in feature coverage. The presence of a feature, flag, or output format in `aws s3 rm`, `aws s3api`, `s5cmd`, `s3cmd`, `rclone`, `mc`, or any other S3 tool is not, by itself, a reason to add or change it in s3rm. Each request is evaluated only against s3rm's own scope and design principles. Use that other tool if you need its specific surface.
+- A plugin or extension mechanism. Custom filtering and event handling are supported via the documented Lua scripting interface and the Rust library API; no separate plugin loader will be added.
+
+Issues and pull requests requesting any of the above will be closed.
 
 ## Features
 

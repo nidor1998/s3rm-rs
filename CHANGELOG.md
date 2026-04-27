@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.3.4] - 2026-04-27
+
+### Changed
+
+- Log messages and status output (such as `Deletion cancelled.`) are now sent to stderr, so stdout only contains shell-completion scripts. This makes it safe to redirect or pipe the generated completion output to a file
+- Issue templates now ask users to check the README's `Scope` and `Non-Goals` sections before opening an issue
+
+### Fixed
+
+- Piping s3rm's output to commands like `head` or `tail` no longer prints stray "broken pipe" error messages
+
 ## [v1.3.3] - 2026-04-26
 
 ### Added

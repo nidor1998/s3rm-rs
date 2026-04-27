@@ -128,8 +128,8 @@ pub fn show_indicator(
                             HumanDuration(elapsed),
                         ));
 
-                        println!();
-                        let _ = io::stdout().flush();
+                        eprintln!();
+                        let _ = io::stderr().flush();
                     }
 
                     return IndicatorSummary {

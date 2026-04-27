@@ -6,6 +6,9 @@ labels: ''
 assignees: ''
 
 ---
+
+> ⚠️ **Before opening an issue**, please read the [Scope](https://github.com/nidor1998/s3rm-rs#scope) and [Non-Goals](https://github.com/nidor1998/s3rm-rs#non-goals) sections of the README. Requests that fall outside the project's scope will be closed.
+
 **Contributing**
 
 - Suggestions and bug reports are welcome, but responses are not guaranteed.

@@ -8,7 +8,7 @@
 //
 // Feature: s3rm-rs, Property 49: Output Stream Separation
 // For any log output, the tool should write all log messages (including errors)
-// to stdout via tracing-subscriber by default.
+// to stderr via tracing-subscriber by default.
 // **Validates: Requirements 13.6**
 
 #[cfg(test)]
@@ -285,10 +285,10 @@ mod tests {
     // Feature: s3rm-rs, Property 49: Output Stream Separation
     // **Validates: Requirements 13.6**
     //
-    // All log messages (including errors) are written to stdout via
-    // tracing-subscriber by default. This is verified by checking that
-    // the tracing configuration uses fmt() (which defaults to stdout)
-    // without any explicit stderr writer override.
+    // All log messages (including errors) are written to stderr via
+    // tracing-subscriber. This is verified by checking that the tracing
+    // configuration uses fmt() with a PipeSafeWriter that wraps stderr,
+    // keeping stdout reserved for shell-completion script generation.
     // -----------------------------------------------------------------------
 
     proptest! {
@@ -300,7 +300,7 @@ mod tests {
         /// For any verbosity flag combination parsed from CLI args, the resulting
         /// Config produces a TracingConfig (or None for silent mode) that preserves
         /// the json_tracing flag correctly — ensuring JSON mode uses the same
-        /// stdout-based tracing path.
+        /// stderr-based tracing path.
         #[test]
         fn property_49_cli_tracing_config_json_propagation(
             verbosity_idx in 0..6usize,
@@ -342,9 +342,9 @@ mod tests {
     /// **Validates: Requirements 13.6**
     ///
     /// Verify that the tracing config from a default CLI invocation (no special
-    /// flags) produces a configuration that will route to stdout.
+    /// flags) produces a configuration that will route to stderr.
     #[test]
-    fn property_49_default_cli_routes_to_stdout() {
+    fn property_49_default_cli_routes_to_stderr() {
         use crate::config::args::parse_from_args;
 
         let args = vec!["s3rm", "s3://bucket/prefix/"];
@@ -358,16 +358,16 @@ mod tests {
         assert!(!tc.json_tracing, "JSON tracing off by default");
         assert!(!tc.aws_sdk_tracing, "AWS SDK tracing off by default");
         assert!(!tc.span_events_tracing, "Span events off by default");
-        // init_tracing uses tracing_subscriber::fmt() which defaults to stdout.
-        // No .with_writer(stderr) is called — all output goes to stdout.
+        // init_tracing wraps stderr with PipeSafeWriter — all log output
+        // goes to stderr, leaving stdout for shell-completion scripts.
     }
 
     /// Feature: s3rm-rs, Property 49: Output Stream Separation
     /// **Validates: Requirements 13.6**
     ///
-    /// Verify JSON logging mode also routes to stdout (not stderr).
+    /// Verify JSON logging mode also routes to stderr (not stdout).
     #[test]
-    fn property_49_json_logging_routes_to_stdout() {
+    fn property_49_json_logging_routes_to_stderr() {
         use crate::config::args::parse_from_args;
 
         let args = vec![
@@ -384,7 +384,7 @@ mod tests {
             .tracing_config
             .expect("JSON tracing must have tracing enabled");
         assert!(tc.json_tracing, "JSON tracing must be enabled");
-        // init_tracing calls subscriber_builder.json().init() which still
-        // uses the default stdout writer. No stderr override exists.
+        // init_tracing calls subscriber_builder.json().init() on the same
+        // PipeSafeWriter that wraps stderr — no stdout override exists.
     }
 }

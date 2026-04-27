@@ -29,32 +29,32 @@ impl EventCallback for UserDefinedEventCallback {
         // Todo: Implement your custom event handling logic here.
         match event_data.event_type {
             EventType::PIPELINE_START => {
-                println!("Pipeline started: {event_data:?}");
+                eprintln!("Pipeline started: {event_data:?}");
             }
             EventType::PIPELINE_END => {
-                println!("Pipeline ended: {event_data:?}");
+                eprintln!("Pipeline ended: {event_data:?}");
             }
             EventType::DELETE_COMPLETE => {
-                println!("Delete complete: {event_data:?}");
+                eprintln!("Delete complete: {event_data:?}");
             }
             EventType::DELETE_FAILED => {
-                println!("Delete failed: {event_data:?}");
+                eprintln!("Delete failed: {event_data:?}");
             }
             EventType::DELETE_FILTERED => {
-                println!("Delete filtered: {event_data:?}");
+                eprintln!("Delete filtered: {event_data:?}");
             }
             EventType::PIPELINE_ERROR => {
-                println!("Pipeline error: {event_data:?}");
+                eprintln!("Pipeline error: {event_data:?}");
             }
             EventType::DELETE_CANCEL => {
-                println!("Delete cancelled: {event_data:?}");
+                eprintln!("Delete cancelled: {event_data:?}");
             }
             EventType::STATS_REPORT => {
-                println!("Stats report: {event_data:?}");
+                eprintln!("Stats report: {event_data:?}");
             }
             // Currently, all events are captured by above match arms,
             _ => {
-                println!("Other events: {event_data:?}");
+                eprintln!("Other events: {event_data:?}");
             }
         }
     }

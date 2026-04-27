@@ -457,9 +457,52 @@ impl S3Storage {
             }
 
             if page.is_truncated {
-                continuation_token = page.continuation_token;
-                key_marker = page.key_marker;
-                version_id_marker = page.version_id_marker;
+                match mode {
+                    ListingMode::Objects => {
+                        let next_token = page.continuation_token;
+                        if next_token.is_none() {
+                            anyhow::bail!(
+                                "S3 returned truncated response but no continuation token for s3://{}/{}",
+                                self.bucket,
+                                self.prefix
+                            );
+                        }
+                        // A buggy S3-compatible endpoint that returns the same
+                        // token forever would otherwise loop indefinitely.
+                        if next_token == continuation_token {
+                            anyhow::bail!(
+                                "S3 returned the same continuation token twice for s3://{}/{}; \
+                                 refusing to loop. This is likely a bug in the S3-compatible endpoint.",
+                                self.bucket,
+                                self.prefix
+                            );
+                        }
+                        continuation_token = next_token;
+                    }
+                    ListingMode::Versions => {
+                        let next_key_marker = page.key_marker;
+                        let next_version_id_marker = page.version_id_marker;
+                        if next_key_marker.is_none() {
+                            anyhow::bail!(
+                                "S3 returned truncated response but no next key marker for s3://{}/{}",
+                                self.bucket,
+                                self.prefix
+                            );
+                        }
+                        if next_key_marker == key_marker
+                            && next_version_id_marker == version_id_marker
+                        {
+                            anyhow::bail!(
+                                "S3 returned the same key/version marker twice for s3://{}/{}; \
+                                 refusing to loop. This is likely a bug in the S3-compatible endpoint.",
+                                self.bucket,
+                                self.prefix
+                            );
+                        }
+                        key_marker = next_key_marker;
+                        version_id_marker = next_version_id_marker;
+                    }
+                }
             } else {
                 break;
             }
@@ -746,9 +789,50 @@ impl S3Storage {
                     break;
                 }
 
-                continuation_token = page.continuation_token;
-                key_marker = page.key_marker;
-                version_id_marker = page.version_id_marker;
+                match mode {
+                    ListingMode::Objects => {
+                        let next_token = page.continuation_token;
+                        if next_token.is_none() {
+                            anyhow::bail!(
+                                "S3 returned truncated response but no continuation token for s3://{}/{}",
+                                self.bucket,
+                                prefix
+                            );
+                        }
+                        if next_token == continuation_token {
+                            anyhow::bail!(
+                                "S3 returned the same continuation token twice for s3://{}/{}; \
+                                 refusing to loop. This is likely a bug in the S3-compatible endpoint.",
+                                self.bucket,
+                                prefix
+                            );
+                        }
+                        continuation_token = next_token;
+                    }
+                    ListingMode::Versions => {
+                        let next_key_marker = page.key_marker;
+                        let next_version_id_marker = page.version_id_marker;
+                        if next_key_marker.is_none() {
+                            anyhow::bail!(
+                                "S3 returned truncated response but no next key marker for s3://{}/{}",
+                                self.bucket,
+                                prefix
+                            );
+                        }
+                        if next_key_marker == key_marker
+                            && next_version_id_marker == version_id_marker
+                        {
+                            anyhow::bail!(
+                                "S3 returned the same key/version marker twice for s3://{}/{}; \
+                                 refusing to loop. This is likely a bug in the S3-compatible endpoint.",
+                                self.bucket,
+                                prefix
+                            );
+                        }
+                        key_marker = next_key_marker;
+                        version_id_marker = next_version_id_marker;
+                    }
+                }
             }
 
             if let Some(permit) = current_permit {

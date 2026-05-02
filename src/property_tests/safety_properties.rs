@@ -34,7 +34,12 @@ mod tests {
     }
 
     impl PromptHandler for MockPromptHandler {
-        fn read_confirmation(&self, _target_display: &str, _use_color: bool) -> Result<String> {
+        fn read_confirmation(
+            &self,
+            _target_display: &str,
+            _use_color: bool,
+            _whole_bucket: bool,
+        ) -> Result<String> {
             Ok(self.response.clone())
         }
 
@@ -62,7 +67,12 @@ mod tests {
     }
 
     impl PromptHandler for CapturingPromptHandler {
-        fn read_confirmation(&self, target_display: &str, use_color: bool) -> Result<String> {
+        fn read_confirmation(
+            &self,
+            target_display: &str,
+            use_color: bool,
+            _whole_bucket: bool,
+        ) -> Result<String> {
             *self.captured_target.lock().unwrap() = Some(target_display.to_string());
             *self.captured_use_color.lock().unwrap() = Some(use_color);
             Ok(self.response.clone())
@@ -77,7 +87,12 @@ mod tests {
     struct NonInteractivePromptHandler;
 
     impl PromptHandler for NonInteractivePromptHandler {
-        fn read_confirmation(&self, _target_display: &str, _use_color: bool) -> Result<String> {
+        fn read_confirmation(
+            &self,
+            _target_display: &str,
+            _use_color: bool,
+            _whole_bucket: bool,
+        ) -> Result<String> {
             unreachable!("should not be called in non-interactive mode")
         }
 
@@ -345,8 +360,14 @@ mod tests {
             // Build a forwarding PromptHandler that delegates to the Arc'd handler.
             struct ForwardingHandler(std::sync::Arc<CapturingPromptHandler>);
             impl PromptHandler for ForwardingHandler {
-                fn read_confirmation(&self, target_display: &str, use_color: bool) -> Result<String> {
-                    self.0.read_confirmation(target_display, use_color)
+                fn read_confirmation(
+                    &self,
+                    target_display: &str,
+                    use_color: bool,
+                    whole_bucket: bool,
+                ) -> Result<String> {
+                    self.0
+                        .read_confirmation(target_display, use_color, whole_bucket)
                 }
                 fn is_interactive(&self) -> bool {
                     true

@@ -41,9 +41,16 @@ pub trait PromptHandler: Send + Sync {
     ///
     /// `target_display` is the human-readable target (e.g. `s3://bucket/prefix`).
     /// `use_color` controls whether ANSI color codes are emitted.
+    /// `whole_bucket` is `true` when no prefix was specified (every object in
+    /// the bucket will be deleted); the warning text is escalated in that case.
     ///
     /// Returns the trimmed user input string.
-    fn read_confirmation(&self, target_display: &str, use_color: bool) -> Result<String>;
+    fn read_confirmation(
+        &self,
+        target_display: &str,
+        use_color: bool,
+        whole_bucket: bool,
+    ) -> Result<String>;
 
     /// Check if the current environment supports interactive prompts.
     ///
@@ -58,16 +65,47 @@ pub trait PromptHandler: Send + Sync {
 pub struct StdioPromptHandler;
 
 impl PromptHandler for StdioPromptHandler {
-    fn read_confirmation(&self, target_display: &str, use_color: bool) -> Result<String> {
+    fn read_confirmation(
+        &self,
+        target_display: &str,
+        use_color: bool,
+        whole_bucket: bool,
+    ) -> Result<String> {
         if use_color {
+            if whole_bucket {
+                println!(
+                    "\n{}WARNING:{} {}ALL{} objects in bucket {}{}{} will be deleted (no prefix specified).",
+                    ANSI_BOLD_RED,
+                    ANSI_RESET,
+                    ANSI_BOLD_RED,
+                    ANSI_RESET,
+                    ANSI_BOLD_YELLOW,
+                    target_display,
+                    ANSI_RESET,
+                );
+            } else {
+                println!(
+                    "\n{}WARNING:{} All objects under prefix {}{}{} will be deleted.",
+                    ANSI_BOLD_RED, ANSI_RESET, ANSI_BOLD_YELLOW, target_display, ANSI_RESET,
+                );
+            }
             println!(
-                "\n{}WARNING:{} All objects matching prefix {}{}{}  will be deleted.",
-                ANSI_BOLD_RED, ANSI_RESET, ANSI_BOLD_YELLOW, target_display, ANSI_RESET,
+                "         If versioning is not enabled on the bucket, deleted objects cannot be recovered.\n"
             );
         } else {
+            if whole_bucket {
+                println!(
+                    "\nWARNING: ALL objects in bucket {} will be deleted (no prefix specified).",
+                    target_display,
+                );
+            } else {
+                println!(
+                    "\nWARNING: All objects under prefix {} will be deleted.",
+                    target_display,
+                );
+            }
             println!(
-                "\nWARNING: All objects matching prefix {}  will be deleted.",
-                target_display,
+                "         If versioning is not enabled on the bucket, deleted objects cannot be recovered.\n"
             );
         }
         println!(
@@ -110,6 +148,7 @@ pub struct SafetyChecker {
     json_logging: bool,
     disable_color: bool,
     target_display: String,
+    whole_bucket: bool,
     prompt_handler: Box<dyn PromptHandler>,
 }
 
@@ -134,6 +173,7 @@ impl SafetyChecker {
             json_logging,
             disable_color,
             target_display: format_target(&config.target),
+            whole_bucket: is_whole_bucket(&config.target),
             prompt_handler: Box::new(StdioPromptHandler),
         }
     }
@@ -157,6 +197,7 @@ impl SafetyChecker {
             json_logging,
             disable_color,
             target_display: format_target(&config.target),
+            whole_bucket: is_whole_bucket(&config.target),
             prompt_handler,
         }
     }
@@ -235,9 +276,11 @@ impl SafetyChecker {
     /// _Requirements: 3.2, 3.3_
     fn prompt_confirmation(&self) -> Result<()> {
         let use_color = !self.disable_color;
-        let input = self
-            .prompt_handler
-            .read_confirmation(&self.target_display, use_color)?;
+        let input = self.prompt_handler.read_confirmation(
+            &self.target_display,
+            use_color,
+            self.whole_bucket,
+        )?;
 
         if input != "yes" {
             return Err(anyhow!(S3rmError::Cancelled));
@@ -261,5 +304,13 @@ fn format_target(target: &StoragePath) -> String {
                 format!("s3://{}/{}", bucket, prefix)
             }
         }
+    }
+}
+
+/// Returns `true` when the target has no prefix and so the deletion would
+/// affect every object in the bucket.
+fn is_whole_bucket(target: &StoragePath) -> bool {
+    match target {
+        StoragePath::S3 { prefix, .. } => prefix.is_empty(),
     }
 }

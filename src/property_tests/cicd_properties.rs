@@ -31,7 +31,12 @@ mod tests {
     struct NonInteractiveHandler;
 
     impl PromptHandler for NonInteractiveHandler {
-        fn read_confirmation(&self, _target_display: &str, _use_color: bool) -> Result<String> {
+        fn read_confirmation(
+            &self,
+            _target_display: &str,
+            _use_color: bool,
+            _whole_bucket: bool,
+        ) -> Result<String> {
             unreachable!("read_confirmation must not be called in non-interactive mode")
         }
 
@@ -55,7 +60,12 @@ mod tests {
     }
 
     impl PromptHandler for InteractiveHandler {
-        fn read_confirmation(&self, _target_display: &str, _use_color: bool) -> Result<String> {
+        fn read_confirmation(
+            &self,
+            _target_display: &str,
+            _use_color: bool,
+            _whole_bucket: bool,
+        ) -> Result<String> {
             Ok(self.response.clone())
         }
 

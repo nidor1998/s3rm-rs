@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.3.6] - 2026-05-02
+
+### Changed
+
+- The deletion summary log message is now prefixed with `[dry-run]` when running in dry-run mode (`[dry-run] deletion summary`), making it easier to distinguish dry-run output from real deletions
+- `--dry-run`/`-d` and `--force`/`-f` are now mutually exclusive at the CLI level. Dry-run never deletes anything, so combining it with `--force` was always redundant; clap now rejects the combination with a clear conflict error
+- CD workflow now creates a draft GitHub release before the per-platform release jobs run, so all artifacts are uploaded to a single draft release rather than racing to create one
+
 ## [v1.3.5] - 2026-05-02
 
 ### Changed

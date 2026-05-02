@@ -121,7 +121,7 @@ pub struct CLIArgs {
     // General options
     // -----------------------------------------------------------------------
     /// List objects that would be deleted without actually deleting them
-    #[arg(short = 'd', long, env, default_value_t = DEFAULT_DRY_RUN, help_heading = "General")]
+    #[arg(short = 'd', long, env, default_value_t = DEFAULT_DRY_RUN, conflicts_with = "force", help_heading = "General")]
     pub dry_run: bool,
 
     /// Skip the confirmation prompt before deleting

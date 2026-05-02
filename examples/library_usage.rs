@@ -8,7 +8,7 @@
 //!
 //! Run with:
 //! ```sh
-//! cargo run --example library_usage -- s3://my-bucket/prefix/ --dry-run --force
+//! cargo run --example library_usage -- s3://my-bucket/prefix/ --dry-run
 //! ```
 
 use anyhow::Result;

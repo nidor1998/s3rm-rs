@@ -314,13 +314,12 @@ mod tests {
         );
     }
 
-    /// When --force is used with --dry-run and the endpoint is
-    /// unreachable the pipeline still records listing errors.
+    /// When --dry-run is used and the endpoint is unreachable the pipeline
+    /// still records listing errors.
     #[tokio::test]
     async fn pipeline_run_dry_run_errors_on_unreachable_endpoint() {
         let args = vec![
             "s3rm",
-            "-f",
             "-d",
             "--target-access-key",
             "dummy",

@@ -294,7 +294,7 @@ async fn e2e_exit_codes() {
         );
 
         // --- Exit code 0: successful dry-run ---
-        // Create a real bucket, upload an object, and run with --dry-run --force.
+        // Create a real bucket, upload an object, and run with --dry-run.
         let helper = TestHelper::new().await;
         let bucket = helper.generate_bucket_name();
         helper.create_bucket(&bucket).await;
@@ -309,7 +309,6 @@ async fn e2e_exit_codes() {
             .args([
                 &format!("s3://{bucket}/exit-test/"),
                 "--dry-run",
-                "--force",
                 "--target-profile",
                 "s3rm-e2e-test",
             ])

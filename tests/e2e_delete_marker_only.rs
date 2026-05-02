@@ -492,7 +492,6 @@ async fn e2e_filter_delete_marker_only_dry_run() {
             "--filter-delete-marker-only",
             "--delete-all-versions",
             "--dry-run",
-            "--force",
         ]);
         let result = TestHelper::run_pipeline(config).await;
 

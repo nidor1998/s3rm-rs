@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.3.5] - 2026-05-02
+
+### Changed
+
+- Strengthened the deletion confirmation prompt so users can see at a glance what they are about to delete:
+  - When a prefix is specified: `All objects under prefix s3://bucket/foo will be deleted.`
+  - When no prefix is specified: `ALL objects in bucket s3://bucket/ will be deleted (no prefix specified).`
+  - In both cases the prompt now reminds the user: `If versioning is not enabled on the bucket, deleted objects cannot be recovered.`
+- Update dependency: `clap_complete` 4.6.2→4.6.3
+- Update transitive dependencies via `cargo update`: `rustls` 0.23.39→0.23.40, `wasm-bindgen` (and macros/shared) 0.2.118→0.2.120, `js-sys` 0.3.95→0.3.97, `idna_adapter` 1.2.1→1.2.2
+
 ## [v1.3.4] - 2026-04-27
 
 ### Changed

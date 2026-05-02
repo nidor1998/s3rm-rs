@@ -45,7 +45,6 @@ async fn e2e_dry_run_no_deletion() {
         let config = TestHelper::build_config(vec![
             &format!("s3://{bucket}/data/"),
             "--dry-run",
-            "--force",
         ]);
         let result = TestHelper::run_pipeline(config).await;
 

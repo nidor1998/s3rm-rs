@@ -242,7 +242,6 @@ fn config_from_full_args() {
         "s3rm",
         "s3://bucket/logs/",
         "--dry-run",
-        "--force",
         "--batch-size",
         "500",
         "--worker-size",
@@ -257,7 +256,7 @@ fn config_from_full_args() {
     let config = Config::try_from(cli).unwrap();
 
     assert!(config.dry_run);
-    assert!(config.force);
+    assert!(!config.force);
     assert_eq!(config.batch_size, 500);
     assert_eq!(config.worker_size, 50);
     assert!(config.delete_all_versions);
@@ -469,10 +468,20 @@ fn config_target_client_config_from_environment() {
 fn build_config_from_args_convenience() {
     init_dummy_tracing_subscriber();
 
-    let args = vec!["s3rm", "s3://bucket/prefix/", "--dry-run", "--force"];
+    let args = vec!["s3rm", "s3://bucket/prefix/", "--dry-run"];
     let config = build_config_from_args(args).unwrap();
     assert!(config.dry_run);
-    assert!(config.force);
+    assert!(!config.force);
+}
+
+#[test]
+fn dry_run_and_force_conflict() {
+    let args = vec!["s3rm", "s3://bucket/prefix/", "--dry-run", "--force"];
+    let result = build_config_from_args(args);
+    assert!(
+        result.is_err(),
+        "--dry-run and --force should conflict at the CLI level"
+    );
 }
 
 #[test]
@@ -1082,7 +1091,6 @@ fn config_from_full_args_with_if_match() {
         "s3rm",
         "s3://bucket/prefix/",
         "--dry-run",
-        "--force",
         "--batch-size",
         "500",
         "--worker-size",
@@ -1097,7 +1105,7 @@ fn config_from_full_args_with_if_match() {
     let config = Config::try_from(cli).unwrap();
 
     assert!(config.dry_run);
-    assert!(config.force);
+    assert!(!config.force);
     assert_eq!(config.batch_size, 500);
     assert_eq!(config.worker_size, 50);
     assert!(config.if_match);

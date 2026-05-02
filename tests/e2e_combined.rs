@@ -137,7 +137,6 @@ async fn e2e_dry_run_with_delete_all_versions() {
             &format!("s3://{bucket}/dryver/"),
             "--dry-run",
             "--delete-all-versions",
-            "--force",
         ]);
         let result = TestHelper::run_pipeline(config).await;
 
@@ -203,7 +202,6 @@ async fn e2e_dry_run_with_filters() {
             "--dry-run",
             "--filter-include-regex",
             "^temp/",
-            "--force",
         ]);
         let result = TestHelper::run_pipeline(config).await;
 

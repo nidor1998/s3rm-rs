@@ -24,7 +24,7 @@ use fancy_regex::Regex;
 ///
 /// ```no_run
 /// let config = s3rm_rs::build_config_from_args([
-///     "s3rm", "s3://my-bucket/logs/2024/", "--dry-run", "--force",
+///     "s3rm", "s3://my-bucket/logs/2024/", "--dry-run",
 /// ]).expect("invalid arguments");
 /// ```
 ///

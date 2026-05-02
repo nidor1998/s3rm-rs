@@ -50,7 +50,6 @@ async fn main() {
         "s3rm",
         "s3://my-bucket/logs/2024/",
         "--dry-run",
-        "--force",
     ]).expect("invalid arguments");
 
     let token = create_pipeline_cancellation_token();

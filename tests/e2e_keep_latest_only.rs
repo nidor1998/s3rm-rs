@@ -830,7 +830,6 @@ async fn e2e_keep_latest_only_dry_run() {
             "--keep-latest-only",
             "--delete-all-versions",
             "--dry-run",
-            "--force",
         ]);
         let result = TestHelper::run_pipeline(config).await;
 

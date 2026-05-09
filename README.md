@@ -1,11 +1,6 @@
 # s3rm
 
-[![Crates.io](https://img.shields.io/crates/v/s3rm-rs.svg)](https://crates.io/crates/s3rm-rs)
-[![Crates.io](https://img.shields.io/crates/d/s3rm-rs?label=downloads%20%28crates.io%29)](https://crates.io/crates/s3rm-rs)
-[![GitHub](https://img.shields.io/github/downloads/nidor1998/s3rm-rs/total?label=downloads%20%28GitHub%29)](https://github.com/nidor1998/s3rm-rs)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-![MSRV](https://img.shields.io/badge/msrv-1.91.1-red)
-![CI](https://github.com/nidor1998/s3rm-rs/actions/workflows/ci.yml/badge.svg?branch=main)
 [![codecov](https://codecov.io/gh/nidor1998/s3rm-rs/graph/badge.svg?token=IS3LQZOYFT)](https://codecov.io/gh/nidor1998/s3rm-rs)
 
 ## Fast Amazon S3 object deletion tool

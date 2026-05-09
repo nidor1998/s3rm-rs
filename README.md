@@ -282,7 +282,7 @@ s3rm s3://bucket-name/prefix
 s3rm is designed to adapt to a wide range of deletion scenarios:
 
 - **12 CLI filter options plus programmable Lua/Rust filter callbacks** — regex on keys, content-type, user-defined metadata, and tags; size thresholds; modification time ranges; plus Lua scripting callbacks. See [Filtering order](#filtering-order) for the complete list.
-- **S3-compatible services** — works with MinIO, Wasabi, Cloudflare R2, and other S3-compatible storage via `--target-endpoint-url` and `--target-force-path-style`. See [Custom endpoint](#custom-endpoint).
+- **S3-compatible services (deprecated, as-is)** — `--target-endpoint-url` and `--target-force-path-style` remain available for use with MinIO, Wasabi, Cloudflare R2, and other S3-compatible storage. The functionality is provided **as-is** with no testing, no compatibility guarantees, and no fixes for issues specific to non-AWS backends. See [Custom endpoint](#custom-endpoint).
 - **S3 Express One Zone** — automatically detects Express One Zone directory buckets and adjusts listing behavior accordingly. See [S3 Express One Zone support](#s3-express-one-zone-support).
 - **CLI and library** — use s3rm as a standalone CLI tool or embed it as a Rust library in your own applications with custom filter and event callbacks.
 - **Configurable everything** — worker count (1 to 65,535), batch size (1 to 1,000), retry attempts, rate limiting, timeouts, parallel listing depth, and more. All options can be set via CLI flags or environment variables.
@@ -582,7 +582,10 @@ s3rm --max-delete 1000 --force s3://my-bucket/data/
 
 ### Custom endpoint
 
-You can specify an S3-compatible storage endpoint (MinIO, Wasabi, Cloudflare R2, etc.).
+You can specify a custom endpoint URL via `--target-endpoint-url`. This can be used for AWS-side endpoints as well as for S3-compatible storage.
+
+> **Note on S3-compatible storage:** s3rm has **deprecated** support for S3-compatible (non-AWS) storage. The `--target-endpoint-url` and `--target-force-path-style` flags continue to work, but use against non-AWS backends is provided **as-is**: it is not tested, no compatibility work will be done, and bug reports specific to S3-compatible services will not be accepted. Only Amazon S3 (including S3 Express One Zone) is supported.
+
 Warning: You may need to specify `--target-force-path-style`.
 
 ```bash
@@ -1116,7 +1119,8 @@ async fn main() {
 
 **Supported target: Amazon S3 only.**
 
-Support for S3-compatible storage is on a best-effort basis and may behave differently.
+Support for S3-compatible storage is **deprecated** and provided **as-is**. The `--target-endpoint-url` flag is retained for backward compatibility, but non-AWS backends are not tested, not validated against new releases, and bug reports specific to S3-compatible services will not be accepted. If it works for you, great — if it doesn't, use a tool that officially supports your backend.
+
 s3rm has been tested with Amazon S3. s3rm has comprehensive unit tests, property-based tests (proptest) covering 49 correctness properties, and 125 end-to-end integration tests across 17 test files.
 
 ### Running unit and property tests
@@ -1144,8 +1148,8 @@ Available test files: `e2e_deletion`, `e2e_filter`, `e2e_versioning`, `e2e_safet
 
 Express One Zone tests require the `S3RM_E2E_AZ_ID` environment variable (defaults to `apne1-az4` if unset).
 
-S3-compatible storage is not tested when a new version is released.
-Since there is no official certification for S3-compatible storage, comprehensive testing is not possible.
+S3-compatible storage is not tested when a new version is released, and support is **deprecated**.
+Since there is no official certification for S3-compatible storage, comprehensive testing is not possible. Any breakage on non-AWS backends will be left as-is.
 
 ## Fully AI-generated (human-verified) software
 

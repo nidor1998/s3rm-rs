@@ -1,6 +1,7 @@
 # IDE
 .idea/
 .vscode/
+.devcontainer/
 
 # Rust build artifacts
 /target/

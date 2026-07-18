@@ -22,7 +22,8 @@ use crate::config::Config;
 use crate::stage::Stage;
 use crate::storage::StorageTrait;
 use crate::test_utils::{
-    init_dummy_tracing_subscriber, make_s3_object, make_test_config, make_versioned_s3_object,
+    init_dummy_tracing_subscriber, make_delete_marker, make_s3_object, make_test_config,
+    make_versioned_s3_object,
 };
 use crate::types::token::PipelineCancellationToken;
 use crate::types::{DeletionStatistics, S3Object};
@@ -1161,6 +1162,126 @@ async fn object_deleter_tag_exclude_filter() {
     assert_eq!(batch_calls.len(), 0);
     let single_calls = mock.delete_object_calls.lock().unwrap();
     assert_eq!(single_calls.len(), 0);
+}
+
+// A delete marker has no content-type / metadata and HeadObject on a
+// delete-marker version returns HTTP 405, which would cancel the whole
+// pipeline. The deleter must skip the HeadObject call entirely and evaluate the
+// filter against absent values (include filter → marker dropped).
+#[tokio::test]
+async fn object_deleter_delete_marker_skips_head_object_filter() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // If HeadObject is (wrongly) called for the marker, this error fires and the
+    // pipeline is cancelled with an Err — proving the call was NOT skipped.
+    *mock.head_object_error.lock().unwrap() = Some(anyhow::anyhow!(
+        "HeadObject must not be called for a delete marker"
+    ));
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.filter_config.include_content_type_regex = Some(Regex::new("text/plain").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    input_sender
+        .send(make_delete_marker("gone.txt", "v1"))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    // No 405 crash: the worker completes normally.
+    deleter.delete().await.unwrap();
+
+    // HeadObject was never called for the delete marker.
+    assert_eq!(mock.head_object_calls.lock().unwrap().len(), 0);
+    // Include filter + absent content-type → marker filtered out (not deleted).
+    assert_eq!(mock.delete_objects_calls.lock().unwrap().len(), 0);
+    assert_eq!(mock.delete_object_calls.lock().unwrap().len(), 0);
+}
+
+// Same for tag filters: GetObjectTagging on a delete-marker version returns 405.
+// An exclude tag filter must keep the marker (absent tags never match), and the
+// GetObjectTagging call must be skipped rather than cancelling the pipeline.
+#[tokio::test]
+async fn object_deleter_delete_marker_kept_by_exclude_tag_filter() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    // If GetObjectTagging is (wrongly) called, this error cancels the pipeline.
+    *mock.tagging_error.lock().unwrap() = Some(anyhow::anyhow!(
+        "GetObjectTagging must not be called for a delete marker"
+    ));
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.filter_config.exclude_tag_regex = Some(Regex::new("retain=true").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    input_sender
+        .send(make_delete_marker("gone.txt", "v1"))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Exclude filter + absent tags → marker kept and deleted (with its version).
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].identifiers.len(), 1);
+    assert_eq!(batch_calls[0].identifiers[0].key(), "gone.txt");
+    assert_eq!(batch_calls[0].identifiers[0].version_id(), Some("v1"));
+}
+
+// Include tag filter: absent tags never match, so the marker is dropped, and the
+// GetObjectTagging call is still skipped (no 405 cancellation).
+#[tokio::test]
+async fn object_deleter_delete_marker_dropped_by_include_tag_filter() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    *mock.tagging_error.lock().unwrap() = Some(anyhow::anyhow!(
+        "GetObjectTagging must not be called for a delete marker"
+    ));
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.filter_config.include_tag_regex = Some(Regex::new("env=dev").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    input_sender
+        .send(make_delete_marker("gone.txt", "v1"))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // Include filter + absent tags → marker filtered out (not deleted).
+    assert_eq!(mock.delete_objects_calls.lock().unwrap().len(), 0);
+    assert_eq!(mock.delete_object_calls.lock().unwrap().len(), 0);
 }
 
 #[tokio::test]

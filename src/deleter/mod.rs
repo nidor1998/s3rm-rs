@@ -255,21 +255,32 @@ impl ObjectDeleter {
         }
 
         let key = object.key();
-        let head_result = self
-            .base
-            .target
-            .head_object(key, object.version_id().map(|v| v.to_string()))
-            .await;
 
-        let head_output = match head_result {
-            Ok(output) => output,
-            Err(e) => {
-                return self.handle_api_error(&e, key, "head_object").await;
+        // Delete markers carry no content-type or user metadata, and HeadObject
+        // on a delete-marker version returns HTTP 405 (MethodNotAllowed) rather
+        // than a 404, which would otherwise cancel the whole pipeline. Skip the
+        // doomed API call and evaluate the filters against absent values, so an
+        // include filter drops the marker and an exclude filter keeps it —
+        // exactly how a real object with no content-type/metadata is treated.
+        let head_output = if object.is_delete_marker() {
+            None
+        } else {
+            let head_result = self
+                .base
+                .target
+                .head_object(key, object.version_id().map(|v| v.to_string()))
+                .await;
+
+            match head_result {
+                Ok(output) => Some(output),
+                Err(e) => {
+                    return self.handle_api_error(&e, key, "head_object").await;
+                }
             }
         };
 
         // Content-type filters
-        let content_type = head_output.content_type();
+        let content_type = head_output.as_ref().and_then(|o| o.content_type());
         if !self.decide_delete_by_regex(
             key,
             fc.include_content_type_regex.as_ref(),
@@ -295,7 +306,8 @@ impl ObjectDeleter {
 
         // Metadata filters
         let formatted_metadata = head_output
-            .metadata()
+            .as_ref()
+            .and_then(|o| o.metadata())
             .filter(|m| !m.is_empty())
             .map(format_metadata);
         let formatted_metadata_ref = formatted_metadata.as_deref();
@@ -337,21 +349,31 @@ impl ObjectDeleter {
         }
 
         let key = object.key();
-        let tagging_result = self
-            .base
-            .target
-            .get_object_tagging(key, object.version_id().map(|v| v.to_string()))
-            .await;
 
-        let tagging_output = match tagging_result {
-            Ok(output) => output,
-            Err(e) => {
-                return self.handle_api_error(&e, key, "get_object_tagging").await;
+        // Delete markers cannot be tagged, and GetObjectTagging on a
+        // delete-marker version returns HTTP 405 (MethodNotAllowed) rather than
+        // a 404, which would otherwise cancel the whole pipeline. Skip the
+        // doomed API call and evaluate the filters against absent tags, so an
+        // include filter drops the marker and an exclude filter keeps it.
+        let tagging_output = if object.is_delete_marker() {
+            None
+        } else {
+            let tagging_result = self
+                .base
+                .target
+                .get_object_tagging(key, object.version_id().map(|v| v.to_string()))
+                .await;
+
+            match tagging_result {
+                Ok(output) => Some(output),
+                Err(e) => {
+                    return self.handle_api_error(&e, key, "get_object_tagging").await;
+                }
             }
         };
 
-        let formatted_tags = format_tags(tagging_output.tag_set());
-        let formatted_tags_ref = Some(formatted_tags.as_str());
+        let formatted_tags = tagging_output.as_ref().map(|o| format_tags(o.tag_set()));
+        let formatted_tags_ref = formatted_tags.as_deref();
         if !self.decide_delete_by_regex(
             key,
             fc.include_tag_regex.as_ref(),

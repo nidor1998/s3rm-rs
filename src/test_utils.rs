@@ -4,7 +4,7 @@
 //! modules, eliminating duplication and ensuring consistency.
 
 use aws_sdk_s3::primitives::DateTime;
-use aws_sdk_s3::types::{Object, ObjectVersion, ObjectVersionStorageClass};
+use aws_sdk_s3::types::{DeleteMarkerEntry, Object, ObjectVersion, ObjectVersionStorageClass};
 
 use crate::callback::event_manager::EventManager;
 use crate::callback::filter_manager::FilterManager;
@@ -72,6 +72,18 @@ pub(crate) fn make_s3_object(key: &str, size: i64) -> S3Object {
         Object::builder()
             .key(key)
             .size(size)
+            .last_modified(DateTime::from_secs(1000))
+            .build(),
+    )
+}
+
+/// Create a [`S3Object::DeleteMarker`] with the given key and version ID.
+pub(crate) fn make_delete_marker(key: &str, version_id: &str) -> S3Object {
+    S3Object::DeleteMarker(
+        DeleteMarkerEntry::builder()
+            .key(key)
+            .version_id(version_id)
+            .is_latest(true)
             .last_modified(DateTime::from_secs(1000))
             .build(),
     )

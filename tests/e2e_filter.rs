@@ -1808,3 +1808,95 @@ async fn e2e_filter_exclude_tag_regex_with_prefix() {
         guard.cleanup().await;
     });
 }
+
+// ---------------------------------------------------------------------------
+// Delete markers must not abort a content-type-filter --delete-all-versions run
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_filter_include_content_type_tolerates_delete_markers() {
+    e2e_timeout!(async {
+        // Purpose: Verify that --delete-all-versions combined with a content-type
+        //          filter does NOT abort when the bucket contains delete markers.
+        //          HeadObject on a delete-marker version returns HTTP 405, which
+        //          previously cancelled the whole pipeline on the first marker.
+        //          The marker must instead be evaluated against an absent
+        //          content-type (include filter → dropped) and the run succeed.
+        // Setup:   Versioned bucket; upload 5 text/plain and 5 application/json
+        //          objects; delete 3 of the text/plain keys via the normal API to
+        //          create delete markers.
+        // Expected: Pipeline succeeds (no 405 abort); the 5 text/plain object
+        //           versions are deleted; application/json objects remain.
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..5 {
+            helper
+                .put_object_with_content_type(
+                    &bucket,
+                    &format!("data/text{i}.txt"),
+                    vec![b't'; 100],
+                    "text/plain",
+                )
+                .await;
+        }
+        for i in 0..5 {
+            helper
+                .put_object_with_content_type(
+                    &bucket,
+                    &format!("data/json{i}.json"),
+                    vec![b'j'; 100],
+                    "application/json",
+                )
+                .await;
+        }
+
+        // Create delete markers on 3 text/plain keys — HeadObject would 405 here.
+        for i in 0..3 {
+            helper
+                .client()
+                .delete_object()
+                .bucket(&bucket)
+                .key(format!("data/text{i}.txt"))
+                .send()
+                .await
+                .unwrap_or_else(|e| panic!("Failed to create delete marker: {e}"));
+        }
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--delete-all-versions",
+            "--filter-include-content-type-regex",
+            "text/plain",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        // The key assertion: the delete marker did not abort the pipeline.
+        assert!(
+            !result.has_error,
+            "Delete markers must not abort a --delete-all-versions content-type run"
+        );
+
+        // The 5 text/plain object versions match; the 3 delete markers have no
+        // content-type so the include filter drops them.
+        assert_eq!(
+            result.stats.stats_deleted_objects, 5,
+            "Only the 5 text/plain object versions should be deleted"
+        );
+
+        // application/json objects are untouched.
+        let json_remaining = helper.list_objects(&bucket, "data/json").await;
+        assert_eq!(
+            json_remaining.len(),
+            5,
+            "All application/json objects should remain"
+        );
+
+        guard.cleanup().await;
+    });
+}

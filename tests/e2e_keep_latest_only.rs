@@ -1452,3 +1452,105 @@ async fn e2e_keep_latest_only_event_callback() {
         guard.cleanup().await;
     });
 }
+
+// ---------------------------------------------------------------------------
+// Keep Latest Only: works on a versioning-SUSPENDED bucket
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_keep_latest_only_suspended_bucket() {
+    e2e_timeout!(async {
+        // Purpose: Verify that --keep-latest-only works on a versioning-SUSPENDED
+        //          bucket. A suspended bucket still retains all of its versions,
+        //          so it must be treated as versioned. Previously
+        //          is_versioning_enabled() returned true only for Enabled, so this
+        //          combination wrongly errored with "non-versioned bucket".
+        // Setup:   Create versioned bucket; upload 4 keys twice (8 versions); then
+        //          suspend versioning.
+        // Expected: Pipeline succeeds (no rejection); the 4 old versions are
+        //           deleted and only the 4 latest versions remain.
+
+        const NUM_OBJECTS: usize = 4;
+        const VERSIONS_PER_OBJECT: usize = 2;
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        let mut old_version_ids = Vec::new();
+        for i in 0..NUM_OBJECTS {
+            let vid = put_object_versioned(
+                &helper,
+                &bucket,
+                &format!("data/file{i}.dat"),
+                vec![b'v'; 100],
+            )
+            .await;
+            old_version_ids.push(vid);
+        }
+        let mut latest_version_ids = Vec::new();
+        for i in 0..NUM_OBJECTS {
+            let vid = put_object_versioned(
+                &helper,
+                &bucket,
+                &format!("data/file{i}.dat"),
+                vec![b'w'; 200],
+            )
+            .await;
+            latest_version_ids.push(vid);
+        }
+
+        // Suspend versioning AFTER the versions exist. They are retained.
+        helper.suspend_bucket_versioning(&bucket).await;
+
+        let pre_versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(
+            pre_versions.len(),
+            NUM_OBJECTS * VERSIONS_PER_OBJECT,
+            "Suspended bucket should still retain all versions"
+        );
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--keep-latest-only",
+            "--delete-all-versions",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        // Regression: this must NOT be rejected as a non-versioned bucket.
+        assert!(
+            !result.has_error,
+            "--keep-latest-only must succeed on a suspended (versioned) bucket"
+        );
+        assert_eq!(
+            result.stats.stats_deleted_objects, NUM_OBJECTS as u64,
+            "Should delete {NUM_OBJECTS} old versions"
+        );
+
+        // Only the latest version of each key remains.
+        let post_versions = helper.list_object_versions(&bucket).await;
+        assert_eq!(
+            post_versions.len(),
+            NUM_OBJECTS,
+            "Only the latest version per key should remain"
+        );
+        let remaining_vids: Vec<&str> = post_versions.iter().map(|(_, vid)| vid.as_str()).collect();
+        for (i, expected_vid) in latest_version_ids.iter().enumerate() {
+            assert!(
+                remaining_vids.contains(&expected_vid.as_str()),
+                "Latest version ID for file{i}.dat ({expected_vid}) should be retained"
+            );
+        }
+        for (i, old_vid) in old_version_ids.iter().enumerate() {
+            assert!(
+                !remaining_vids.contains(&old_vid.as_str()),
+                "Old version ID for file{i}.dat ({old_vid}) should have been deleted"
+            );
+        }
+
+        guard.cleanup().await;
+    });
+}

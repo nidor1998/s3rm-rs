@@ -154,6 +154,26 @@ impl TestHelper {
             .unwrap_or_else(|e| panic!("Failed to enable versioning on {bucket}: {e}"));
     }
 
+    /// Suspend versioning on an already-versioned bucket.
+    ///
+    /// A suspended bucket keeps all of its existing versions and delete markers
+    /// (only new writes stop being versioned), so it must still be treated as a
+    /// versioned bucket by `--delete-all-versions` / `--keep-latest-only` /
+    /// `--filter-delete-marker-only`.
+    pub async fn suspend_bucket_versioning(&self, bucket: &str) {
+        let versioning_config = VersioningConfiguration::builder()
+            .status(BucketVersioningStatus::Suspended)
+            .build();
+
+        self.client
+            .put_bucket_versioning()
+            .bucket(bucket)
+            .versioning_configuration(versioning_config)
+            .send()
+            .await
+            .unwrap_or_else(|e| panic!("Failed to suspend versioning on {bucket}: {e}"));
+    }
+
     /// Generate a unique Express One Zone directory bucket name.
     ///
     /// Format: `s3rm-e2e-{short_uuid}--{az_id}--x-s3`

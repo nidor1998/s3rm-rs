@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Versioning-suspended buckets are now treated as versioned. A suspended bucket still retains all of its historical versions and delete markers, so `--delete-all-versions` now permanently removes them instead of degrading to versionless deletes (which merely added null delete markers and left the old versions billed and intact). `--keep-latest-only` and `--filter-delete-marker-only` also no longer wrongly reject suspended buckets as "non-versioned"
+- Delete markers no longer abort `--delete-all-versions` runs that use content-type/metadata/tag filters. `HeadObject`/`GetObjectTagging` on a delete-marker version returns HTTP 405, which previously cancelled the entire pipeline on the first marker. These filters now skip the API call for delete markers and evaluate them against absent values (an include filter drops the marker, an exclude filter keeps it)
+
 ## [1.3.8] - 2026-06-27
 
 Monthly update.

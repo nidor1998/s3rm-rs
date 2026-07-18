@@ -1207,6 +1207,47 @@ async fn object_deleter_delete_marker_skips_head_object_filter() {
     assert_eq!(mock.delete_object_calls.lock().unwrap().len(), 0);
 }
 
+// An exclude content-type filter must keep the delete marker (absent
+// content-type never matches the exclude pattern), and the HeadObject call must
+// still be skipped rather than cancelling the pipeline with a 405.
+#[tokio::test]
+async fn object_deleter_delete_marker_kept_by_exclude_content_type_filter() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    *mock.head_object_error.lock().unwrap() = Some(anyhow::anyhow!(
+        "HeadObject must not be called for a delete marker"
+    ));
+
+    let (input_sender, input_receiver) = async_channel::bounded::<S3Object>(10);
+    let (output_sender, _output_receiver) = async_channel::bounded::<S3Object>(10);
+
+    let mut config = make_test_config();
+    config.filter_config.exclude_content_type_regex = Some(Regex::new("application/json").unwrap());
+    let stage = make_stage_with_mock(config, boxed, Some(input_receiver), Some(output_sender));
+
+    let stats_report = Arc::new(DeletionStatsReport::new());
+    let delete_counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = ObjectDeleter::new(stage, 0, stats_report.clone(), delete_counter);
+
+    input_sender
+        .send(make_delete_marker("gone.txt", "v1"))
+        .await
+        .unwrap();
+    drop(input_sender);
+
+    deleter.delete().await.unwrap();
+
+    // HeadObject skipped; exclude filter + absent content-type → marker kept.
+    assert_eq!(mock.head_object_calls.lock().unwrap().len(), 0);
+    let batch_calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(batch_calls.len(), 1);
+    assert_eq!(batch_calls[0].identifiers.len(), 1);
+    assert_eq!(batch_calls[0].identifiers[0].key(), "gone.txt");
+    assert_eq!(batch_calls[0].identifiers[0].version_id(), Some("v1"));
+}
+
 // Same for tag filters: GetObjectTagging on a delete-marker version returns 405.
 // An exclude tag filter must keep the marker (absent tags never match), and the
 // GetObjectTagging call must be skipped rather than cancelling the pipeline.

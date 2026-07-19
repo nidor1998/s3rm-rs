@@ -418,7 +418,7 @@ mod tests {
         }
 
         #[test]
-        fn test_delete_markers_pass_size_filters(
+        fn test_delete_markers_filtered_out_by_size_filters(
             threshold in 1u64..10000,
         ) {
             let delete_marker = S3Object::DeleteMarker(
@@ -434,9 +434,11 @@ mod tests {
                 ..Default::default()
             };
 
-            // Delete markers always pass size filters
-            prop_assert!(crate::filters::larger_size::tests::test_is_larger_or_equal(&delete_marker, &larger_config));
-            prop_assert!(crate::filters::smaller_size::tests::test_is_smaller(&delete_marker, &smaller_config));
+            // A delete marker has no meaningful size, so a size filter always
+            // filters it out — deleting a latest marker would resurrect the
+            // object it hides.
+            prop_assert!(!crate::filters::larger_size::tests::test_is_larger_or_equal(&delete_marker, &larger_config));
+            prop_assert!(!crate::filters::smaller_size::tests::test_is_smaller(&delete_marker, &smaller_config));
         }
     }
 

@@ -213,6 +213,19 @@ fn parse_missing_target() {
     assert!(result.is_err());
 }
 
+#[test]
+fn config_from_empty_bucket_target_is_err() {
+    init_dummy_tracing_subscriber();
+
+    // "s3:///prefix" passes the clap value-parser (starts with "s3://" and is
+    // longer than 5 chars) but has an empty bucket, so parse_target() rejects
+    // it while building the Config.
+    let args = vec!["s3rm", "s3:///prefix"];
+    let cli = parse_from_args(args).unwrap();
+    let result = Config::try_from(cli);
+    assert!(result.is_err());
+}
+
 // ---------------------------------------------------------------------------
 // Config::try_from tests
 // ---------------------------------------------------------------------------
@@ -1033,6 +1046,140 @@ fn parse_keep_latest_only_conflicts_with_mtime_after() {
         "2023-01-01T00:00:00Z",
     ];
     assert!(parse_from_args(args).is_err());
+}
+
+// ---------------------------------------------------------------------------
+// --filter-delete-marker-only conflicts with attribute filters
+//
+// A delete marker has no size, content type, metadata, or tags, so combining
+// --filter-delete-marker-only with any of those filters would select nothing.
+// The argument parser rejects the combination. Modification-time and key-regex
+// filters still apply to markers, so those combinations are accepted.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_delete_marker_only_conflicts_with_include_content_type_regex() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-delete-marker-only",
+        "--delete-all-versions",
+        "--filter-include-content-type-regex",
+        "text/.*",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_delete_marker_only_conflicts_with_exclude_content_type_regex() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-delete-marker-only",
+        "--delete-all-versions",
+        "--filter-exclude-content-type-regex",
+        "image/.*",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_delete_marker_only_conflicts_with_include_metadata_regex() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-delete-marker-only",
+        "--delete-all-versions",
+        "--filter-include-metadata-regex",
+        "key=value",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_delete_marker_only_conflicts_with_exclude_metadata_regex() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-delete-marker-only",
+        "--delete-all-versions",
+        "--filter-exclude-metadata-regex",
+        "key=value",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_delete_marker_only_conflicts_with_include_tag_regex() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-delete-marker-only",
+        "--delete-all-versions",
+        "--filter-include-tag-regex",
+        "env=prod",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_delete_marker_only_conflicts_with_exclude_tag_regex() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-delete-marker-only",
+        "--delete-all-versions",
+        "--filter-exclude-tag-regex",
+        "env=dev",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_delete_marker_only_conflicts_with_larger_size_filter() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-delete-marker-only",
+        "--delete-all-versions",
+        "--filter-larger-size",
+        "1024",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_delete_marker_only_conflicts_with_smaller_size_filter() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-delete-marker-only",
+        "--delete-all-versions",
+        "--filter-smaller-size",
+        "1024",
+    ];
+    assert!(parse_from_args(args).is_err());
+}
+
+#[test]
+fn parse_delete_marker_only_allows_mtime_and_key_regex_filters() {
+    // Modification-time and key-regex filters still apply to delete markers, so
+    // they must NOT conflict with --filter-delete-marker-only.
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-delete-marker-only",
+        "--delete-all-versions",
+        "--filter-mtime-before",
+        "2023-01-01T00:00:00Z",
+        "--filter-include-regex",
+        r"\.log$",
+    ];
+    let cli = parse_from_args(args).expect("mtime/key-regex filters should be allowed");
+    let config = Config::try_from(cli).unwrap();
+    assert!(config.filter_config.delete_marker_only);
+    assert!(config.filter_config.before_time.is_some());
+    assert!(config.filter_config.include_regex.is_some());
 }
 
 #[test]

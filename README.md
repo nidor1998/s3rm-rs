@@ -649,6 +649,22 @@ s3rm filters objects in the following order:
 
 Filters that require additional API calls (content type, metadata, tags) are applied last to minimize unnecessary requests.
 
+#### Delete markers and attribute filters
+
+Delete markers have no size, content-type, user metadata, or tags. When you run with `--delete-all-versions`, the
+size filters (`--filter-smaller-size`, `--filter-larger-size`) and the content-type, metadata, and tag filters
+therefore **exclude delete markers from deletion** — a delete marker cannot match a property it does not have, and
+deleting a *latest* delete marker would resurrect the object it hides, which an attribute-scoped run never intends.
+
+As a result:
+
+- A full purge (`--delete-all-versions` with no size/attribute filter) still deletes delete markers.
+- `--filter-delete-marker-only` still deletes delete markers, and can be combined with modification-time filters
+  (markers have a last-modified time). It cannot be combined with the size/content-type/metadata/tag filters, because
+  that would select nothing.
+- Modification-time filters (`--filter-mtime-before`, `--filter-mtime-after`) and key regex filters
+  (`--filter-include-regex`, `--filter-exclude-regex`) apply to delete markers normally.
+
 ### Confirmation prompt detail
 
 By default, s3rm displays a warning with the target S3 path in colored text and requires explicit confirmation before proceeding:

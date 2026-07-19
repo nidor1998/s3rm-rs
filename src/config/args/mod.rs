@@ -167,11 +167,26 @@ pub struct CLIArgs {
     pub keep_latest_only: bool,
 
     /// Delete only delete markers (requires --delete-all-versions)
+    ///
+    /// Delete markers have no size, content-type, metadata, or tags, so they are
+    /// excluded from those filters; combining them here would silently delete
+    /// nothing, hence the conflict. Modification-time filters still apply
+    /// (markers have a last-modified time).
     #[arg(
         long,
         env,
         default_value_t = false,
         requires = "delete_all_versions",
+        conflicts_with_all = [
+            "filter_include_content_type_regex",
+            "filter_exclude_content_type_regex",
+            "filter_include_metadata_regex",
+            "filter_exclude_metadata_regex",
+            "filter_include_tag_regex",
+            "filter_exclude_tag_regex",
+            "filter_larger_size",
+            "filter_smaller_size",
+        ],
         help_heading = "Filtering"
     )]
     pub filter_delete_marker_only: bool,
@@ -191,14 +206,16 @@ pub struct CLIArgs {
     #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filtering",
         long_help = r#"Delete only objects whose content type matches this regular expression.
 This filter is applied after key, size, and time filters.
-May require an extra API call per object to retrieve content type."#)]
+May require an extra API call per object to retrieve content type.
+Delete markers have no content type and are excluded from deletion when this filter is active."#)]
     pub filter_include_content_type_regex: Option<String>,
 
     /// Skip objects whose content type matches this regex
     #[arg(long, env, value_parser = value_parser::regex::parse_regex, help_heading = "Filtering",
         long_help = r#"Skip objects whose content type matches this regular expression.
 This filter is applied after key, size, and time filters.
-May require an extra API call per object to retrieve content type."#)]
+May require an extra API call per object to retrieve content type.
+Delete markers have no content type and are excluded from deletion when this filter is active."#)]
     pub filter_exclude_content_type_regex: Option<String>,
 
     /// Delete only objects whose user-defined metadata matches this regex
@@ -207,6 +224,7 @@ May require an extra API call per object to retrieve content type."#)]
 Keys (lowercase) must be sorted alphabetically and separated by commas.
 This filter is applied after all other filters except tag filters.
 May require an extra API call per object to retrieve metadata.
+Delete markers have no metadata and are excluded from deletion when this filter is active.
 
 Example: "key1=(value1|value2),key2=value2""#)]
     pub filter_include_metadata_regex: Option<String>,
@@ -217,6 +235,7 @@ Example: "key1=(value1|value2),key2=value2""#)]
 Keys (lowercase) must be sorted alphabetically and separated by commas.
 This filter is applied after all other filters except tag filters.
 May require an extra API call per object to retrieve metadata.
+Delete markers have no metadata and are excluded from deletion when this filter is active.
 
 Example: "key1=(value1|value2),key2=value2""#)]
     pub filter_exclude_metadata_regex: Option<String>,
@@ -227,6 +246,7 @@ Example: "key1=(value1|value2),key2=value2""#)]
 Keys must be sorted alphabetically and separated by '&'.
 This filter is applied after all other filters.
 Requires an extra API call per object to retrieve tags.
+Delete markers cannot be tagged and are excluded from deletion when this filter is active.
 
 Example: "key1=(value1|value2)&key2=value2""#)]
     pub filter_include_tag_regex: Option<String>,
@@ -237,6 +257,7 @@ Example: "key1=(value1|value2)&key2=value2""#)]
 Keys must be sorted alphabetically and separated by '&'.
 This filter is applied after all other filters.
 Requires an extra API call per object to retrieve tags.
+Delete markers cannot be tagged and are excluded from deletion when this filter is active.
 
 Example: "key1=(value1|value2)&key2=value2""#)]
     pub filter_exclude_tag_regex: Option<String>,
@@ -268,7 +289,8 @@ Example: 2023-02-19T12:00:00Z"#
         value_parser = value_parser::human_bytes::check_human_bytes,
         help_heading = "Filtering",
         long_help = r#"Delete only objects smaller than the given size.
-Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
+Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB
+Delete markers have no size and are excluded from deletion when this filter is active."#
     )]
     pub filter_smaller_size: Option<String>,
 
@@ -279,7 +301,8 @@ Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
         value_parser = value_parser::human_bytes::check_human_bytes,
         help_heading = "Filtering",
         long_help = r#"Delete only objects larger than or equal to the given size.
-Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
+Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB
+Delete markers have no size and are excluded from deletion when this filter is active."#
     )]
     pub filter_larger_size: Option<String>,
 
@@ -322,15 +345,15 @@ Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"#
     pub target_profile: Option<String>,
 
     /// Target access key
-    #[arg(long, env, conflicts_with_all = ["target_profile"], requires = "target_secret_access_key", value_parser = NonEmptyStringValueParser::new(), help_heading = "AWS Configuration")]
+    #[arg(long, env, hide_env_values = true, conflicts_with_all = ["target_profile"], requires = "target_secret_access_key", value_parser = NonEmptyStringValueParser::new(), help_heading = "AWS Configuration")]
     pub target_access_key: Option<String>,
 
     /// Target secret access key
-    #[arg(long, env, conflicts_with_all = ["target_profile"], requires = "target_access_key", value_parser = NonEmptyStringValueParser::new(), help_heading = "AWS Configuration")]
+    #[arg(long, env, hide_env_values = true, conflicts_with_all = ["target_profile"], requires = "target_access_key", value_parser = NonEmptyStringValueParser::new(), help_heading = "AWS Configuration")]
     pub target_secret_access_key: Option<String>,
 
     /// Target session token
-    #[arg(long, env, conflicts_with_all = ["target_profile"], requires = "target_access_key", value_parser = NonEmptyStringValueParser::new(), help_heading = "AWS Configuration")]
+    #[arg(long, env, hide_env_values = true, conflicts_with_all = ["target_profile"], requires = "target_access_key", value_parser = NonEmptyStringValueParser::new(), help_heading = "AWS Configuration")]
     pub target_session_token: Option<String>,
 
     /// AWS region for the target

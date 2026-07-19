@@ -1900,3 +1900,299 @@ async fn e2e_filter_include_content_type_tolerates_delete_markers() {
         guard.cleanup().await;
     });
 }
+
+// ---------------------------------------------------------------------------
+// Delete markers are EXCLUDED from deletion by the size and metadata filters.
+//
+// A delete marker has no size, content type, metadata, or tags, and deleting a
+// *latest* delete marker resurrects the object it hides. So an attribute-scoped
+// --delete-all-versions run must leave delete markers in place. (The content-type
+// and tag cases are covered by e2e_filter_include_content_type_tolerates_delete_markers
+// above and e2e_delete_all_versions_tag_filter_tolerates_delete_markers in
+// e2e_versioning.rs.)
+// ---------------------------------------------------------------------------
+
+/// Delete an object via the normal API to create a delete marker on `key`.
+async fn create_delete_marker(helper: &TestHelper, bucket: &str, key: &str) {
+    helper
+        .client()
+        .delete_object()
+        .bucket(bucket)
+        .key(key)
+        .send()
+        .await
+        .unwrap_or_else(|e| panic!("Failed to create delete marker for {key}: {e}"));
+}
+
+/// Count delete markers currently present in the bucket.
+async fn count_delete_markers(helper: &TestHelper, bucket: &str) -> usize {
+    helper
+        .list_object_versions(bucket)
+        .await
+        .iter()
+        .filter(|(k, _)| k.starts_with("[delete-marker]"))
+        .count()
+}
+
+/// Count (non-marker) object versions currently present under `key_prefix`.
+async fn count_object_versions(helper: &TestHelper, bucket: &str, key_prefix: &str) -> usize {
+    helper
+        .list_object_versions(bucket)
+        .await
+        .iter()
+        .filter(|(k, _)| !k.starts_with("[delete-marker]") && k.starts_with(key_prefix))
+        .count()
+}
+
+#[tokio::test]
+async fn e2e_filter_smaller_size_excludes_delete_markers() {
+    e2e_timeout!(async {
+        // Purpose: Verify that --filter-smaller-size combined with
+        //          --delete-all-versions deletes matching small object versions
+        //          but EXCLUDES delete markers (a marker has no size and deleting
+        //          a latest marker would resurrect the object it hides).
+        // Setup:   Versioned bucket; 5 small (100B) + 5 large (10KB) objects;
+        //          delete 3 of the small keys via the normal API to create markers.
+        // Expected: Pipeline succeeds; the 5 small object versions are deleted;
+        //           the 5 large object versions remain; all 3 delete markers remain.
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..5 {
+            helper
+                .put_object(&bucket, &format!("data/small{i}.dat"), vec![b's'; 100])
+                .await;
+        }
+        for i in 0..5 {
+            helper
+                .put_object(
+                    &bucket,
+                    &format!("data/large{i}.dat"),
+                    vec![b'L'; 10 * 1024],
+                )
+                .await;
+        }
+
+        // Create delete markers on 3 small keys. A size filter must not delete
+        // these markers.
+        for i in 0..3 {
+            create_delete_marker(&helper, &bucket, &format!("data/small{i}.dat")).await;
+        }
+
+        assert_eq!(
+            count_delete_markers(&helper, &bucket).await,
+            3,
+            "3 delete markers should exist before the run"
+        );
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--delete-all-versions",
+            "--filter-smaller-size",
+            "1KB",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error, "Pipeline should complete without errors");
+        assert_eq!(
+            result.stats.stats_deleted_objects, 5,
+            "Only the 5 small object versions should be deleted (not the markers)"
+        );
+
+        // The delete markers must be untouched.
+        assert_eq!(
+            count_delete_markers(&helper, &bucket).await,
+            3,
+            "All 3 delete markers must be excluded from a size-filtered run"
+        );
+        // Large object versions remain; small object versions are gone.
+        assert_eq!(
+            count_object_versions(&helper, &bucket, "data/large").await,
+            5,
+            "All large object versions should remain"
+        );
+        assert_eq!(
+            count_object_versions(&helper, &bucket, "data/small").await,
+            0,
+            "All small object versions should be deleted"
+        );
+
+        guard.cleanup().await;
+    });
+}
+
+#[tokio::test]
+async fn e2e_filter_larger_size_excludes_delete_markers() {
+    e2e_timeout!(async {
+        // Purpose: Verify that --filter-larger-size combined with
+        //          --delete-all-versions deletes matching large object versions
+        //          but EXCLUDES delete markers.
+        // Setup:   Versioned bucket; 5 small (100B) + 5 large (10KB) objects;
+        //          delete 3 of the large keys via the normal API to create markers.
+        // Expected: Pipeline succeeds; the 5 large object versions are deleted;
+        //           the 5 small object versions remain; all 3 delete markers remain.
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..5 {
+            helper
+                .put_object(&bucket, &format!("data/small{i}.dat"), vec![b's'; 100])
+                .await;
+        }
+        for i in 0..5 {
+            helper
+                .put_object(
+                    &bucket,
+                    &format!("data/large{i}.dat"),
+                    vec![b'L'; 10 * 1024],
+                )
+                .await;
+        }
+
+        // Create delete markers on 3 large keys. A size filter must not delete them.
+        for i in 0..3 {
+            create_delete_marker(&helper, &bucket, &format!("data/large{i}.dat")).await;
+        }
+
+        assert_eq!(
+            count_delete_markers(&helper, &bucket).await,
+            3,
+            "3 delete markers should exist before the run"
+        );
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--delete-all-versions",
+            "--filter-larger-size",
+            "1KB",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error, "Pipeline should complete without errors");
+        assert_eq!(
+            result.stats.stats_deleted_objects, 5,
+            "Only the 5 large object versions should be deleted (not the markers)"
+        );
+
+        assert_eq!(
+            count_delete_markers(&helper, &bucket).await,
+            3,
+            "All 3 delete markers must be excluded from a size-filtered run"
+        );
+        assert_eq!(
+            count_object_versions(&helper, &bucket, "data/small").await,
+            5,
+            "All small object versions should remain"
+        );
+        assert_eq!(
+            count_object_versions(&helper, &bucket, "data/large").await,
+            0,
+            "All large object versions should be deleted"
+        );
+
+        guard.cleanup().await;
+    });
+}
+
+#[tokio::test]
+async fn e2e_filter_include_metadata_excludes_delete_markers() {
+    e2e_timeout!(async {
+        // Purpose: Verify that --filter-include-metadata-regex combined with
+        //          --delete-all-versions deletes matching object versions but
+        //          EXCLUDES delete markers. A marker has no metadata, so it is
+        //          skipped before the HeadObject call that would otherwise return
+        //          405; the run must not abort and the markers must be left in place.
+        // Setup:   Versioned bucket; 5 objects with metadata env=production and
+        //          5 with env=staging; delete 3 production keys to create markers.
+        // Expected: Pipeline succeeds; the 5 production object versions are deleted;
+        //           staging objects remain; all 3 delete markers remain.
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..5 {
+            let mut metadata = HashMap::new();
+            metadata.insert("env".to_string(), "production".to_string());
+            helper
+                .put_object_with_metadata(
+                    &bucket,
+                    &format!("data/prod{i}.dat"),
+                    vec![b'p'; 100],
+                    metadata,
+                )
+                .await;
+        }
+        for i in 0..5 {
+            let mut metadata = HashMap::new();
+            metadata.insert("env".to_string(), "staging".to_string());
+            helper
+                .put_object_with_metadata(
+                    &bucket,
+                    &format!("data/stage{i}.dat"),
+                    vec![b'g'; 100],
+                    metadata,
+                )
+                .await;
+        }
+
+        // Create delete markers on 3 production keys — HeadObject would 405 here.
+        for i in 0..3 {
+            create_delete_marker(&helper, &bucket, &format!("data/prod{i}.dat")).await;
+        }
+
+        assert_eq!(
+            count_delete_markers(&helper, &bucket).await,
+            3,
+            "3 delete markers should exist before the run"
+        );
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--delete-all-versions",
+            "--filter-include-metadata-regex",
+            "env=production",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(
+            !result.has_error,
+            "Delete markers must not abort a metadata-filtered --delete-all-versions run"
+        );
+        assert_eq!(
+            result.stats.stats_deleted_objects, 5,
+            "Only the 5 production object versions should be deleted (not the markers)"
+        );
+
+        assert_eq!(
+            count_delete_markers(&helper, &bucket).await,
+            3,
+            "All 3 delete markers must be excluded from a metadata-filtered run"
+        );
+        assert_eq!(
+            count_object_versions(&helper, &bucket, "data/stage").await,
+            5,
+            "All staging object versions should remain"
+        );
+        assert_eq!(
+            count_object_versions(&helper, &bucket, "data/prod").await,
+            0,
+            "All production object versions should be deleted"
+        );
+
+        guard.cleanup().await;
+    });
+}

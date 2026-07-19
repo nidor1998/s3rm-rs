@@ -403,6 +403,17 @@ fn generate_tagging_string_some() {
     assert!(s.contains("app=test"));
 }
 
+#[test]
+fn generate_tagging_string_empty_tag_set() {
+    // An object with no tags yields an empty (but present) tag string.
+    let output = GetObjectTaggingOutput::builder()
+        .set_tag_set(Some(vec![]))
+        .build()
+        .unwrap();
+    let result = generate_tagging_string(&Some(output));
+    assert_eq!(result, Some(String::new()));
+}
+
 // ===========================================================================
 // Unit tests: BatchDeleter
 // ===========================================================================
@@ -1207,11 +1218,12 @@ async fn object_deleter_delete_marker_skips_head_object_filter() {
     assert_eq!(mock.delete_object_calls.lock().unwrap().len(), 0);
 }
 
-// An exclude content-type filter must keep the delete marker (absent
-// content-type never matches the exclude pattern), and the HeadObject call must
-// still be skipped rather than cancelling the pipeline with a 405.
+// When a content-type filter is active, a delete marker must be filtered out
+// (not deleted), so a content-type-scoped run cannot resurrect the object the
+// marker hides. The HeadObject call must still be skipped rather than cancelling
+// the pipeline with a 405.
 #[tokio::test]
-async fn object_deleter_delete_marker_kept_by_exclude_content_type_filter() {
+async fn object_deleter_delete_marker_excluded_by_exclude_content_type_filter() {
     init_dummy_tracing_subscriber();
     let (stats_sender, _stats_receiver) = async_channel::unbounded();
     let (boxed, mock) = make_mock_storage_boxed(stats_sender);
@@ -1239,20 +1251,18 @@ async fn object_deleter_delete_marker_kept_by_exclude_content_type_filter() {
 
     deleter.delete().await.unwrap();
 
-    // HeadObject skipped; exclude filter + absent content-type → marker kept.
+    // HeadObject skipped; a content-type filter is active → marker filtered out.
     assert_eq!(mock.head_object_calls.lock().unwrap().len(), 0);
-    let batch_calls = mock.delete_objects_calls.lock().unwrap();
-    assert_eq!(batch_calls.len(), 1);
-    assert_eq!(batch_calls[0].identifiers.len(), 1);
-    assert_eq!(batch_calls[0].identifiers[0].key(), "gone.txt");
-    assert_eq!(batch_calls[0].identifiers[0].version_id(), Some("v1"));
+    assert_eq!(mock.delete_objects_calls.lock().unwrap().len(), 0);
+    assert_eq!(mock.delete_object_calls.lock().unwrap().len(), 0);
 }
 
 // Same for tag filters: GetObjectTagging on a delete-marker version returns 405.
-// An exclude tag filter must keep the marker (absent tags never match), and the
-// GetObjectTagging call must be skipped rather than cancelling the pipeline.
+// When a tag filter is active, a delete marker must be filtered out (not
+// deleted), and the GetObjectTagging call must be skipped rather than cancelling
+// the pipeline.
 #[tokio::test]
-async fn object_deleter_delete_marker_kept_by_exclude_tag_filter() {
+async fn object_deleter_delete_marker_excluded_by_exclude_tag_filter() {
     init_dummy_tracing_subscriber();
     let (stats_sender, _stats_receiver) = async_channel::unbounded();
     let (boxed, mock) = make_mock_storage_boxed(stats_sender);
@@ -1281,12 +1291,9 @@ async fn object_deleter_delete_marker_kept_by_exclude_tag_filter() {
 
     deleter.delete().await.unwrap();
 
-    // Exclude filter + absent tags → marker kept and deleted (with its version).
-    let batch_calls = mock.delete_objects_calls.lock().unwrap();
-    assert_eq!(batch_calls.len(), 1);
-    assert_eq!(batch_calls[0].identifiers.len(), 1);
-    assert_eq!(batch_calls[0].identifiers[0].key(), "gone.txt");
-    assert_eq!(batch_calls[0].identifiers[0].version_id(), Some("v1"));
+    // A tag filter is active → marker filtered out (not deleted).
+    assert_eq!(mock.delete_objects_calls.lock().unwrap().len(), 0);
+    assert_eq!(mock.delete_object_calls.lock().unwrap().len(), 0);
 }
 
 // Include tag filter: absent tags never match, so the marker is dropped, and the

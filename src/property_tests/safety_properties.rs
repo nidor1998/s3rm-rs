@@ -559,4 +559,19 @@ mod tests {
         let result = checker.check_before_deletion();
         assert!(result.is_ok());
     }
+
+    /// The real `StdioPromptHandler::is_interactive()` reports whether both
+    /// stdin and stdout are TTYs. Under the test harness at least one of them is
+    /// typically redirected, so the call must not block and must return a bool.
+    /// This exercises the production TTY-detection path without touching stdin.
+    #[test]
+    fn stdio_prompt_handler_is_interactive_returns_bool() {
+        use crate::safety::StdioPromptHandler;
+
+        let handler = StdioPromptHandler;
+        // We can't assert a fixed value (it depends on how the test binary is
+        // launched), but the call must complete without blocking and yield a
+        // boolean.
+        let _: bool = handler.is_interactive();
+    }
 }

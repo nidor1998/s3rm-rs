@@ -331,7 +331,7 @@ impl StorageTrait for S3Storage {
                 anyhow::anyhow!(e).context("aws_sdk_s3::client::get_bucket_versioning() failed.")
             })?;
 
-        Ok(response.status() == Some(&aws_sdk_s3::types::BucketVersioningStatus::Enabled))
+        Ok(is_versioned_status(response.status()))
     }
 
     fn get_client(&self) -> Option<Arc<Client>> {
@@ -852,6 +852,22 @@ fn is_express_onezone_bucket(bucket: &str) -> bool {
     bucket.ends_with(EXPRESS_ONEZONE_STORAGE_SUFFIX)
 }
 
+/// Map a `GetBucketVersioning` status to whether the bucket holds versions.
+///
+/// A `Suspended` bucket still retains all of its historical versions and delete
+/// markers; only new writes stop being versioned. Both `Enabled` and
+/// `Suspended` are therefore treated as versioned, so `--delete-all-versions`
+/// actually removes those retained versions (rather than degrading to null
+/// delete markers) and `--keep-latest-only` / `--filter-delete-marker-only`
+/// work against them. A bucket that was never versioned reports no status.
+fn is_versioned_status(status: Option<&aws_sdk_s3::types::BucketVersioningStatus>) -> bool {
+    matches!(
+        status,
+        Some(&aws_sdk_s3::types::BucketVersioningStatus::Enabled)
+            | Some(&aws_sdk_s3::types::BucketVersioningStatus::Suspended)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1246,6 +1262,20 @@ mod tests {
             err_msg.contains("get_bucket_versioning() failed"),
             "Expected error to contain 'get_bucket_versioning() failed', got: {err_msg}"
         );
+    }
+
+    #[test]
+    fn is_versioned_status_treats_enabled_and_suspended_as_versioned() {
+        use aws_sdk_s3::types::BucketVersioningStatus;
+
+        // Enabled and Suspended buckets both retain versions.
+        assert!(is_versioned_status(Some(&BucketVersioningStatus::Enabled)));
+        assert!(is_versioned_status(Some(
+            &BucketVersioningStatus::Suspended
+        )));
+
+        // A bucket that was never versioned reports no status.
+        assert!(!is_versioned_status(None));
     }
 
     // ---------------------------------------------------------------

@@ -196,4 +196,49 @@ pub(crate) mod tests {
 
         assert!(!is_before(&object, &config));
     }
+
+    #[test]
+    fn to_millis_overflow_returns_false() {
+        init_dummy_tracing_subscriber();
+
+        // DateTime::from_secs(i64::MAX) overflows when converting seconds to
+        // milliseconds, so to_millis() returns an error and the object is
+        // skipped (kept) to be safe.
+        let object = S3Object::NotVersioning(
+            Object::builder()
+                .key("overflow-millis")
+                .last_modified(DateTime::from_secs(i64::MAX))
+                .build(),
+        );
+
+        let config = FilterConfig {
+            before_time: Some(chrono::DateTime::from_str("2023-01-20T00:00:00.001Z").unwrap()),
+            ..Default::default()
+        };
+
+        assert!(!is_before(&object, &config));
+    }
+
+    #[test]
+    fn chrono_conversion_overflow_returns_false() {
+        init_dummy_tracing_subscriber();
+
+        // A timestamp whose seconds*1000 still fits in an i64 (so to_millis()
+        // succeeds) but is far beyond chrono's representable range, so the
+        // conversion to a chrono DateTime fails and the object is skipped
+        // (kept) to be safe.
+        let object = S3Object::NotVersioning(
+            Object::builder()
+                .key("overflow-chrono")
+                .last_modified(DateTime::from_secs(9_000_000_000_000_000))
+                .build(),
+        );
+
+        let config = FilterConfig {
+            before_time: Some(chrono::DateTime::from_str("2023-01-20T00:00:00.001Z").unwrap()),
+            ..Default::default()
+        };
+
+        assert!(!is_before(&object, &config));
+    }
 }

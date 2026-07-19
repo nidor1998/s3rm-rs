@@ -86,6 +86,7 @@ const INCLUDE_METADATA_REGEX_FILTER_NAME: &str = "include_metadata_regex_filter"
 const EXCLUDE_METADATA_REGEX_FILTER_NAME: &str = "exclude_metadata_regex_filter";
 const INCLUDE_TAG_REGEX_FILTER_NAME: &str = "include_tag_regex_filter";
 const EXCLUDE_TAG_REGEX_FILTER_NAME: &str = "exclude_tag_regex_filter";
+const DELETE_MARKER_ATTRIBUTE_FILTER_NAME: &str = "delete_marker_attribute_filter";
 
 // ---------------------------------------------------------------------------
 // ObjectDeleter worker
@@ -255,21 +256,35 @@ impl ObjectDeleter {
         }
 
         let key = object.key();
-        let head_result = self
+
+        // A delete marker has no content-type or user metadata, so a
+        // content-type/metadata filter cannot meaningfully describe it. Exclude
+        // markers from deletion whenever such a filter is active: deleting a
+        // latest delete marker resurrects the object it hides, which an
+        // attribute-scoped run never intends. (This also avoids the HTTP 405 a
+        // HeadObject on a delete-marker version returns, which would otherwise
+        // cancel the whole pipeline.) A full purge without attribute filters, or
+        // an explicit --filter-delete-marker-only run, still deletes markers.
+        if object.is_delete_marker() {
+            self.emit_filter_skip(object, DELETE_MARKER_ATTRIBUTE_FILTER_NAME)
+                .await;
+            return Ok(true);
+        }
+
+        let head_output = match self
             .base
             .target
             .head_object(key, object.version_id().map(|v| v.to_string()))
-            .await;
-
-        let head_output = match head_result {
-            Ok(output) => output,
+            .await
+        {
+            Ok(output) => Some(output),
             Err(e) => {
                 return self.handle_api_error(&e, key, "head_object").await;
             }
         };
 
         // Content-type filters
-        let content_type = head_output.content_type();
+        let content_type = head_output.as_ref().and_then(|o| o.content_type());
         if !self.decide_delete_by_regex(
             key,
             fc.include_content_type_regex.as_ref(),
@@ -295,7 +310,8 @@ impl ObjectDeleter {
 
         // Metadata filters
         let formatted_metadata = head_output
-            .metadata()
+            .as_ref()
+            .and_then(|o| o.metadata())
             .filter(|m| !m.is_empty())
             .map(format_metadata);
         let formatted_metadata_ref = formatted_metadata.as_deref();
@@ -337,21 +353,35 @@ impl ObjectDeleter {
         }
 
         let key = object.key();
-        let tagging_result = self
+
+        // A delete marker cannot be tagged, so a tag filter cannot meaningfully
+        // describe it. Exclude markers from deletion whenever a tag filter is
+        // active: deleting a latest delete marker resurrects the object it
+        // hides, which a tag-scoped run never intends. (This also avoids the
+        // HTTP 405 a GetObjectTagging on a delete-marker version returns, which
+        // would otherwise cancel the whole pipeline.) A full purge without tag
+        // filters, or an explicit --filter-delete-marker-only run, still deletes
+        // markers.
+        if object.is_delete_marker() {
+            self.emit_filter_skip(object, DELETE_MARKER_ATTRIBUTE_FILTER_NAME)
+                .await;
+            return Ok(true);
+        }
+
+        let tagging_output = match self
             .base
             .target
             .get_object_tagging(key, object.version_id().map(|v| v.to_string()))
-            .await;
-
-        let tagging_output = match tagging_result {
-            Ok(output) => output,
+            .await
+        {
+            Ok(output) => Some(output),
             Err(e) => {
                 return self.handle_api_error(&e, key, "get_object_tagging").await;
             }
         };
 
-        let formatted_tags = format_tags(tagging_output.tag_set());
-        let formatted_tags_ref = Some(formatted_tags.as_str());
+        let formatted_tags = tagging_output.as_ref().map(|o| format_tags(o.tag_set()));
+        let formatted_tags_ref = formatted_tags.as_deref();
         if !self.decide_delete_by_regex(
             key,
             fc.include_tag_regex.as_ref(),

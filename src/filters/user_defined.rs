@@ -287,4 +287,105 @@ mod tests {
         assert!(result.is_err());
         assert!(cancellation_token.is_cancelled());
     }
+
+    #[tokio::test]
+    async fn filter_error_with_event_callback_triggers_error_event() {
+        use crate::callback::event_manager::EventManager;
+        use crate::callback::filter_manager::FilterManager;
+        use crate::types::event_callback::{EventCallback, EventData, EventType};
+        use crate::types::filter_callback::FilterCallback;
+        use anyhow::Result;
+        use async_trait::async_trait;
+        use std::sync::Arc;
+        use tokio::sync::Mutex;
+
+        struct ErrorFilter;
+
+        #[async_trait]
+        impl FilterCallback for ErrorFilter {
+            async fn filter(&mut self, _object: &S3Object) -> Result<bool> {
+                Err(anyhow::anyhow!("boom"))
+            }
+        }
+
+        /// Collects events for test assertions.
+        struct CollectingCallback {
+            events: Arc<Mutex<Vec<EventData>>>,
+        }
+
+        #[async_trait]
+        impl EventCallback for CollectingCallback {
+            async fn on_event(&mut self, event_data: EventData) {
+                self.events.lock().await.push(event_data);
+            }
+        }
+
+        init_dummy_tracing_subscriber();
+
+        let (sender, receiver) = async_channel::bounded::<S3Object>(1000);
+        let cancellation_token = token::create_pipeline_cancellation_token();
+        let (mut base, _next_stage_receiver) =
+            create_base_helper(receiver, cancellation_token.clone()).await;
+
+        // Register a filter callback that always errors.
+        let mut manager = FilterManager::new();
+        manager.register_callback(ErrorFilter);
+        base.config.filter_manager = manager;
+
+        // Register an event callback so the error path emits a PIPELINE_ERROR event.
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let mut event_manager = EventManager::new();
+        event_manager.register_callback(
+            EventType::ALL_EVENTS,
+            CollectingCallback {
+                events: events.clone(),
+            },
+            false,
+        );
+        base.config.event_manager = event_manager;
+
+        let filter = UserDefinedFilter::new(base);
+        let object = S3Object::NotVersioning(Object::builder().key("error-me").build());
+
+        sender.send(object).await.unwrap();
+        sender.close();
+
+        let result = filter.filter().await;
+        assert!(result.is_err());
+        assert!(cancellation_token.is_cancelled());
+
+        let collected = events.lock().await;
+        assert_eq!(collected.len(), 1);
+        assert_eq!(collected[0].event_type, EventType::PIPELINE_ERROR);
+        assert!(
+            collected[0]
+                .message
+                .as_ref()
+                .unwrap()
+                .contains("User defined filter error")
+        );
+    }
+
+    #[tokio::test]
+    async fn send_returns_ok_when_next_stage_closed() {
+        init_dummy_tracing_subscriber();
+
+        let (sender, receiver) = async_channel::bounded::<S3Object>(1000);
+        let cancellation_token = token::create_pipeline_cancellation_token();
+        let (base, next_stage_receiver) =
+            create_base_helper(receiver, cancellation_token.clone()).await;
+
+        // Close the downstream channel so that send() reports SendResult::Closed
+        // and the worker returns Ok(()) early.
+        drop(next_stage_receiver);
+
+        let filter = UserDefinedFilter::new(base);
+        // No callback registered, so the object passes through and is sent.
+        let object = S3Object::NotVersioning(Object::builder().key("test-key").build());
+
+        sender.send(object).await.unwrap();
+        sender.close();
+
+        filter.filter().await.unwrap();
+    }
 }

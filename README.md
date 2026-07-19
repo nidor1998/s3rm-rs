@@ -98,6 +98,7 @@ This demo shows Express One Zone deleting approximately 34,000 objects per secon
     * [AI assessment of safety and correctness (by Claude, Anthropic)](#ai-assessment-of-safety-and-correctness-by-claude-anthropic)
     * [AI assessment of safety and correctness (by Codex)](#ai-assessment-of-safety-and-correctness-by-codex)
     * [AI assessment of safety and correctness (by Gemini)](#ai-assessment-of-safety-and-correctness-by-gemini)
+- [Security assumptions](#security-assumptions)
 - [Recommendation](#recommendation)
 - [Scope](#scope)
 - [Non-Goals](#non-goals)
@@ -647,6 +648,22 @@ s3rm filters objects in the following order:
 15. `--filter-exclude-tag-regex`
 
 Filters that require additional API calls (content type, metadata, tags) are applied last to minimize unnecessary requests.
+
+#### Delete markers and attribute filters
+
+Delete markers have no size, content-type, user metadata, or tags. When you run with `--delete-all-versions`, the
+size filters (`--filter-smaller-size`, `--filter-larger-size`) and the content-type, metadata, and tag filters
+therefore **exclude delete markers from deletion** — a delete marker cannot match a property it does not have, and
+deleting a *latest* delete marker would resurrect the object it hides, which an attribute-scoped run never intends.
+
+As a result:
+
+- A full purge (`--delete-all-versions` with no size/attribute filter) still deletes delete markers.
+- `--filter-delete-marker-only` still deletes delete markers, and can be combined with modification-time filters
+  (markers have a last-modified time). It cannot be combined with the size/content-type/metadata/tag filters, because
+  that would select nothing.
+- Modification-time filters (`--filter-mtime-before`, `--filter-mtime-after`) and key regex filters
+  (`--filter-include-regex`, `--filter-exclude-regex`) apply to delete markers normally.
 
 ### Confirmation prompt detail
 
@@ -1423,6 +1440,35 @@ s3rm-rs v1.2.2 is a masterclass in safe systems engineering for cloud storage. T
 **Gemini Assessment: S (Superior / Highly Recommended for Production Environments)**
 
 </details>
+
+## Security assumptions
+
+s3rm is built on a fundamental security assumption: **both the object storage system and the specific bucket you
+delete from must be trusted.**
+
+Within this trust model, s3rm implements the security measures you would reasonably expect of a deletion tool:
+encrypted transport (TLS/HTTPS) for data in transit, ETag-based optimistic locking (`--if-match`) for conditional
+deletion, and secure handling of credentials through the standard AWS credential providers. These measures protect the
+confidentiality and integrity of your operations against transport-level and accidental threats.
+
+However, s3rm assumes that the storage endpoint is honest and non-adversarial — that it correctly implements the S3
+API and returns the object listings, metadata, ETags, tags, and checksum values it actually stores, without tampering.
+Because s3rm decides *what* to delete from the listings and metadata the endpoint reports, its filtering and safety
+features — prefix scoping, regex/size/modified-time filters, user-defined metadata and tag filters, version handling,
+and `--if-match` — are **not** a defense against a malicious or compromised storage backend that deliberately returns
+falsified listings, forged metadata, or forged ETags. Against such an adversarial endpoint, these guarantees do not
+hold, and s3rm may delete objects it should have spared, or spare objects it should have deleted.
+
+Crucially, trust must extend to the **bucket**, not just the storage provider. Even when the object storage system
+itself is fully trustworthy, a bucket can still be adversarial — for example, a bucket you do not control, a shared
+bucket writable by others, or one whose objects, metadata, or tags were crafted by an attacker. If you delete *from*
+such a bucket, the data and metadata it serves are already untrusted at the source, and s3rm's guarantees no longer
+apply. A trusted storage provider hosting an untrusted bucket is, for the purposes of this security model, an untrusted
+source.
+
+Deleting from an untrusted, compromised, or non-conformant endpoint or bucket is outside s3rm's security model.
+Selecting a trustworthy storage provider, and ensuring that every bucket you delete from is one you control or trust —
+including its credentials, encryption, and access policies — remains your responsibility.
 
 ## Recommendation
 

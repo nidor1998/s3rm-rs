@@ -2,7 +2,8 @@
 //!
 //! Reused from s3sync's `pipeline/filter/larger_size.rs`.
 //! Passes objects whose size is greater than or equal to the configured threshold.
-//! Delete markers always pass (they have no meaningful size).
+//! Delete markers are filtered out (they have no meaningful size, and deleting a
+//! latest delete marker would resurrect the object it hides).
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -38,8 +39,12 @@ impl ObjectFilter for LargerSizeFilter<'_> {
 }
 
 fn is_larger_or_equal(object: &S3Object, config: &FilterConfig) -> bool {
+    // A delete marker has no meaningful size, so a size filter cannot describe
+    // it. Filter it out rather than deleting it: removing a latest delete marker
+    // resurrects the object it hides, which a size-scoped run never intends. A
+    // full purge without a size filter still deletes markers.
     if object.is_delete_marker() {
-        return true;
+        return false;
     }
 
     let Some(larger_size) = config.larger_size else {
@@ -143,7 +148,9 @@ pub(crate) mod tests {
             ..Default::default()
         };
 
-        assert!(is_larger_or_equal(&delete_marker, &config));
+        // A delete marker has no meaningful size and must be filtered out so a
+        // size-scoped run cannot resurrect the object it hides.
+        assert!(!is_larger_or_equal(&delete_marker, &config));
     }
 
     #[test]

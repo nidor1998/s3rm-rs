@@ -8,6 +8,7 @@
 mod common;
 
 use common::TestHelper;
+use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
 // 29.21 Versioned Bucket Creates Delete Markers
@@ -587,6 +588,208 @@ async fn e2e_delete_all_versions_empty_versioned_bucket() {
             "No objects to delete in empty bucket"
         );
         assert_eq!(result.stats.stats_failed_objects, 0, "No failures expected");
+
+        guard.cleanup().await;
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Delete All Versions: Versioning-Suspended bucket still removes every version
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_delete_all_versions_suspended_bucket_removes_all_versions() {
+    e2e_timeout!(async {
+        // Purpose: Verify --delete-all-versions on a versioning-SUSPENDED bucket
+        //          permanently removes every retained version and delete marker,
+        //          rather than degrading to versionless deletes (which would just
+        //          add null delete markers and leave the old versions billed and
+        //          intact). A suspended bucket still holds all historical
+        //          versions, so it must be treated as versioned.
+        // Setup:   Create versioned bucket; upload 5 keys twice (10 versions);
+        //          delete 2 keys via the normal API (2 delete markers); THEN
+        //          suspend versioning. Total retained: 10 versions + 2 markers.
+        // Expected: All 12 items are permanently deleted; bucket is clean.
+        //
+        // Regression: previously is_versioning_enabled() returned true only for
+        // Enabled, so a suspended bucket silently cleared --delete-all-versions.
+
+        const NUM_OBJECTS: usize = 5;
+        const VERSIONS_PER_OBJECT: usize = 2;
+        const NUM_DELETE_MARKERS: usize = 2;
+        const EXPECTED_TOTAL_ITEMS: u64 =
+            (NUM_OBJECTS * VERSIONS_PER_OBJECT + NUM_DELETE_MARKERS) as u64;
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        // 5 keys x 2 versions each = 10 object versions.
+        for i in 0..NUM_OBJECTS {
+            helper
+                .put_object(&bucket, &format!("versioned/file{i}.dat"), vec![b'v'; 100])
+                .await;
+        }
+        for i in 0..NUM_OBJECTS {
+            helper
+                .put_object(&bucket, &format!("versioned/file{i}.dat"), vec![b'w'; 200])
+                .await;
+        }
+
+        // Delete 2 keys via the normal API to create delete markers.
+        for i in 0..NUM_DELETE_MARKERS {
+            helper
+                .client()
+                .delete_object()
+                .bucket(&bucket)
+                .key(format!("versioned/file{i}.dat"))
+                .send()
+                .await
+                .unwrap_or_else(|e| panic!("Failed to create delete marker: {e}"));
+        }
+
+        // Suspend versioning AFTER the versions/markers exist. They are retained.
+        helper.suspend_bucket_versioning(&bucket).await;
+
+        // Sanity check: the versions and markers are still present while suspended.
+        let pre_versions = helper.list_object_versions(&bucket).await;
+        let pre_real_versions = pre_versions
+            .iter()
+            .filter(|(k, _)| !k.starts_with("[delete-marker]"))
+            .count();
+        let pre_delete_markers = pre_versions
+            .iter()
+            .filter(|(k, _)| k.starts_with("[delete-marker]"))
+            .count();
+        assert_eq!(
+            pre_real_versions,
+            NUM_OBJECTS * VERSIONS_PER_OBJECT,
+            "Suspended bucket should still retain all object versions"
+        );
+        assert_eq!(
+            pre_delete_markers, NUM_DELETE_MARKERS,
+            "Suspended bucket should still retain the delete markers"
+        );
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/versioned/"),
+            "--delete-all-versions",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        assert!(!result.has_error, "Pipeline should complete without errors");
+        assert_eq!(
+            result.stats.stats_deleted_objects, EXPECTED_TOTAL_ITEMS,
+            "Should permanently delete all {EXPECTED_TOTAL_ITEMS} retained items on a suspended bucket"
+        );
+
+        // Nothing may remain — a versionless degrade would have left the 10
+        // original versions in place and only added null delete markers.
+        let versions = helper.list_object_versions(&bucket).await;
+        assert!(
+            versions.is_empty(),
+            "No versions or delete markers should remain on the suspended bucket; found {}",
+            versions.len()
+        );
+        guard.cleanup().await;
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Delete All Versions + tag filter: delete markers must not abort the run
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_delete_all_versions_tag_filter_tolerates_delete_markers() {
+    e2e_timeout!(async {
+        // Purpose: Verify that --delete-all-versions combined with a tag filter
+        //          does NOT abort when the bucket contains delete markers.
+        //          GetObjectTagging on a delete-marker version returns HTTP 405,
+        //          which previously cancelled the whole pipeline on the first
+        //          marker. The marker must instead be evaluated against absent
+        //          tags (include filter → dropped) and the run must succeed.
+        // Setup:   Versioned bucket; upload 5 keys tagged status=expired and 5
+        //          tagged status=active; delete 3 of the expired keys via the
+        //          normal API to create delete markers.
+        // Expected: Pipeline succeeds (no 405 abort); the current (non-marker)
+        //           expired versions are deleted; active objects remain.
+
+        let helper = TestHelper::new().await;
+        let bucket = helper.generate_bucket_name();
+        helper.create_versioned_bucket(&bucket).await;
+
+        let guard = helper.bucket_guard(&bucket);
+
+        for i in 0..5 {
+            let mut tags = HashMap::new();
+            tags.insert("status".to_string(), "expired".to_string());
+            helper
+                .put_object_with_tags(
+                    &bucket,
+                    &format!("data/expired{i}.dat"),
+                    vec![b'e'; 100],
+                    tags,
+                )
+                .await;
+        }
+        for i in 0..5 {
+            let mut tags = HashMap::new();
+            tags.insert("status".to_string(), "active".to_string());
+            helper
+                .put_object_with_tags(
+                    &bucket,
+                    &format!("data/active{i}.dat"),
+                    vec![b'a'; 100],
+                    tags,
+                )
+                .await;
+        }
+
+        // Create delete markers on 3 expired keys (these are the versions that
+        // GetObjectTagging would 405 on).
+        for i in 0..3 {
+            helper
+                .client()
+                .delete_object()
+                .bucket(&bucket)
+                .key(format!("data/expired{i}.dat"))
+                .send()
+                .await
+                .unwrap_or_else(|e| panic!("Failed to create delete marker: {e}"));
+        }
+
+        let config = TestHelper::build_config(vec![
+            &format!("s3://{bucket}/data/"),
+            "--delete-all-versions",
+            "--filter-include-tag-regex",
+            "status=expired",
+            "--force",
+        ]);
+        let result = TestHelper::run_pipeline(config).await;
+
+        // The key assertion: the delete marker did not abort the pipeline.
+        assert!(
+            !result.has_error,
+            "Delete markers must not abort a --delete-all-versions tag-filter run"
+        );
+
+        // The 5 expired object versions match the include filter and are deleted;
+        // the 3 delete markers have no tags so the include filter drops them.
+        assert_eq!(
+            result.stats.stats_deleted_objects, 5,
+            "Only the 5 tagged expired object versions should be deleted"
+        );
+
+        // Active objects are untouched.
+        let active_remaining = helper.list_objects(&bucket, "data/active").await;
+        assert_eq!(
+            active_remaining.len(),
+            5,
+            "All active objects should remain"
+        );
 
         guard.cleanup().await;
     });

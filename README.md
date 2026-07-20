@@ -1281,109 +1281,56 @@ This does not guarantee the absence of bugs — the fixed v1.3.9/v1.4.0 defects 
 <details>
 <summary>Click to expand the full AI assessment</summary>
 
-> Assessment date: March 22, 2026
+> Assessment date: July 20, 2026
 >
-> Assessed version: s3rm-rs v1.2.2
+> Assessed version: s3rm-rs v1.4.0
 >
-> Basis: fresh repository-wide review of the current `v1.2.2` codebase, architecture, safety-critical paths (`pipeline`, `deleter`, `storage/s3`, `safety`, `config`, `types`, `lua`, `callback`), targeted review of recent commit history (`525` commits total; recent work heavily touched listing/deletion internals), and the latest test/coverage results provided in this thread. I did not mechanically reuse the prior Codex section.
+> Basis: a new review of the current source, tests, v1.3.x-v1.4.0 changes, and the latest `lcov.info` / `llvm-cov-report.txt`. I traced the safety gate, listing, filter, version/delete-marker, deletion, retry, cancellation, callback, and CLI exit paths. I also reran the normal local test suite and static/dependency checks. The previous Codex assessment was treated as obsolete rather than carried forward.
 
 #### Overall verdict
 
-I did not find a critical defect that suggests systemic over-deletion risk in `s3rm-rs` `v1.2.2`.
+I found **no critical defect that would systematically broaden the deletion target or bypass dry-run** in v1.4.0. The implementation is conservative at the points that matter most: S3 performs prefix scoping, all enabled filters compose as logical AND, uncertain version metadata defaults to keeping the object, attribute lookup failures do not become permission to delete, and the real delete backend is not called in dry-run mode.
 
-For a destructive S3 deletion tool, this codebase is unusually disciplined. The important safety properties are not concentrated in one place; they are enforced at multiple layers: CLI validation, runtime prerequisite checks, S3 API scoping, conservative version-handling defaults, cancellation propagation, and a broad test suite that exercises real AWS S3 behavior.
+My assessment is **production-credible for cautious use against a trusted S3 service and bucket**, not “proven safe.” Two concurrency/lifecycle qualifications and one test-matrix defect are documented below; none currently looks like a direct over-deletion primitive.
 
-That said, this is still a concurrent deletion tool operating against external infrastructure. I would describe it as **strongly engineered and production-credible**, not mathematically "proven safe." The remaining risks are mostly edge-case and operational, not signs of architectural unsoundness.
+#### Safety and correctness findings
 
-#### Why the current design looks safe
+1. **The CLI has a meaningful destructive-operation gate.** `SafetyChecker::check_before_deletion()` (`src/safety/mod.rs:225-290`) permits execution only for dry-run, explicit `--force`, or the exact case-sensitive response `yes`. Without `--force`, non-TTY stdin/stdout and JSON logging are rejected. The prompt distinguishes a prefix from a whole-bucket target, warns about recoverability, and suggests dry-run. Declining confirmation exits successfully without starting the pipeline.
 
-1. **Deletion is gated before the pipeline becomes destructive.**
-   `SafetyChecker::check_before_deletion()` in `src/safety/mod.rs` short-circuits destructive execution unless one of three conditions is true: dry-run, force mode, or successful exact-text confirmation (`yes`). It also refuses destructive execution in non-interactive contexts without `--force`, and treats JSON logging as non-interactive so prompts cannot corrupt structured output. That is the correct bias for a deletion CLI.
+2. **Dry-run is structurally separated from deletion.** After normal listing and filtering, `ObjectDeleter::delete_buffered_objects()` constructs a synthetic `DeleteResult` when `dry_run` is set and does not call `self.deleter.delete()` (`src/deleter/mod.rs:460-512`). Metadata and tag filters may still perform their required read APIs, but no S3 write API is reached through this path.
 
-2. **Dry-run is a real non-destructive branch, not "best effort."**
-   In `src/deleter/mod.rs`, `delete_buffered_objects()` has an explicit dry-run branch that synthesizes successful deletion results from the buffered objects and never calls the actual deleter backend. This matters. Many deletion tools claim dry-run safety while still letting real delete paths leak through shared code. Here the branch is structurally separate at the last possible moment before S3 deletion.
+3. **Selection is narrow and fails in the safe direction.** The configured prefix is passed directly to `ListObjectsV2` or `ListObjectVersions` (`src/storage/s3/mod.rs:531-635`), avoiding a local prefix-boundary implementation. Simple filters are chained, so an object must pass every active predicate. `HeadObject` / `GetObjectTagging` filters skip a 404 and cancel on other evaluation errors (`src/deleter/mod.rs:247-443`); inability to evaluate a filter is never treated as a match. Repeated or missing pagination markers cause errors rather than unbounded loops.
 
-3. **Prefix scoping is delegated to S3 itself, not reimplemented client-side.**
-   The lister passes the configured prefix directly to `ListObjectsV2` / `ListObjectVersions` in `src/storage/s3/mod.rs`. That removes an entire class of "prefix boundary" bugs caused by local string filtering. The tool is not listing bucket-wide and then attempting to prune in memory; it is asking S3 for the scoped set.
+4. **Version and delete-marker handling is deliberately conservative.** Runtime checks repeat the safety-critical CLI constraints for library callers: keep-latest-only and delete-marker-only require all-version listing, `if-match` conflicts with deleting explicit versions, and marker/retention modes reject never-versioned buckets (`src/pipeline.rs:230-291`). Both `Enabled` and `Suspended` bucket states are treated as versioned. `S3Object::is_latest()` maps missing state to `true`, so keep-latest-only retains ambiguous entries. In v1.4.0, size, content-type, metadata, and tag filters exclude delete markers, preventing an attribute-scoped operation from removing a latest marker and unintentionally revealing an older object. The explicit delete-marker-only filter passes only the marker enum variant.
 
-4. **Versioned deletion semantics are handled conservatively.**
-   `DeletionPipeline::check_prerequisites()` in `src/pipeline.rs` revalidates safety-critical combinations even for library users:
-   - `--keep-latest-only` requires `--delete-all-versions`
-   - `--if-match` is rejected with `--delete-all-versions`
-   - `--keep-latest-only` on a non-versioned bucket errors
-   - `--delete-all-versions` on a non-versioned bucket downgrades to ordinary deletion rather than inventing unsafe semantics
+5. **`--max-delete` is a strict admission ceiling, with an exactness nuance.** A shared `AtomicU64` is incremented before an eligible object enters a worker buffer (`src/deleter/mod.rs:203-242`); only counts at or below the configured limit are admitted. I do not see a path that can admit more than the limit, even with multiple workers. However, cancellation can cause other workers to discard already-admitted buffered objects, so the completed count may be *lower* than the limit under concurrency or failures. The live-S3 tests that require exactly N completions use `--batch-size 1`; users should interpret `--max-delete N` as “never more than N,” not a guarantee that exactly N will complete.
 
-   Separately, `S3Object::is_latest()` in `src/types/mod.rs` defaults missing `is_latest` metadata to `true`, which is the safer direction: ambiguous version metadata results in keeping objects, not deleting them.
+6. **Partial failure is observable.** Batch responses retain per-key failures, retry only the classified transient codes (`InternalError`, `SlowDown`, `ServiceUnavailable`, `RequestTimeout`, or a missing code) through single-object fallback, and preserve non-retryable failures (`src/deleter/batch.rs:177-249`). The CLI exits 3 when warnings remain, or 1 with `--warn-as-error`; errors and panics request pipeline cancellation. `--if-match` provides opt-in protection against deleting an object changed after listing.
 
-5. **`--keep-latest-only` is implemented with a fail-safe default.**
-   `src/filters/keep_latest_only.rs` only passes objects whose `is_latest()` is `false`. Non-versioned objects and version records with missing `is_latest` are treated as "keep," not "delete." That is exactly what I want in a retention-style deletion feature.
+#### Verification performed for this assessment
 
-6. **Content-type / metadata / tag filters are evaluated before deletion, and failures fail closed.**
-   In `src/deleter/mod.rs`, `HeadObject` and `GetObjectTagging`-based filters run before the object is buffered for deletion. If those API calls return not-found, the object is skipped. If they fail fatally, the pipeline is cancelled. That avoids a dangerous class of bug where "could not evaluate filter" silently becomes "delete anyway."
+- `cargo test --all-features`: **949 library + 33 binary + 3 subprocess + 15 doc tests passed** (1,000 locally executed tests, zero failures). The first attempt hit a host CA-root configuration problem; rerunning with the system CA bundle made all tests pass without a source change.
+- `cargo clippy --all-targets --all-features -- -D warnings`: passed.
+- `cargo deny check`: advisories, bans, licenses, and sources all passed. It emitted non-failing warnings for duplicate transitive versions and one unmatched license allowance.
+- `cargo build --no-default-features`: passed. `cargo test --no-default-features` stopped after its library target reported **905 passes and one failure** because `test_lua_script_path_existing_file_accepted` is not feature-gated and expects a Lua-only CLI flag to exist when Lua support is disabled. This is a test-configuration defect, not a deletion failure, but it means the test suite is not clean under every feature combination.
+- The repository contains **141 `e2e_test`-gated tests across 18 live-AWS files**. Their assertions cover actual before/after S3 state for dry-run, prefix boundaries, version purging, suspended versioning, keep-latest-only, delete-marker-only, marker exclusion from attribute filters, optimistic locking, partial failures, pagination, deep parallel listing, stress/backpressure, and Express One Zone. I inspected these tests but did **not** rerun them against AWS in this assessment, so their current live-service pass status is repository-provided evidence rather than an independently reproduced result.
+- The supplied coverage artifacts agree on **98.33% regions (19,126/19,451), 98.22% functions (1,547/1,575), and 98.42% lines (13,791/14,012)**. Critical files are strongly exercised (`pipeline.rs` 99.14% lines, `storage/s3/mod.rs` 97.90%, `deleter/mod.rs` 95.26%), while the terminal-dependent `safety/mod.rs` is only 66.17% by line. The aggregate also includes property-test and test-support modules, so it is broad execution evidence, not a production-only coverage denominator or a proof of correctness.
 
-7. **Concurrent failure handling is deliberate, not incidental.**
-   The pipeline uses cancellation tokens consistently. Lister, filters, and deleter workers all cancel on fatal stage errors. Panic containment is also intentional: the code uses a double-`tokio::spawn()` pattern in `src/pipeline.rs` so panics in worker tasks are surfaced, recorded, and converted into pipeline failure instead of being lost.
+#### Remaining risks and limits
 
-8. **Partial deletion failure is visible and not silently normalized into success.**
-   Batch deletion in `src/deleter/batch.rs` records per-key failures from `DeleteObjects`, retries only explicitly retryable error classes, and preserves non-retryable failures as failures. The main binary exits with warning/error semantics instead of pretending the run was clean.
+1. **Stage supervisors are detached.** `execute_pipeline()` awaits the terminator, but not the lister/filter/deleter supervisor handles (`src/pipeline.rs:295-321, 415-446, 463-491, 653-685`). Channel closure normally orders shutdown correctly, and tests exercise worker errors and panics, but there is a small scheduling window in which the terminator can finish before a supervisor records a just-completed error. That could theoretically produce a late/missing error flag, completion event, or process exit status. It does not expand the S3 prefix, but explicit joining would make failure accounting deterministic.
 
-9. **The S3-compatible and Express One Zone behavior shows defensive adaptation to storage differences.**
-   `src/config/args/mod.rs` automatically forces `batch_size = 1` for Express One Zone buckets unless the user explicitly allows the more aggressive mode. That is a safety-oriented compatibility decision, not a performance-first one.
+2. **Panics fail toward termination, not recovery.** Several AWS-response and initialization invariants use `expect()`. The double-spawn supervisors usually convert task panics into cancellation and exit 101, which is safer than continuing, but there is no rollback for deletions already acknowledged by S3.
 
-#### Why I think the correctness claims are believable
+3. **The library API assumes a more trusted caller than the CLI.** `Config::for_target()` sets `force = true`, and direct `Config` construction bypasses much of clap's validation. Important versioning combinations are rechecked at runtime, but library users remain responsible for validating the complete configuration. Likewise, `--allow-lua-os-library` and especially `--allow-lua-unsafe-vm` deliberately weaken the default callback sandbox.
 
-The strongest evidence is not the presence of tests by itself, but that the tests line up with the dangerous behaviors.
-
-The latest provided test output shows:
-- `125` integration/E2E tests passing across deletion, versioning, filters, callbacks, optimistic locking, retries, performance, stress, tracing, safety, and Express One Zone behavior
-- an additional indicator/UI test excerpt passing
-- coverage of `98.07%` regions, `97.97%` functions, and `98.43%` lines
-
-More importantly, the test inventory matches the actual failure modes I would worry about in this project:
-
-- dry-run not deleting real data
-- prefix boundary isolation
-- batch and single deletion behavior
-- versioned bucket semantics and delete markers
-- `keep-latest-only` behavior on real version graphs
-- `--if-match` preventing stale-object deletion
-- partial failure handling and exit-code propagation
-- parallel listing pagination and deep hierarchy traversal
-- stress scenarios for counters, channels, and batch boundaries
-- Lua sandboxing, timeout, and memory-limit behavior
-
-The repository also contains substantial unit and property-test coverage in `src/property_tests/`, including dedicated property suites for safety, versioning, optimistic locking, retry behavior, event callbacks, rate limiting, Lua integration, cross-platform path handling, and CI/CD invariants. That breadth matters because many of the riskiest bugs in a tool like this are not simple "single function returns wrong value" bugs; they are interaction bugs between configuration, object shape, concurrency, and S3 semantics.
-
-#### What still deserves caution
-
-1. **`--max-delete` is best-effort under concurrency, not an exact hard cap.**
-   The implementation is careful: the counter is checked after filtering, buffered objects are flushed before cancellation, and cancellation is propagated immediately. But with multiple workers and batch buffering, some in-flight overshoot remains possible. This is a normal consequence of concurrent destructive pipelines. If an operator requires a strict cap, they should use `--batch-size 1` and low concurrency.
-
-2. **Some runtime invariants are enforced with `expect(...)` rather than recoverable errors.**
-   The most relevant cases are `S3Object` field accessors in `src/types/mod.rs` and several "client initialized / semaphore exists" assumptions in `src/storage/s3/mod.rs`. In practice these invariants look reasonable and are backed by AWS SDK object construction patterns plus tests. But if an upstream SDK response or future refactor violates one of those assumptions, the likely outcome is abnormal termination, not graceful degradation. That is safer than silent over-deletion, but it is still operationally significant.
-
-3. **Library usage is safer than many libraries, but still not as guarded as the CLI.**
-   The pipeline does duplicate the important runtime checks, which is good. Still, `Config::for_target()` defaults `force = true`, and library consumers can construct configurations that bypass some CLI ergonomics and validation. I would trust the library API, but I would not describe it as "hard to misuse" in the same way as the CLI.
-
-4. **The latest release sits on top of recent listing refactors.**
-   The recent commit history includes substantial listing-path refactoring and test expansion just before `v1.2.2`. I did not see evidence that those changes introduced a bug, and the new tests are a positive sign. But if I were choosing one area for extra release paranoia, it would be parallel listing over real bucket shapes with deep prefixes and pagination, because that is the subsystem with the freshest structural churn.
-
-5. **Lua remains an explicit trust boundary.**
-   The default Lua mode is sensibly sandboxed and tested. Filter callback errors cancel the pipeline, which is the right failure mode. But `--allow-lua-unsafe-vm` intentionally weakens the trust model, and event callbacks are best-effort rather than safety-enforcing. That is acceptable because it is explicit, but it should not be mistaken for "same safety profile as no scripting."
+4. **The storage system and bucket are trust boundaries.** Correctness depends on S3 returning honest listings, version flags, ETags, metadata, and tags. Without `--if-match`, an object can change between listing/filtering and deletion. No client-side design can make an irreversible delete recoverable; versioning, retention controls, and backups remain operational requirements.
 
 #### Bottom line
 
-My zero-based assessment of `s3rm-rs` `v1.2.2` is that it is **carefully designed, technically credible, and safer than most small deletion utilities have any right to be**.
+v1.4.0 is **carefully engineered and suitable for cautious production use**. Its strongest safety properties come from code structure, not the headline test count: exact confirmation for interactive CLI use, a deletion-free dry-run branch, server-side prefix scoping, fail-closed attribute filters, conservative version defaults, explicit marker handling, and pre-admission max-delete accounting.
 
-The key reason is not just high coverage or lots of tests. It is that the implementation choices themselves are mostly conservative in the right places:
-- ambiguous version metadata defaults to keep
-- filter-evaluation failures do not become implicit deletes
-- dry-run does not share the real delete path
-- destructive CLI use is gated by confirmation / force logic
-- prefix scoping is pushed down to S3
-- fatal stage errors cancel the whole pipeline rather than allowing partial undefined continuation
-
-I would be comfortable describing this version as **suitable for cautious production use**, provided operators still use the normal safeguards appropriate for irreversible data deletion: narrow prefixes, dry-run first, explicit review for versioned buckets, and `batch_size = 1` when exact deletion caps matter more than throughput.
+For production, I would still require a narrow prefix, a reviewed dry-run, trusted bucket/endpoint and credentials, deliberate versioning semantics, `--if-match` for concurrently modified current-version targets, and independent recovery controls. The detached-supervisor race and the no-default-features test gating are the clearest follow-up items from this review.
 
 </details>
 

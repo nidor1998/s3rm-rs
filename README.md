@@ -1392,46 +1392,49 @@ I would be comfortable describing this version as **suitable for cautious produc
 <details>
 <summary>Click to expand the full AI assessment</summary>
 
-> Assessment date: March 22, 2026
+> Assessment date: July 20, 2026
 >
-> Assessed version: s3rm-rs v1.2.2
+> Assessed version: s3rm-rs v1.4.0
 >
-> Analysis Basis: A deep-dive architectural review of the streaming pipeline (src/pipeline.rs), safety-critical modules (src/safety/, src/deleter/), and an empirical evaluation of the 1,031 test cases (98.43% line coverage) including live-S3 E2E and property-based tests.
+> Analysis Basis: A comprehensive zero-based architectural review of the streaming pipeline (`src/pipeline.rs`), safety checkers (`src/safety/mod.rs`), batch/single deletion engines (`src/deleter/`), and empirical evaluation of `lcov.info` and `llvm-cov-report.txt` covering 1,141 total tests (98.42% line coverage, 98.33% region coverage, 98.22% function execution).
 
 #### 1. Architectural Integrity: The Streaming Pipeline
 
-The core of s3rm-rs is a high-performance, asynchronous streaming pipeline (Lister → Filter → Deleter → Terminator) connected by bounded async_channel primitives.
+The core of `s3rm-rs` is a high-performance, asynchronous streaming pipeline (Lister → Filter → Deleter → Terminator) connected by bounded `async_channel` primitives.
 
-- **Constant Memory Footprint**: The pipeline's memory usage is decoupled from bucket size. By processing objects in a bounded stream, s3rm-rs can safely navigate buckets with billions of objects where standard tools might suffer from OOM (Out of Memory) errors.
-- **Panic Isolation (Double-Spawn Pattern)**: Every stage of the pipeline employs a "double-spawn" pattern. The orchestrator spawns a wrapper task that awaits the inner worker task. This ensures that a panic in any worker (e.g., due to an unexpected S3 API response) is caught, logged, and triggers a graceful pipeline cancellation via a PipelineCancellationToken, rather than an uncontrolled process crash.
-- **Parallel Listing via Delimiter Partitioning**: The lister implements a sophisticated partitioning strategy in src/storage/s3/mod.rs. It utilizes S3's Delimiter="/" to recursively discover sub-prefixes, spawning parallel listing tasks up to a configurable depth (--max-parallel-listing-max-depth). This approach is inherently safe as it relies on S3's own partitioning contract to avoid missing or double-counting objects.
+- **Constant Memory Footprint**: The pipeline's memory usage is completely decoupled from bucket scale. By processing objects in a bounded stream, `s3rm-rs` safely navigates buckets containing billions of objects with constant $O(1)$ memory utilization.
+- **Panic Isolation (Double-Spawn Pattern)**: Every stage of the pipeline (`src/pipeline.rs`) employs a double-`tokio::spawn` pattern. The orchestrator spawns a wrapper task that awaits the inner worker task handle. If a worker panics (e.g., due to unexpected network anomalies or runtime state), the wrapper catches the panic, atomically sets the `has_panic` flag, logs the failure, and triggers immediate pipeline cancellation via a `PipelineCancellationToken`, preventing uncontrolled crashes or partial undefined executions.
+- **S3 API-Level Prefix Scoping & Parallel Listing**: The lister delegates prefix filtering directly to AWS S3 (`ListObjectsV2` / `ListObjectVersions` in `src/storage/s3/mod.rs`), eliminating local prefix boundary bugs. Parallel listing uses S3's `Delimiter="/"` to discover sub-prefixes recursively up to `max_parallel_listing_max_depth`. Furthermore, pagination includes same-continuation-token stall detection to prevent infinite loops when interacting with non-standard S3 endpoints.
 
 #### 2. Safety Engineering & Defense-in-Depth
 
-Safety is implemented as a first-class citizen through the SafetyChecker and multi-layered runtime validations.
+Safety is built into `s3rm-rs` through multi-layered runtime guardrails and CLI validations:
 
-- **Dry-Run Fidelity**: The dry-run implementation in src/deleter/mod.rs (lines 441-457) is logically air-gapped from the deletion API. When is_dry_run is true, the code path generates synthetic DeleteResult objects without ever invoking the deleter.delete() method. This ensures that the preview exactly matches the intended destructive path without any risk of accidental API calls.
-- **Interactive Safeguards**: The SafetyChecker enforces a strict "yes" (case-sensitive) confirmation prompt. It intelligently detects non-interactive environments (Non-TTY or JSON logging mode) and mandates the --force flag for such cases, preventing accidental execution in CI/CD pipelines or cron jobs.
-- **Threshold Enforcement**: The --max-delete threshold is implemented using an AtomicU64 with SeqCst memory ordering. When reached, the pipeline triggers an immediate graceful cancellation. A unique safety feature here is the "final flush": workers delete already-buffered objects before cancelling to ensure the state remains consistent with the logged intent.
-- **Express One Zone Auto-Protection**: The tool automatically detects directory buckets (via the --x-s3 suffix) and overrides the batch size to 1 to comply with storage class limitations, while disabling parallel listing by default to avoid listing in-progress multipart uploads.
+- **Interactive Blast-Radius Prompts**: The `SafetyChecker` (`src/safety/mod.rs`) requires an exact case-sensitive `"yes"` response (rejecting `"y"`, `"YES"`, or `"ok"`). Prompts clearly display the target blast radius (distinguishing full-bucket deletions from prefix-scoped runs) and remind users of non-recoverable deletions on non-versioned buckets.
+- **Non-TTY & Structured Output Guards**: Non-interactive execution (Non-TTY stdin/stdout or `--json-tracing` mode) returns exit code 2 (`InvalidConfig`) unless `--force` or `--dry-run` is explicitly provided.
+- **Air-Gapped Dry-Run**: The dry-run execution branch in `src/deleter/mod.rs` is logically separated prior to S3 deletion calls. When `is_dry_run` is enabled, the worker generates synthetic `DeleteResult` objects and logs output with a `[dry-run]` prefix without invoking `deleter.delete()`.
+- **Atomic Cap Admission (`--max-delete`)**: The threshold cap is enforced via an `AtomicU64` counter using `SeqCst` memory ordering (`src/deleter/mod.rs`). The counter increments per object *before* admission into the delete buffer, guaranteeing that the limit cannot be overshot even under high multi-worker concurrency.
+- **Credential Privacy (v1.4.0)**: CLI help output masks credential environment variables (`--target-access-key`, `--target-secret-access-key`, `--target-session-token`) using `hide_env_values` to prevent secret leakage in CI/CD logs or shell scrollbacks.
+- **Express One Zone Auto-Protection**: Directory buckets (`--x-s3` suffix) automatically default to `batch_size = 1` and disable parallel listing by default to comply with directory bucket storage constraints.
 
-#### 3. Deletion Correctness and Resilience
+#### 3. Deletion Correctness & S3 Semantics (v1.4.0 Enhancements)
 
-- **Adaptive Retry Logic**: The BatchDeleter (src/deleter/batch.rs) implements a two-tier resilience strategy. If a 1,000-object batch deletion reports partial failures, s3rm-rs identifies "retryable" error codes (e.g., InternalError, SlowDown, ServiceUnavailable) and automatically falls back to individual DeleteObject calls for those specific keys. Non-retryable errors (e.g., AccessDenied) are surfaced as warnings without blocking the remaining pipeline.
-- **Optimistic Locking**: The --if-match feature enables ETag-based conditional deletion. This provides strong consistency guarantees in active buckets by ensuring an object is only deleted if its ETag matches the value retrieved during the listing phase, effectively preventing race conditions with other writers.
-- **Versioning Sophistication**: The KeepLatestOnlyFilter and --delete-all-versions logic correctly handle the complexities of S3 versioned buckets. The tool differentiates between creating delete markers and permanent version removal, with explicit runtime checks to ensure incompatible flags (like --if-match and --delete-all-versions) are rejected.
+- **Delete Marker Exclusion from Attribute Filters (v1.4.0 Fix)**: Size filters (`--filter-smaller-size`, `--filter-larger-size`), metadata, tag, and content-type filters explicitly skip `DeleteMarker` objects (`src/deleter/mod.rs`). Because delete markers have no size or metadata, evaluating them previously resulted in HTTP 405 errors or risk of resurrecting hidden objects by removing their latest delete marker. Now, attribute-scoped runs safely bypass delete markers, while `--delete-all-versions` purges them.
+- **Versioned & Versioning-Suspended Buckets (v1.4.0 Fix)**: Buckets with versioning status `Suspended` retain historical versions and delete markers. `s3rm-rs` treats `Suspended` buckets as versioned across `--delete-all-versions` (permanently purging versions instead of adding null delete markers), `--keep-latest-only`, and `--filter-delete-marker-only`.
+- **Adaptive Batch Retries**: The `BatchDeleter` (`src/deleter/batch.rs`) classifies transient S3 errors (`InternalError`, `SlowDown`, `ServiceUnavailable`, `RequestTimeout`) and automatically falls back to single-object deletion for affected keys. Non-retryable errors (e.g., `AccessDenied`) fail closed and report detailed event callback warnings.
+- **Optimistic Locking (`--if-match`)**: Enables ETag-conditional deletions to prevent race conditions when operating on active buckets.
 
-#### 4. Verification Quality (The 1,000+ Test Milestone)
+#### 4. Empirical Verification & Test Suite Quality
 
-The testing rigor for v1.2.2 is exceptional, reaching 1,031 total tests with 98.43% line coverage.
+The test suite for `v1.4.0` reaches **1,141 total tests** with **98.42% line coverage** (13,791 / 14,012 lines), **98.33% region coverage** (19,126 / 19,451 regions), and **98.22% function execution** (1,547 / 1,575 functions):
 
-- **Empirical E2E Validation**: 125 E2E tests run against live AWS S3 infrastructure. These tests verify critical boundaries: prefix bleeding (ensuring prefix/ doesn't delete prefix-archive/), version retention, and multi-worker stress tests (using 32+ concurrent workers).
-- **Property-Based Correctness**: 41 proptest macros exercise the filtering and safety logic across millions of randomized inputs, uncovering edge cases in regex matching, timestamp boundaries, and size constraints that deterministic tests might miss.
-- **Regression Suite**: A dedicated proptest-regressions/ directory tracks historical edge cases, ensuring that once a bug is fixed, it never returns.
+- **Live AWS S3 E2E Integration Suite**: 141 E2E tests run against actual S3 infrastructure without mocks. These test suite modules verify prefix boundary isolation (`prefix/` vs `prefix-archive/`), dry-run fidelity, version purging, keep-latest retention, delete-marker-only isolation, rate-limiting backpressure, multi-worker stress tests (32 workers across 500+ objects), and Express One Zone behavior.
+- **Unit & Subprocess Exit Code Suite**: 1,000 unit, binary, CLI exit-code, and doc tests verify individual filter components, clap argument parsing, and non-interactive shell exit codes without network dependencies.
+- **Property-Based Testing**: 16 dedicated property-test modules (`src/property_tests/`) exercise randomized inputs across safety prompts, regex filters, size thresholds, timestamp boundaries, cross-platform path formatting, and Lua VM sandboxing invariants.
 
 #### Final Technical Verdict
 
-s3rm-rs v1.2.2 is a masterclass in safe systems engineering for cloud storage. The combination of a streaming async architecture, air-gapped dry-run logic, and an exhaustive 1,000+ test suite makes it significantly more robust and predictable than the standard AWS CLI.
+`s3rm-rs` v1.4.0 is a state-of-the-art example of safe, high-performance systems engineering for cloud infrastructure. The combination of an asynchronous streaming architecture, defense-in-depth safety checks, air-gapped dry-run logic, zero-defect marker handling, and an exhaustive 1,141-test suite makes it extraordinarily reliable for production cloud environments.
 
 **Gemini Assessment: S (Superior / Highly Recommended for Production Environments)**
 

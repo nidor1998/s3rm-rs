@@ -5,20 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.0] - 2026-07-20
+
+Monthly update.
 
 ### Security
 
-- `--help` no longer prints the values of credential environment variables. `--target-access-key`, `--target-secret-access-key`, and `--target-session-token` are now marked `hide_env_values`, so a secret supplied via the environment-variable form is no longer echoed in help output (e.g. CI logs, terminal scrollback, or a pasted bug report)
+- `--help` no longer prints the values of credential environment variables. `--target-access-key`,
+  `--target-secret-access-key`, and `--target-session-token` are now marked `hide_env_values`, so a secret supplied via
+  the environment-variable form is no longer echoed in help output (e.g. CI logs, terminal scrollback, or a pasted bug
+  report)
 
 ### Changed
 
-- Delete markers are now excluded from deletion by the size filters (`--filter-smaller-size`, `--filter-larger-size`) and the content-type/metadata/tag filters. A delete marker has no size, content type, metadata, or tags, and deleting a *latest* delete marker resurrects the object it hides — which an attribute-scoped run never intends. A full purge (`--delete-all-versions` with no such filter) and `--filter-delete-marker-only` still delete markers. Accordingly, `--filter-delete-marker-only` now conflicts with the size/content-type/metadata/tag filters (that combination selected nothing); modification-time and key-regex filters still apply to markers
+- Delete markers are now excluded from deletion by the size filters (`--filter-smaller-size`, `--filter-larger-size`)
+  and the content-type/metadata/tag filters. A delete marker has no size, content type, metadata, or tags, and deleting
+  a *latest* delete marker resurrects the object it hides — which an attribute-scoped run never intends. A full purge (
+  `--delete-all-versions` with no such filter) and `--filter-delete-marker-only` still delete markers. Accordingly,
+  `--filter-delete-marker-only` now conflicts with the size/content-type/metadata/tag filters (that combination selected
+  nothing); modification-time and key-regex filters still apply to markers
 
 ### Fixed
 
-- Versioning-suspended buckets are now treated as versioned. A suspended bucket still retains all of its historical versions and delete markers, so `--delete-all-versions` now permanently removes them instead of degrading to versionless deletes (which merely added null delete markers and left the old versions billed and intact). `--keep-latest-only` and `--filter-delete-marker-only` also no longer wrongly reject suspended buckets as "non-versioned"
-- Delete markers no longer abort `--delete-all-versions` runs that use content-type/metadata/tag filters. `HeadObject`/`GetObjectTagging` on a delete-marker version returns HTTP 405, which previously cancelled the entire pipeline on the first marker. These filters now skip the API call for delete markers (which are excluded from deletion — see the marker-exclusion change above)
+- Versioning-suspended buckets are now treated as versioned. A suspended bucket still retains all of its historical
+  versions and delete markers, so `--delete-all-versions` now permanently removes them instead of degrading to
+  versionless deletes (which merely added null delete markers and left the old versions billed and intact).
+  `--keep-latest-only` and `--filter-delete-marker-only` also no longer wrongly reject suspended buckets as "
+  non-versioned"
+- Delete markers no longer abort `--delete-all-versions` runs that use content-type/metadata/tag filters. `HeadObject`/
+  `GetObjectTagging` on a delete-marker version returns HTTP 405, which previously cancelled the entire pipeline on the
+  first marker. These filters now skip the API call for delete markers (which are excluded from deletion — see the
+  marker-exclusion change above)
+
+### Changed
+
+- aws-sdk-s3 `v1.137.0 -> v1.138.1`
+- MSRV `1.91.1 -> 1.94.1`
+- Updated other dependencies
 
 ## [1.3.8] - 2026-06-27
 

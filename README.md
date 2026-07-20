@@ -382,7 +382,7 @@ Download the latest binary from [GitHub Releases](https://github.com/nidor1998/s
 
 ### Build from source
 
-s3rm requires Rust 1.91.1 or later.
+s3rm requires Rust 1.94.1 or later.
 
 ```bash
 # Clone the repository

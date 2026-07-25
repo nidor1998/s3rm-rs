@@ -109,7 +109,6 @@ fn parse_human_bytes(s: &str) -> Result<u64, String> {
 pub struct CLIArgs {
     /// S3 target path: s3://<BUCKET_NAME>[/prefix]
     #[arg(
-        env,
         help = "s3://<BUCKET_NAME>[/prefix]",
         value_parser = check_s3_target,
         default_value_if("auto_complete_shell", clap::builder::ArgPredicate::IsPresent, "s3://ignored"),

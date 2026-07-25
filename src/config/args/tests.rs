@@ -19,6 +19,22 @@ fn parse_minimal_args() {
 }
 
 #[test]
+fn positional_target_has_no_env_binding() {
+    init_dummy_tracing_subscriber();
+
+    use clap::CommandFactory;
+    let command = CLIArgs::command();
+    let target = command
+        .get_arguments()
+        .find(|arg| arg.get_id() == "target")
+        .unwrap();
+    assert!(
+        target.get_env().is_none(),
+        "the positional target argument must not read the TARGET environment variable"
+    );
+}
+
+#[test]
 fn parse_dry_run_long() {
     let args = vec!["s3rm", "s3://bucket/", "--dry-run"];
     let cli = parse_from_args(args).unwrap();

@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
@@ -16,6 +18,7 @@ mod ctrl_c_handler;
 pub mod indicator;
 #[cfg(test)]
 mod indicator_properties;
+mod pipe_safe;
 mod tracing_init;
 pub mod ui_config;
 
@@ -31,14 +34,7 @@ async fn main() -> Result<()> {
     let config = load_config_exit_if_err();
 
     if let Some(shell) = config.auto_complete_shell {
-        generate(
-            shell,
-            &mut CLIArgs::command(),
-            "s3rm",
-            &mut std::io::stdout(),
-        );
-
-        return Ok(());
+        return print_completion_script(shell);
     }
 
     start_tracing_if_necessary(&config);
@@ -53,6 +49,30 @@ fn load_config_exit_if_err() -> Config {
         Ok(config) => config,
         Err(error_message) => {
             clap::Error::raw(clap::error::ErrorKind::ValueValidation, error_message).exit();
+        }
+    }
+}
+
+/// Render the shell-completion script for `shell` and print it pipe-safely.
+///
+/// clap_complete's generators panic on writer errors ("failed to write
+/// completion file"), so they never touch stdout directly: the script is
+/// rendered into an infallible in-memory buffer and written in one
+/// pipe-safe pass. A reader that exits early
+/// (`s3rm --auto-complete-shell bash | head`) yields exit 0; any other
+/// stdout write error is reported on stderr with exit 1.
+fn print_completion_script(shell: clap_complete::shells::Shell) -> Result<()> {
+    let mut script = Vec::new();
+    generate(shell, &mut CLIArgs::command(), "s3rm", &mut script);
+    match pipe_safe::write_all_pipe_safe(&script) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            // Tracing is never initialized on this path; best-effort stderr.
+            let _ = writeln!(
+                std::io::stderr(),
+                "error: failed to write completion script: {e}"
+            );
+            std::process::exit(1);
         }
     }
 }
@@ -121,7 +141,11 @@ async fn run(mut config: Config) -> Result<()> {
         if let Err(e) = pipeline.check_prerequisites().await {
             pipeline.close_stats_sender();
             if is_cancelled_error(&e) {
-                eprintln!("Deletion cancelled.");
+                // eprintln! panics when stderr is a closed pipe; the
+                // cancellation notice is best-effort, like the tracing
+                // output (PipeSafeWriter), which already ignores a
+                // closed stderr.
+                let _ = writeln!(std::io::stderr(), "Deletion cancelled.");
                 debug!("deletion cancelled by user.");
                 return Ok(());
             }

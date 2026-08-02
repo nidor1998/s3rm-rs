@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use crate::types::event_callback::{EventCallback, EventData, EventType};
 use async_trait::async_trait;
 
@@ -27,34 +29,37 @@ impl EventCallback for UserDefinedEventCallback {
     // If a callback function takes a long time to execute, it may block a whole pipeline.
     async fn on_event(&mut self, event_data: EventData) {
         // Todo: Implement your custom event handling logic here.
+        // eprintln! panics when stderr is a closed pipe (`s3rm ... 2>&1 |
+        // head`); event reporting is best-effort, like the tracing output,
+        // which already ignores a closed stderr.
         match event_data.event_type {
             EventType::PIPELINE_START => {
-                eprintln!("Pipeline started: {event_data:?}");
+                let _ = writeln!(std::io::stderr(), "Pipeline started: {event_data:?}");
             }
             EventType::PIPELINE_END => {
-                eprintln!("Pipeline ended: {event_data:?}");
+                let _ = writeln!(std::io::stderr(), "Pipeline ended: {event_data:?}");
             }
             EventType::DELETE_COMPLETE => {
-                eprintln!("Delete complete: {event_data:?}");
+                let _ = writeln!(std::io::stderr(), "Delete complete: {event_data:?}");
             }
             EventType::DELETE_FAILED => {
-                eprintln!("Delete failed: {event_data:?}");
+                let _ = writeln!(std::io::stderr(), "Delete failed: {event_data:?}");
             }
             EventType::DELETE_FILTERED => {
-                eprintln!("Delete filtered: {event_data:?}");
+                let _ = writeln!(std::io::stderr(), "Delete filtered: {event_data:?}");
             }
             EventType::PIPELINE_ERROR => {
-                eprintln!("Pipeline error: {event_data:?}");
+                let _ = writeln!(std::io::stderr(), "Pipeline error: {event_data:?}");
             }
             EventType::DELETE_CANCEL => {
-                eprintln!("Delete cancelled: {event_data:?}");
+                let _ = writeln!(std::io::stderr(), "Delete cancelled: {event_data:?}");
             }
             EventType::STATS_REPORT => {
-                eprintln!("Stats report: {event_data:?}");
+                let _ = writeln!(std::io::stderr(), "Stats report: {event_data:?}");
             }
             // Currently, all events are captured by above match arms,
             _ => {
-                eprintln!("Other events: {event_data:?}");
+                let _ = writeln!(std::io::stderr(), "Other events: {event_data:?}");
             }
         }
     }

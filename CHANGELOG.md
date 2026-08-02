@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] - 2026-08-02
+
+### Fixed
+
+- Generating shell completions into a closed pipe (`s3rm --auto-complete-shell bash | head 1`) panicked inside
+  clap_complete with `failed to write completion file: ... Broken pipe`. `head` treats `1` as a file name, fails to
+  open it, and exits without reading its input at all, so the pipe is already closed when s3rm prints the script —
+  and any consumer that stops reading before the output ends does the same (`head -1` when the output is larger than
+  the pipe buffer, `grep -q`, a pager closed early). The completion script is now rendered to an in-memory buffer and
+  written pipe-safely: a closed pipe is treated as the normal end of a pipeline and the command exits 0 — note that
+  under `set -o pipefail` such pipelines now succeed where the panic previously failed them. Any other stdout write
+  failure (e.g. disk full on a redirect) now exits 1 with an error message instead of panicking.
+- The blank spacing line printed to stderr after the final deletion summary panicked when stderr was a closed pipe
+  (e.g. `s3rm -f ... 2>&1 | head -1`): the deletion itself had already completed, but the process died with exit
+  code 101 (abnormal termination) instead of reporting the pipeline result. The `Deletion cancelled.` notice and the
+  example `UserDefinedEventCallback` event lines had the same defect. All of them are now written best-effort,
+  matching the tracing output, which already ignored a closed stderr.
+
 ## [1.5.1] - 2026-07-26
 
 Dependency update.

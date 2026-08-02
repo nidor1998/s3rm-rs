@@ -134,7 +134,10 @@ pub fn show_indicator(
                             HumanDuration(elapsed),
                         ));
 
-                        eprintln!();
+                        // eprintln! panics when stderr is a closed pipe
+                        // (`s3rm ... 2>&1 | head`); the summary spacing
+                        // line is best-effort, like the flush below.
+                        let _ = writeln!(io::stderr());
                         let _ = io::stderr().flush();
                     }
 

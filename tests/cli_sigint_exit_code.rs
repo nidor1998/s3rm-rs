@@ -300,6 +300,7 @@ fn spawn_s3rm(endpoint: &str, extra_args: &[&str]) -> Child {
 /// counted by `counter`, so the child is provably inside the pipeline (its
 /// Ctrl+C handler is installed before the pipeline starts, thus long since
 /// registered). Fails fast with the child's stderr if it exits early.
+#[cfg(target_family = "unix")]
 fn wait_for_count(child: &mut Child, counter: &AtomicUsize, at_least: usize, what: &str) {
     let deadline = Instant::now() + Duration::from_secs(30);
     while counter.load(Ordering::SeqCst) < at_least {

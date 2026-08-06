@@ -24,6 +24,10 @@ pub mod ui_config;
 
 const EXIT_CODE_WARNING: i32 = 3;
 const EXIT_CODE_ABNORMAL_TERMINATION: i32 = 101;
+/// Conventional exit code for termination by Ctrl+C: 128 + SIGINT(2), the
+/// shell encoding that lets scripts distinguish user interruption from
+/// real failures.
+const SIGINT_EXIT_CODE: i32 = 130;
 
 /// s3rm - Fast Amazon S3 object deletion tool.
 ///
@@ -176,6 +180,14 @@ async fn run(mut config: Config) -> Result<()> {
 
         let duration_sec = format!("{:.3}", start_time.elapsed().as_secs_f32());
 
+        // Ctrl+C takes precedence over whatever the pipeline recorded: once
+        // SIGINT is received the run is "interrupted", even if the forced
+        // shutdown also surfaced errors or warnings.
+        if ctrl_c_handler::is_ctrl_c_received() {
+            debug!(duration_sec = duration_sec, "deletion cancelled by user.");
+            std::process::exit(SIGINT_EXIT_CODE);
+        }
+
         if pipeline.has_error() {
             if pipeline.has_panic() {
                 error!(duration_sec = duration_sec, "s3rm abnormal termination.");
@@ -290,6 +302,24 @@ mod tests {
         assert!(
             !config.filter_manager.is_callback_registered(),
             "Filter callback should NOT be registered by default"
+        );
+    }
+
+    // ===================================================================
+    // SIGINT exit code tests
+    // ===================================================================
+
+    #[test]
+    fn sigint_exit_code_is_130() {
+        assert_eq!(SIGINT_EXIT_CODE, 130);
+    }
+
+    #[test]
+    #[cfg(target_family = "unix")]
+    fn sigint_exit_code_follows_128_plus_signal_number_convention() {
+        assert_eq!(
+            SIGINT_EXIT_CODE,
+            128 + nix::sys::signal::Signal::SIGINT as i32
         );
     }
 

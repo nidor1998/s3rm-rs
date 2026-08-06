@@ -790,6 +790,7 @@ An event callback Lua script does not stop the operation — just shows a warnin
 - 2: Invalid arguments
 - 3: Exit with warning (partial failure; use `--warn-as-error` to treat as error)
 - 101: Abnormal termination (internal panic)
+- 130: Interrupted by Ctrl+C (SIGINT; 128 + signal number, the conventional shell encoding)
 
 ## Advanced options
 

@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2] - 2026-08-21
+
+Monthly update.
+
+### Security
+
+- Address RUSTSEC-2026-0258 in the transitive `h2` dependency, which is used by hyper for the HTTP/2 connections the
+  AWS SDK makes to S3. `h2` accepted and queued empty HTTP/2 DATA frames without limit, so a malicious or faulty
+  endpoint could drive unbounded memory growth, or a panic on length overflow, in a long-running deletion. `h2` is now
+  `v0.4.18` (patched in `v0.4.16`)
+
+### Changed
+
+- aws-sdk-s3 `v1.140.0 -> v1.143.0`
+- Updated other dependencies
+
 ## [1.6.1] - 2026-08-08
 
 ### Fixed

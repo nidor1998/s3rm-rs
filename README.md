@@ -94,7 +94,7 @@ This demo shows Express One Zone deleting approximately 34,000 objects per secon
 - [Library API](#library-api)
 - [About testing](#about-testing)
 - [Fully AI-generated (human-verified) software](#fully-ai-generated-human-verified-software)
-    * [Quality verification (by AI self-assessment, v1.4.0)](#quality-verification-by-ai-self-assessment-v140)
+    * [Quality verification (by AI self-assessment, v1.6.2)](#quality-verification-by-ai-self-assessment-v162)
     * [AI assessment of safety and correctness (by Claude, Anthropic)](#ai-assessment-of-safety-and-correctness-by-claude-anthropic)
     * [AI assessment of safety and correctness (by Codex)](#ai-assessment-of-safety-and-correctness-by-codex)
     * [AI assessment of safety and correctness (by Gemini)](#ai-assessment-of-safety-and-correctness-by-gemini)
@@ -1152,26 +1152,26 @@ Every line of source code, every test, all documentation, CI/CD configuration, a
 
 Human engineers authored the requirements, design specifications, and s3sync reference architecture. They thoroughly reviewed and verified the design, all source code, and all tests. All features of the initial build binary have been manually tested and verified by humans. All E2E test scenarios have been thoroughly verified by humans against live AWS S3. The development followed a spec-driven process: requirements and design documents were written first, and the AI generated code to match those specifications under continuous human oversight.
 
-### Quality verification (by AI self-assessment, v1.4.0)
+### Quality verification (by AI self-assessment, v1.6.2)
 
 | Metric | Value |
 |---|---|
-| Production code | 15,399 lines of Rust (69 source files) |
-| Test code | 30,553 lines (1.98x production code) |
-| Unit & property tests | 985 passing (949 lib + 33 binary + 3 CLI integration), 0 failing |
+| Production code | 16,795 lines of Rust (70 source files) |
+| Test code | 30,110 lines (1.79x production code) |
+| Unit & property tests | 1,006 passing (950 lib + 43 binary + 13 CLI integration), 0 failing |
 | Property-based tests (proptest) | 58 proptest macros across 21 test files |
 | E2E integration tests | 141 tests across 18 test files, all verified against live AWS S3 |
-| Total tests | 1,141 passing (985 unit/property + 141 E2E + 15 doc-tests), 0 failing |
-| Code coverage (llvm-cov) | 98.33% regions, 98.22% functions, 98.42% lines |
+| Total tests | 1,162 passing (1,006 unit/property + 141 E2E + 15 doc-tests), 0 failing |
+| Code coverage (llvm-cov) | 98.34% regions, 98.25% functions, 98.41% lines |
 | Static analysis (clippy) | 0 warnings |
 | Dependency audit (cargo-deny) | advisories ok, bans ok, licenses ok, sources ok |
 | Security review (Claude Code) | No issues found |
-| Development | 600 commits, 65 PRs |
+| Development | 622 commits, 73 PRs |
 | Code reuse from [s3sync](https://github.com/nidor1998/s3sync) | ~90% of architecture |
 
 The codebase was built through spec-driven development: 45 tasks executed sequentially, each as a separate PR with human oversight. Every pull request is reviewed by two AI tools ([GitHub Copilot](https://github.com/features/copilot) and [CodeRabbit](https://www.coderabbit.ai/)) and by a human reviewer before merging. Audit checkpoints verified implementation against specifications at multiple stages. Property-based testing (proptest) exercises correctness properties across randomized inputs, complementing deterministic unit tests and live-AWS end-to-end tests.
 
-**Reliability assessment:** The systematic development process, high test density (nearly 2x test code to production code), zero static analysis warnings, clean dependency audit, 98%+ code coverage, and heavy reuse from a proven sibling project are strong quality indicators. As with any new software, reliability will be further demonstrated through real-world usage over time.
+**Reliability assessment:** The systematic development process, high test density (about 1.8x test code to production code), zero static analysis warnings, clean dependency audit, 98%+ code coverage, and heavy reuse from a proven sibling project are strong quality indicators. As with any new software, reliability will be further demonstrated through real-world usage over time.
 
 ### AI assessment of safety and correctness (by Claude, Anthropic)
 

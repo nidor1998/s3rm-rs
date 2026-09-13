@@ -1270,64 +1270,39 @@ Testing cannot prove the absence of bugs, and the findings above list the residu
 <details>
 <summary>Click to expand the full AI assessment</summary>
 
-> Assessment date: July 20, 2026
+> Assessment date: September 13, 2026 (Asia/Tokyo)
 >
-> Assessed revision: s3rm-rs v1.4.0 (`v1.4.0-3-gb2437e0`)
+> LLM: OpenAI Codex; Model: GPT-6; Effort: high (whole-source assessment).
 >
-> Scope: a from-scratch review of every Rust source file: all 90 files under `src/`, `tests/`, and `examples/` (46,070 lines), plus `build.rs`. I also reviewed the manifest and dependency policy, traced every production control path, inspected all unit/property/integration/E2E tests, and independently evaluated the supplied `lcov.info` and `llvm-cov-report.txt`. No conclusion from an earlier assessment was assumed.
+> Assessed revision: `v1.6.2-5-gffe8b19`. I examined the complete source tree (94 Rust files including `build.rs`, plus two Lua examples), the manifest, and the supplied coverage artifacts. This assessment was made from the code and test evidence, without using another AI assessment as a reference.
 
-#### Overall verdict
+#### Verdict
 
-I found **no critical CLI defect that broadens the requested S3 target, exceeds `--max-delete`, or reaches a delete API during dry-run**. The destructive path is intentionally conservative: S3 applies the prefix, enabled filters compose as logical AND, ambiguous latest-version state is retained, attribute-filter failures do not become matches, and deletion is behind a separate non-dry-run branch.
+The normal CLI path has meaningful protection against accidental deletion, but I cannot give the implementation an unconditional safety or correctness endorsement. In particular, a malformed `DeleteObjects` error response from an S3-compatible endpoint can cause its retry fallback to issue a **new `DeleteObject` request for a key that was never selected**. There are also definite library API defects and a race in completion reporting. These findings matter even though the local test suite passes with all features enabled.
 
-The CLI is **credible for cautious production use**, subject to the operational limits below. The crate as a public library is **not fully correct as documented**: I found two definite API defects, including a convenience constructor whose result cannot perform a real S3 operation. These defects do not create an over-deletion route, but they materially lower the correctness verdict for library consumers.
+#### Safeguards verified in code
 
-#### Safety properties confirmed
+- A real deletion requires `--force` or an interactive, exact `yes` confirmation. Without `--force`, non-TTY execution and JSON logging are refused; an empty prefix receives a whole-bucket warning (`src/safety/mod.rs`).
+- Dry-run follows the listing and filtering path but constructs simulated delete results before the backend call, so the reviewed dry-run path makes no S3 delete request (`src/deleter/mod.rs:485`). The reported deleted count in this mode is simulated.
+- Listings pass the configured prefix to S3. Key, size, time, version, and callback filters compose before deletion; attribute filters exclude delete markers. Failed attribute API calls cancel except for not-found objects. An absent attribute rejects an include regex but passes an exclude regex (`src/storage/s3/mod.rs`, `src/filters/`, `src/deleter/mod.rs`).
+- The shared `--max-delete` counter admits at most the configured number of eligible entries before batching (`src/deleter/mod.rs:203`). It is an upper bound on attempted entries, not a promise that exactly that many deletions complete. Versioned entries count separately.
+- Runtime checks also protect direct library callers from the main incompatible versioning modes. A missing `is_latest` flag retains the entry in keep-latest mode; suspended buckets are treated as versioned (`src/pipeline.rs:228`, `src/types/mod.rs:151`, `src/storage/s3/mod.rs:863`).
 
-1. **Destructive execution has a real gate.** `SafetyChecker::check_before_deletion()` permits only dry-run, `--force`, or the exact case-sensitive response `yes`. Without `--force`, non-TTY input/output and JSON logging are rejected. The prompt distinguishes prefix deletion from whole-bucket deletion and warns about recoverability. A refusal returns without starting the pipeline.
+#### Findings that limit the verdict
 
-2. **Dry-run cannot call the deletion backend through the reviewed pipeline.** Listing and filtering still run, including required `HeadObject` and tagging reads, but `ObjectDeleter::delete_buffered_objects()` synthesizes successful results instead of calling `self.deleter.delete()` (`src/deleter/mod.rs:485-500`).
+1. **Batch retry can escape the selected key set if the endpoint returns a malformed response.** For a retryable per-key error, `BatchDeleter` uses the response's `key`, or the literal `unknown` when it is absent, in a new `DeleteObject` request without checking membership in the submitted batch (`src/deleter/batch.rs:188`). A wrong key could therefore be deleted in the same bucket, outside the requested prefix and `--max-delete` admission set. This requires an incorrect or untrusted S3 response; the normal AWS response contract is an important trust assumption. Batch success/error entries are likewise not reconciled against the submitted identifiers.
+2. **`Config::for_target()` cannot run a real S3 operation as supplied.** It inherits `target_client_config: None`; storage then has no client and listing panics at `S3 client not initialized` (`src/config/mod.rs:130`, `src/storage/s3/mod.rs:55`). The CLI config builder supplies a client. Manually setting `filter_callback_lua_script` on a `Config` also does not register that callback; registration occurs during CLI-argument conversion (`src/config/args/mod.rs:783`).
+3. **Public duration reporting is wrong.** `DeletionPipeline::get_deletion_stats()` returns a snapshot whose `duration` is always zero (`src/pipeline.rs:207`, `src/types/mod.rs:228`). The CLI indicator and callback statistics measure time separately.
+4. **Pipeline status can race completion.** The lister, filter, and deletion supervisors are detached; `execute_pipeline()` joins only the terminator (`src/pipeline.rs:296`). Output channels can close before a supervisor records an error or panic, allowing a completion event or exit-state check to miss that failure.
+5. **Conditional deletion is conditional on having an ETag.** With `--if-match`, a listed object without an ETag is sent without a condition (`src/deleter/single.rs:36`, `src/deleter/batch.rs:154`). Even with an ETag, listing and deletion are separate operations, and previously completed deletions cannot be rolled back. `FORCE` and other flags may also be supplied by the process environment through clap.
 
-3. **Selection remains within the requested scope and fails closed.** The configured prefix is passed to `ListObjectsV2` or `ListObjectVersions`, rather than being recreated with local string matching (`src/storage/s3/mod.rs:531-540`). An object must pass every enabled filter. A missing object is skipped; other `HeadObject` or tagging failures cancel the operation. Missing or repeated pagination markers become errors instead of silently restarting a listing.
+#### Verification and its limits
 
-4. **Version and delete-marker rules are conservative.** Runtime validation repeats the important clap constraints for library callers: keep-latest-only and delete-marker-only require all-version listing, `if-match` conflicts with explicit-version deletion, and relevant modes reject never-versioned buckets. Both `Enabled` and `Suspended` are treated as versioned. Unknown `is_latest` state defaults to retaining the entry. Attribute filters exclude delete markers; the explicit marker-only filter matches only marker entries.
+`cargo test --locked --offline --all-features --all-targets` passed **1,006 tests**; all **15 doctests** passed. `cargo clippy --locked --offline --all-features --all-targets -- -D warnings` and `cargo fmt --all -- --check` passed. With default features disabled, **906 of 907 library tests passed**: `test_lua_script_path_existing_file_accepted` expects a Lua-only option although `lua_support` removes it (`src/property_tests/cross_platform_properties.rs:335`). That is a feature-matrix test defect.
 
-5. **`--max-delete` is a concurrent upper bound, not an exact completion promise.** A shared atomic counter admits an eligible object only when its sequence number is at most the configured limit (`src/deleter/mod.rs:203-241`). No reviewed interleaving admits more than N. Cancellation or failure can leave the completed count below N because other workers may still hold admitted buffers.
+The supplied `llvm-cov-report.txt` and `lcov.info` agree on **98.34% region coverage (19,318/19,645), 98.25% function coverage (1,569/1,597), and 98.41% line coverage (13,922/14,147)**. They cover 63 source files and include test code; branch coverage is not reported. The safety prompt module has only **66.17% line coverage**. Coverage shows exercised lines, not that the relevant assertions prove safe deletion.
 
-6. **Partial failures are preserved.** Batch deletion keeps per-key failures, retries classified transient failures through the single-object path, and reports non-retryable failures. Errors and panics request cancellation. The CLI maps warnings to exit 3, or to exit 1 with `--warn-as-error`. `--if-match` gives opt-in protection against a current object changing after listing when an ETag is available.
-
-#### Definite correctness defects found
-
-1. **`Config::for_target()` does not produce a runnable real-S3 configuration.** The documented constructor sets the target and `force`, then inherits `target_client_config: None` from `Config::default()` (`src/config/mod.rs:126-150`). `S3StorageFactory` consequently stores no client (`src/storage/s3/mod.rs:55-71`), while every real list/read/delete operation expects a client and panics with `S3 client not initialized` (for example, lines 173-179 and 529). The CLI avoids this by building a `ClientConfig`; the convenience library path does not. Existing constructor and doctests do not execute an S3 operation, so they miss the defect.
-
-2. **The public statistics duration is always zero.** `DeletionPipeline::get_deletion_stats()` returns `DeletionStatsReport::snapshot()` (`src/pipeline.rs:205-208`), and `snapshot()` unconditionally writes `Duration::default()` (`src/types/mod.rs:225-235`). Nothing later replaces that value. Object, byte, and failure counts are updated, but consumers of the public `DeletionStats.duration` field never receive the elapsed pipeline time. Callback statistics use a separate duration calculation and are not affected.
-
-3. **Stage failure accounting has a completion race.** The lister, filter, and deleter supervisors are detached `tokio::spawn` tasks; `execute_pipeline()` awaits only the terminator (`src/pipeline.rs:294-320`). Dropping an inner stage can close its output channel before the outer supervisor records the returned error or panic. The terminator may therefore finish, and completion events or exit-state checks may run, just before the supervisor sets `has_error`/`has_panic`. This is a small scheduling race, not a target-expansion mechanism, but the supervisors should be joined for deterministic status reporting.
-
-#### Verification performed for this assessment
-
-- `cargo test --all-features`, using the host's system CA bundle: **949 library, 33 binary, 3 subprocess, and 15 doctests passed**—1,000 locally executed tests with no failures.
-- `cargo clippy --all-targets --all-features -- -D warnings`, `cargo clippy --all-targets --no-default-features -- -D warnings`, `cargo fmt --all -- --check`, and `cargo build --no-default-features`: passed.
-- `cargo deny check`: advisories, bans, licenses, and sources passed. It reported only non-failing duplicate-version warnings and one unmatched license allowance.
-- `cargo test --no-default-features`: **905 library tests passed and one failed**. `test_lua_script_path_existing_file_accepted` is not gated for `lua_support` and expects a Lua-only CLI argument after that feature removes it. This is a real feature-matrix test defect, not a deletion-path failure.
-- I inspected all **141 `e2e_test`-gated tests in 18 live-AWS files**, including their state assertions, but did not execute them because they require credentials and mutate external buckets. They cover dry-run, prefix boundaries, pagination, version deletion and retention, suspended versioning, delete markers, optimistic locking, partial failure, stress/backpressure, deep parallel listing, and Express One Zone. Their current live-service result was therefore not independently reproduced here.
-- Both supplied coverage reports agree: **98.33% regions (19,126/19,451), 98.22% functions (1,547/1,575), and 98.42% lines (13,791/14,012)**. Relevant line coverage is 99.14% for `pipeline.rs`, 97.90% for `storage/s3/mod.rs`, and 95.26% for `deleter/mod.rs`; terminal-dependent `safety/mod.rs` is only 66.17%. The aggregate includes test-support and property-test code, so it is strong execution evidence, not a production-only denominator or proof of safety.
-
-#### Remaining risks and limits
-
-1. **S3 and the selected endpoint are trust boundaries.** Correctness relies on returned listings, version flags, ETags, metadata, and tags. Without `--if-match`, an object can change between selection and deletion; if listing supplies no ETag, the implementation omits the condition. There is no rollback for deletes already accepted by S3.
-
-2. **Environment variables can change CLI safety choices.** Clap enables `env` on the target and destructive flags, so inherited values such as `TARGET` or `FORCE=true` can supply or alter them without appearing in the command line. Operators should use a controlled environment and inspect the resolved target shown in logs/prompt.
-
-3. **Library callers bypass some CLI validation and confirmation expectations.** Direct `Config` construction is trusted; `Config::for_target()` deliberately sets `force = true`. Runtime code repeats the most important versioning checks but not every clap constraint. The opt-in `--allow-lua-os-library` and especially `--allow-lua-unsafe-vm` also widen the Lua trust boundary.
-
-4. **Panic containment stops work but cannot restore data.** Supervisors generally convert stage panics into cancellation and a panic status, although several invariants still use `expect()`/`unwrap()`. A crash is preferable to continuing with violated assumptions, but any previously acknowledged deletion remains irreversible without external recovery controls.
-
-#### Bottom line
-
-The **CLI deletion path is carefully engineered and suitable for cautious production use**, but this is not a blanket endorsement of every public API. Exact confirmation, deletion-free dry-run, S3-side prefix scoping, fail-closed filtering, conservative version handling, and pre-admission max-delete accounting provide meaningful protection against over-deletion.
-
-Before calling the crate fully correct, I would fix `Config::for_target()`, populate public statistics duration, join all stage supervisors, and gate the Lua-only no-default-features test. For real deletions I would still require a narrow reviewed target, a reviewed dry-run, controlled environment variables, trusted credentials and endpoint, deliberate versioning semantics, `--if-match` where applicable, and independent recovery controls.
+The source tree contains **141 live-AWS E2E tests in 18 gated files**. Their cases cover real bucket state after dry-run, filtering, prefix boundaries, versioning, pagination, partial failures, optimistic locking, and concurrency. I inspected their source but did not run them: the ordinary test command excludes `cfg(e2e_test)`, and these cases need AWS credentials and create/delete buckets. The supplied coverage artifacts were evaluated, not regenerated during this assessment.
 
 </details>
 

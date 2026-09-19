@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.3] - 2026-09-19
+
+Monthly update.
+
+### Security
+
+- Address RUSTSEC-2026-0285 in the transitive `rustls` dependency, which provides the TLS stack for the AWS SDK's
+  connections to S3. `rustls` accepted TLS 1.3 handshake messages sent at the wrong encryption level when they followed
+  a key-changing message in the same record (for example, a plaintext `EncryptedExtensions` packed into the same record
+  as the `ServerHello`) instead of terminating the connection as RFC 8446 requires. The handshake transcript is still
+  authenticated, so a network-position attacker cannot use this to alter or complete a handshake, but a peer could send
+  handshake messages in plaintext that should have been encrypted without rustls rejecting the connection. `rustls` is
+  now `v0.23.45` (patched in `v0.23.45`)
+
+### Changed
+
+- aws-sdk-s3 `v1.143.0 -> v1.146.1`
+- Updated other dependencies
+
 ## [1.6.2] - 2026-08-21
 
 Monthly update.

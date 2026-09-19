@@ -1,6 +1,6 @@
 [package]
 name = "s3rm-rs"
-version = "1.6.2"
+version = "1.6.3"
 edition = "2024"
 authors = ["nidor1998 <nidor1998@gmail.com>"]
 description = "Fast Amazon S3 object deletion tool."
@@ -42,13 +42,13 @@ tokio-util = "0.7.19"
 # `rustls` alias that pulls rustls 0.21 (vulnerable rustls-webpki 0.101.x,
 # RUSTSEC-2026-0098). The modern `default-https-client` feature, which uses
 # rustls 0.23 via `aws-smithy-http-client`, is re-enabled explicitly.
-aws-config = { version = "1.11.0", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio", "credentials-process", "sso"] }
-aws-runtime = "1.9.1"
-aws-sdk-s3 = { version = "1.143.0", default-features = false, features = ["sigv4a", "http-1x", "default-https-client", "rt-tokio"] }
-aws-smithy-runtime-api = "1.15.0"
-aws-smithy-types = "1.6.2"
+aws-config = { version = "1.12.0", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio", "credentials-process", "sso"] }
+aws-runtime = "1.9.2"
+aws-sdk-s3 = { version = "1.146.1", default-features = false, features = ["sigv4a", "http-1x", "default-https-client", "rt-tokio"] }
+aws-smithy-runtime-api = "1.16.0"
+aws-smithy-types = "1.6.3"
 aws-smithy-types-convert = { version = "0.61.1", features = ["convert-chrono"] }
-aws-types = "1.5.0"
+aws-types = "1.6.0"
 
 # CLI (same as s3sync)
 clap = { version = "4.6.6", features = ["derive", "env", "cargo", "string"] }
@@ -67,7 +67,7 @@ urlencoding = "2.1.3"
 leaky-bucket = "1.1.2"
 
 # Regex (same as s3sync)
-fancy-regex = "0.19.0"
+fancy-regex = "0.19.1"
 
 # Security (same as s3sync)
 zeroize = "1.9.0"
@@ -82,7 +82,7 @@ indicatif = "0.18.6"
 simple_moving_average = "1.0.2"
 
 # Lua support (same as s3sync, optional)
-mlua = { version = "0.12.0", features = ["lua54", "async", "send", "vendored"], optional = true }
+mlua = { version = "0.12.1", features = ["lua54", "async", "send", "vendored"], optional = true }
 
 # Byte unit parsing (same as s3sync)
 byte-unit = "5.2.5"
@@ -92,8 +92,8 @@ shadow-rs = { version = "2.0.0", optional = true }
 
 # Misc (same as s3sync)
 cfg-if = "1.0.4"
-bitflags = "2.13.1"
-log = "0.4.33"
+bitflags = "2.13.2"
+log = "0.4.34"
 
 [build-dependencies]
 shadow-rs = { version = "2.0.0", optional = true }
@@ -101,7 +101,7 @@ shadow-rs = { version = "2.0.0", optional = true }
 [dev-dependencies]
 proptest = "1.11"
 once_cell = "1.21.4"
-uuid = { version = "1.24.1", features = ["v4"] }
+uuid = { version = "1.26.1", features = ["v4"] }
 nix = { version = "0.31.3", features = ["process", "signal"] }
 tempfile = "3.27.0"
 rusty-fork = "0.3.1"

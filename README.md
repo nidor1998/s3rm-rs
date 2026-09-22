@@ -101,7 +101,6 @@ This demo shows Express One Zone deleting approximately 34,000 objects per secon
 - [Security assumptions](#security-assumptions)
 - [Recommendation](#recommendation)
 - [Scope](#scope)
-- [Non-Goals](#non-goals)
 - [License](#license)
 
 </details>
@@ -260,7 +259,7 @@ s3rm s3://bucket-name/prefix
 s3rm is designed to adapt to a wide range of deletion scenarios:
 
 - **12 CLI filter options plus programmable Lua/Rust filter callbacks** — regex on keys, content-type, user-defined metadata, and tags; size thresholds; modification time ranges; plus Lua scripting callbacks. See [Filtering order](#filtering-order) for the complete list.
-- **S3-compatible services (deprecated, as-is)** — `--target-endpoint-url` and `--target-force-path-style` remain available for use with MinIO, Wasabi, Cloudflare R2, and other S3-compatible storage. The functionality is provided **as-is** with no testing, no compatibility guarantees, and no fixes for issues specific to non-AWS backends. See [Custom endpoint](#custom-endpoint).
+- **S3-compatible services (best-effort)** — `--target-endpoint-url` and `--target-force-path-style` are available for use with MinIO, Wasabi, Cloudflare R2, and other S3-compatible storage. Such services are generally usable, but they are not part of the official test matrix, so behavior can differ between services. See [Custom endpoint](#custom-endpoint).
 - **S3 Express One Zone** — automatically detects Express One Zone directory buckets and adjusts listing behavior accordingly. See [S3 Express One Zone support](#s3-express-one-zone-support).
 - **CLI and library** — use s3rm as a standalone CLI tool or embed it as a Rust library in your own applications with custom filter and event callbacks.
 - **Configurable everything** — worker count (1 to 65,535), batch size (1 to 1,000), retry attempts, rate limiting, timeouts, parallel listing depth, and more. All options can be set via CLI flags or environment variables.
@@ -562,7 +561,7 @@ s3rm --max-delete 1000 --force s3://my-bucket/data/
 
 You can specify a custom endpoint URL via `--target-endpoint-url`. This can be used for AWS-side endpoints as well as for S3-compatible storage.
 
-> **Note on S3-compatible storage:** s3rm has **deprecated** support for S3-compatible (non-AWS) storage. The `--target-endpoint-url` and `--target-force-path-style` flags continue to work, but use against non-AWS backends is provided **as-is**: it is not tested, no compatibility work will be done, and bug reports specific to S3-compatible services will not be accepted. Only Amazon S3 (including S3 Express One Zone) is supported.
+> **Note on S3-compatible storage:** s3rm targets **Amazon S3** (including S3 Express One Zone) as its primary platform. S3-compatible (non-AWS) storage is supported on a **best-effort basis**: the `--target-endpoint-url` and `--target-force-path-style` flags are generally usable against such services, but they are not part of the official test matrix, so behavior can differ between services and change between releases. Features that depend on Amazon-S3-specific semantics may be unavailable or behave differently — notably conditional deletion (`--if-match`, see [Optimistic locking detail](#optimistic-locking-detail)), batch deletion via `DeleteObjects` (see [`--batch-size`](#--batch-size)), and object-version and delete-marker handling. Bug reports and questions about S3-compatible storage are welcome and will be looked at on a best-effort basis, but they are lower priority than Amazon S3 issues, fixes are not guaranteed, and problems that originate in the storage service itself belong with that service's operator.
 
 Warning: You may need to specify `--target-force-path-style`.
 
@@ -1112,9 +1111,9 @@ async fn main() {
 
 ## About testing
 
-**Supported target: Amazon S3 only.**
+**Primary target: Amazon S3.**
 
-Support for S3-compatible storage is **deprecated** and provided **as-is**. The `--target-endpoint-url` flag is retained for backward compatibility, but non-AWS backends are not tested, not validated against new releases, and bug reports specific to S3-compatible services will not be accepted. If it works for you, great — if it doesn't, use a tool that officially supports your backend.
+S3-compatible storage is supported on a **best-effort basis**. The `--target-endpoint-url` flag is generally usable against non-AWS backends, but they are not tested and not validated against new releases, so behavior can differ between services. Bug reports specific to S3-compatible services are welcome and will be looked at on a best-effort basis, but they are lower priority than Amazon S3 issues and fixes are not guaranteed.
 
 s3rm has been tested with Amazon S3. s3rm has comprehensive unit tests, property-based tests (proptest) covering 49 correctness properties, and 125 end-to-end integration tests across 17 test files.
 
@@ -1143,8 +1142,8 @@ Available test files: `e2e_deletion`, `e2e_filter`, `e2e_versioning`, `e2e_safet
 
 Express One Zone tests require the `S3RM_E2E_AZ_ID` environment variable (defaults to `apne1-az4` if unset).
 
-S3-compatible storage is not tested when a new version is released, and support is **deprecated**.
-Since there is no official certification for S3-compatible storage, comprehensive testing is not possible. Any breakage on non-AWS backends will be left as-is.
+S3-compatible storage is not tested when a new version is released.
+Since there is no official certification for S3-compatible storage, comprehensive testing is not possible, so breakage on non-AWS backends may not be caught before a release. Reports about such breakage are handled on a best-effort basis.
 
 ## Fully AI-generated (human-verified) software
 
@@ -1441,20 +1440,7 @@ We recommend trying s3rm in a test environment first — such as a non-productio
 
 ### Scope
 
-s3rm is a deletion-only tool. It is **not** intended to be a drop-in replacement for, or behaviorally compatible with, any other S3 client — examples include the AWS CLI (`aws s3 rm`, `aws s3api delete-object[s]`), `s5cmd rm`, `s3cmd del`, `rclone delete`, `mc rm`, etc., but the same applies to any S3 deletion or transfer tool. Its command-line flags, filter semantics, confirmation prompts, and exit codes are designed around fast parallel batch deletion with safety guardrails — not interoperability with another tool's interface. Flag names, output formats, and behavior will not be adjusted to match any external tool, and scripts written against another S3 client should not be expected to work with s3rm unmodified. If you need full S3 functionality (copy, sync, list, presign, multipart upload, etc.) or compatibility with a specific tool's flag set, use that tool.
-
-### Non-Goals
-
-The following are explicitly out of scope and will not be added, regardless of demand:
-
-- S3 operations other than object deletion (copy, sync, move, list, presign, multipart upload, tagging writes, policy/ACL changes, etc.). s3rm only deletes; for transfers use [s3sync](https://github.com/nidor1998/s3sync) or [s3util](https://github.com/nidor1998/s3util-rs), for listing use [s3ls](https://github.com/nidor1998/s3ls-rs), and for general S3 operations use the [AWS CLI](https://aws.amazon.com/cli/).
-- Recovering, restoring, or "undeleting" objects. Once s3rm issues a successful `DeleteObject(s)` call, recovery is the responsibility of S3 versioning, MFA Delete, replication, or external backups — s3rm provides no rollback.
-- Glob or wildcard expansion in S3 prefixes. The prefix you specify is passed to S3 as a literal string match. For pattern-based matching, use `--filter-include-regex` / `--filter-exclude-regex`, or a Lua / Rust filter callback, evaluated client-side after listing.
-- APIs other than `ListObjectsV2`, `ListObjectVersions`, `DeleteObjects`, `DeleteObject`, and the metadata/tag reads required by the corresponding filters (`HeadObject`, `GetObjectTagging`). Other S3 APIs are out of scope.
-- Compatibility with other S3 clients — neither in flag names and behavior, nor in feature coverage. The presence of a feature, flag, or output format in `aws s3 rm`, `aws s3api`, `s5cmd`, `s3cmd`, `rclone`, `mc`, or any other S3 tool is not, by itself, a reason to add or change it in s3rm. Each request is evaluated only against s3rm's own scope and design principles. Use that other tool if you need its specific surface.
-- A plugin or extension mechanism. Custom filtering and event handling are supported via the documented Lua scripting interface and the Rust library API; no separate plugin loader will be added.
-
-Issues and pull requests requesting any of the above will be closed.
+s3rm is a deletion-only tool. It is **not** intended to be a drop-in replacement for, or behaviorally compatible with, any other S3 client — examples include the AWS CLI (`aws s3 rm`, `aws s3api delete-object[s]`), `s5cmd rm`, `s3cmd del`, `rclone delete`, `mc rm`, etc., but the same applies to any S3 deletion or transfer tool. Its command-line flags, filter semantics, confirmation prompts, and exit codes are designed around fast parallel batch deletion with safety guardrails — not interoperability with another tool's interface. Flag names, output formats, and behavior will not be adjusted to match any external tool, and scripts written against another S3 client should not be expected to work with s3rm unmodified. If you need full S3 functionality (copy, sync, list, presign, multipart upload, etc.) or compatibility with a specific tool's flag set, use that tool: for transfers, [s3sync](https://github.com/nidor1998/s3sync) or [s3util](https://github.com/nidor1998/s3util-rs); for listing, [s3ls](https://github.com/nidor1998/s3ls-rs); and for general S3 operations, the [AWS CLI](https://aws.amazon.com/cli/).
 
 ## Contributing
 
@@ -1462,8 +1448,13 @@ Issues and pull requests requesting any of the above will be closed.
 - Since this project is considered functionally complete, I will not accept any feature requests.
 - If you find this project useful, feel free to fork and modify it as you wish.
 
-🔒 I consider this project “complete” and will maintain it only minimally going forward.
-However, I intend to keep the AWS SDK for Rust and other dependencies up to date monthly.
+**Dependency update policy**
+
+The AWS SDK for Rust and the other dependencies are updated on a regular, roughly monthly cadence, and sooner when a security advisory requires it.
+
+When an update introduces new S3 features, API additions, or client settings, they are evaluated and adopted as needed — that is, when they matter for correctness, safety, or the existing feature set. Not every new SDK capability will be surfaced as a s3rm option; additions that fall outside the [Scope](#scope) above are intentionally left out.
+
+Critical bug fixes are applied on a best-effort basis.
 
 ## License
 

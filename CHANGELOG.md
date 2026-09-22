@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.4] - 2026-09-22
+
+Documentation update.
+
+### Changed
+
+- S3-compatible (non-AWS) storage moves from **deprecated, as-is** to **best-effort** support in the documentation.
+  Amazon S3 (including S3 Express One Zone) remains the primary target and the only platform in the release test
+  matrix, but `--target-endpoint-url` and `--target-force-path-style` are no longer described as deprecated, and bug
+  reports and questions about S3-compatible services are now welcome — handled on a best-effort basis, at lower
+  priority than Amazon S3 issues and with no guarantee of a fix. The README now calls out the areas most likely to
+  differ between services: conditional deletion (`--if-match`), batch deletion via `DeleteObjects`, and object-version
+  and delete-marker handling. Documentation only — behavior against non-AWS backends is unchanged.
+- Removed the README "Non-Goals" section. The sibling-tool pointers it carried (s3sync, s3util, s3ls, and the AWS CLI)
+  are now part of "Scope", which continues to state that s3rm is a deletion-only tool and is not a drop-in replacement
+  for any other S3 client.
+- Replaced the "minimal maintenance" note in "Contributing" with an explicit dependency update policy: the AWS SDK for
+  Rust and the other dependencies are updated on a roughly monthly cadence, and sooner when a security advisory
+  requires it. New SDK features, API additions, and client settings are adopted only when they matter for correctness,
+  safety, or the existing feature set; critical bug fixes are applied on a best-effort basis.
+
 ## [1.6.3] - 2026-09-19
 
 Monthly update.

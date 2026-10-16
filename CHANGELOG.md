@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.5] - 2026-10-17
+
+Monthly update.
+
+### Security
+
+- Address RUSTSEC-2026-0349 (GHSA-w44r-93j7-qv28) in the transitive `rustls` dependency, which provides the TLS stack
+  for the AWS SDK's connections to S3. `rustls` remembered the key-exchange group chosen in an unauthenticated
+  `ServerHello` and reused that choice for later connections to the same server name, so a network attacker could
+  silently downgrade subsequent handshakes from the hybrid post-quantum `X25519MLKEM768` exchange to classical X25519.
+  There is no key compromise or authentication bypass; the impact is loss of post-quantum confidentiality for affected
+  connections ("harvest now, decrypt later"). `rustls` is now `v0.23.46`, the first patched release
+
+### Changed
+
+- aws-sdk-s3 `v1.146.1 -> v1.152.0`
+- Updated other dependencies
+
 ## [1.6.4] - 2026-09-22
 
 Documentation update.

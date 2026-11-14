@@ -1,13 +1,12 @@
 [package]
 name = "s3rm-rs"
-version = "1.6.5"
+version = "1.6.6"
 edition = "2024"
 authors = ["nidor1998 <nidor1998@gmail.com>"]
 description = "Fast Amazon S3 object deletion tool."
 license = "Apache-2.0"
 rust-version = "1.94.1"
 repository = "https://github.com/nidor1998/s3rm-rs"
-homepage = "https://github.com/nidor1998/s3rm-rs"
 documentation = "https://docs.rs/s3rm-rs"
 readme = "README.md"
 keywords = ["AWS", "Amazon", "S3", "delete"]
@@ -34,7 +33,7 @@ thiserror = "2.0.21"
 # Async runtime (same as s3sync)
 async-trait = "0.1.92"
 async-channel = "2.5.0"
-tokio = { version = "1.53.2", features = ["full"] }
+tokio = { version = "1.54.1", features = ["full"] }
 tokio-util = "0.7.20"
 
 # AWS SDK (same versions as s3sync)
@@ -42,13 +41,13 @@ tokio-util = "0.7.20"
 # `rustls` alias that pulls rustls 0.21 (vulnerable rustls-webpki 0.101.x,
 # RUSTSEC-2026-0098). The modern `default-https-client` feature, which uses
 # rustls 0.23 via `aws-smithy-http-client`, is re-enabled explicitly.
-aws-config = { version = "1.12.0", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio", "credentials-process", "sso"] }
-aws-runtime = "1.10.0"
-aws-sdk-s3 = { version = "1.152.0", default-features = false, features = ["sigv4a", "http-1x", "default-https-client", "rt-tokio"] }
-aws-smithy-runtime-api = "1.19.0"
-aws-smithy-types = "1.8.1"
+aws-config = { version = "1.13.0", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio", "credentials-process", "sso"] }
+aws-runtime = "1.10.2"
+aws-sdk-s3 = { version = "1.157.0", default-features = false, features = ["sigv4a", "http-1x", "default-https-client", "rt-tokio"] }
+aws-smithy-runtime-api = "1.20.0"
+aws-smithy-types = "1.9.3"
 aws-smithy-types-convert = { version = "0.61.1", features = ["convert-chrono"] }
-aws-types = "1.6.0"
+aws-types = "1.7.0"
 
 # CLI (same as s3sync)
 clap = { version = "4.6.7", features = ["derive", "env", "cargo", "string"] }
@@ -93,15 +92,15 @@ shadow-rs = { version = "2.0.0", optional = true }
 # Misc (same as s3sync)
 cfg-if = "1.0.5"
 bitflags = "2.13.2"
-log = "0.4.34"
+log = "0.4.35"
 
 [build-dependencies]
 shadow-rs = { version = "2.0.0", optional = true }
 
 [dev-dependencies]
-proptest = "1.11"
+proptest = "1.12"
 once_cell = "1.21.4"
-uuid = { version = "1.27.0", features = ["v4"] }
+uuid = { version = "1.29.1", features = ["v4"] }
 nix = { version = "0.31.3", features = ["process", "signal"] }
 tempfile = "3.27.0"
 rusty-fork = "0.3.1"

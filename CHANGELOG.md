@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.6] - 2026-11-14
+
+Security and dependency update.
+
+### Security
+
+- Address RUSTSEC-2026-0382 (CVE-2026-111943) in the transitive `rustls-webpki` dependency, which verifies the
+  certificates S3 endpoints present over TLS. Affected versions could accept certificate chains containing distrusted
+  emSign intermediates whose private keys are now publicly known, so a network attacker holding one could impersonate an
+  endpoint when the configured trust anchors allow such a path. `rustls-webpki` is now `v0.103.16`, which rejects these
+  intermediates
+- Address RUSTSEC-2026-0385 in `ctutils` and RUSTSEC-2026-0387 in `crypto-bigint`, both pulled in by the AWS SDK's
+  request signing (`aws-sigv4`). Operations meant to run in constant time could branch on secret values, a potential
+  timing side channel. `aws-sigv4` is now `v1.6.4`, which moves to the patched `crypto-bigint` `v0.7` line, and
+  `ctutils` is now `v0.4.8`
+- Address RUSTSEC-2026-0386 in `tokio`, whose `AsyncFd` constructors violated I/O safety and could lead to a
+  use-after-free. s3rm does not use `AsyncFd` itself; `tokio` is updated to `v1.54.1` regardless
+- Address RUSTSEC-2026-0418 (GHSA-8p3x-q3q3-q3v5) in `libz-sys`, a build-time dependency (via `shadow-rs`). Its build
+  script printed the full build environment, including any secrets in it, into the `target/` directory, where it could
+  be exposed through shared CI caches. This affects only building s3rm from source (e.g. `cargo install`), not the
+  released binaries' behavior. `libz-sys` is now `v1.1.32`
+- Drop the unmaintained `pin-utils` crate (RUSTSEC-2026-0441) from the dependency tree, following the AWS SDK's own
+  removal of it in `aws-smithy-runtime` `v1.16.2`
+
+### Changed
+
+- aws-sdk-s3 `v1.152.0 -> v1.157.0`
+- Updated other dependencies
+
 ## [1.6.5] - 2026-10-17
 
 Monthly update.

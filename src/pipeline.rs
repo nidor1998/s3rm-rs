@@ -3126,7 +3126,8 @@ mod tests {
         config.batch_size = 1;
         config.worker_size = 1;
         // before_time = 1500s → only objects BEFORE this time pass
-        config.filter_config.before_time = Some(chrono::DateTime::from_timestamp(1500, 0).unwrap());
+        config.filter_config.before_time =
+            Some(time::OffsetDateTime::from_unix_timestamp(1500).unwrap());
 
         let cancellation_token = create_pipeline_cancellation_token();
 
@@ -3191,7 +3192,8 @@ mod tests {
         config.batch_size = 1;
         config.worker_size = 1;
         // after_time = 1500s → only objects AFTER this time pass
-        config.filter_config.after_time = Some(chrono::DateTime::from_timestamp(1500, 0).unwrap());
+        config.filter_config.after_time =
+            Some(time::OffsetDateTime::from_unix_timestamp(1500).unwrap());
 
         let cancellation_token = create_pipeline_cancellation_token();
 
@@ -3463,7 +3465,8 @@ mod tests {
         config.worker_size = 1;
         // Both filters: smaller_size=100 AND before_time=2000s
         config.filter_config.smaller_size = Some(100);
-        config.filter_config.before_time = Some(chrono::DateTime::from_timestamp(2000, 0).unwrap());
+        config.filter_config.before_time =
+            Some(time::OffsetDateTime::from_unix_timestamp(2000).unwrap());
 
         let cancellation_token = create_pipeline_cancellation_token();
 

@@ -1456,3 +1456,37 @@ fn build_filter_config_size_with_human_units() {
     assert_eq!(config.filter_config.larger_size, Some(512 * 1024));
     assert_eq!(config.filter_config.smaller_size, Some(64 * 1024 * 1024));
 }
+
+#[test]
+fn build_filter_config_mtime_normalizes_offset_to_utc() {
+    let args = vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-mtime-before",
+        "2024-06-01T09:00:00+09:00",
+        "--filter-mtime-after",
+        "2024-01-01 00:00:00.123Z",
+    ];
+    let cli = parse_from_args(args).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    let before = config.filter_config.before_time.unwrap();
+    let after = config.filter_config.after_time.unwrap();
+    assert_eq!(before.offset(), time::UtcOffset::UTC);
+    assert_eq!(before.unix_timestamp(), 1_717_200_000);
+    assert_eq!(after.unix_timestamp_nanos(), 1_704_067_200_123_000_000);
+}
+
+#[test]
+fn parse_filter_mtime_rejects_invalid_values() {
+    for value in [
+        "2024-06-01",
+        "2024-06-01T00:00:00",
+        "2024-06-01X00:00:00Z",
+        "not a date",
+    ] {
+        let args = vec!["s3rm", "s3://bucket/", "--filter-mtime-before", value];
+        assert!(parse_from_args(args).is_err(), "accepted {value}");
+        let args = vec!["s3rm", "s3://bucket/", "--filter-mtime-after", value];
+        assert!(parse_from_args(args).is_err(), "accepted {value}");
+    }
+}

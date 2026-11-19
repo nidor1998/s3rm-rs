@@ -8,7 +8,6 @@ mod tests {
     use crate::types::S3Object;
     use aws_sdk_s3::primitives::DateTime;
     use aws_sdk_s3::types::{DeleteMarkerEntry, Object};
-    use chrono::Utc;
     use fancy_regex::Regex;
     use proptest::prelude::*;
 
@@ -460,17 +459,17 @@ mod tests {
         ) {
             let object = arbitrary_s3_object_with_mtime(object_millis);
 
-            let threshold_chrono = chrono::DateTime::from_timestamp_millis(threshold_millis).unwrap().with_timezone(&Utc);
+            let threshold_time = crate::types::datetime::from_unix_millis(threshold_millis).unwrap();
             let config = FilterConfig {
-                before_time: Some(threshold_chrono),
+                before_time: Some(threshold_time),
                 ..Default::default()
             };
 
             let passes = crate::filters::mtime_before::tests::test_is_before(&object, &config);
 
             // Object passes if its mtime is strictly before the threshold
-            let object_chrono = chrono::DateTime::from_timestamp_millis(object_millis).unwrap().with_timezone(&Utc);
-            let expected = object_chrono < threshold_chrono;
+            let object_time = crate::types::datetime::from_unix_millis(object_millis).unwrap();
+            let expected = object_time < threshold_time;
 
             prop_assert_eq!(
                 passes, expected,
@@ -486,17 +485,17 @@ mod tests {
         ) {
             let object = arbitrary_s3_object_with_mtime(object_millis);
 
-            let threshold_chrono = chrono::DateTime::from_timestamp_millis(threshold_millis).unwrap().with_timezone(&Utc);
+            let threshold_time = crate::types::datetime::from_unix_millis(threshold_millis).unwrap();
             let config = FilterConfig {
-                after_time: Some(threshold_chrono),
+                after_time: Some(threshold_time),
                 ..Default::default()
             };
 
             let passes = crate::filters::mtime_after::tests::test_is_after_or_equal(&object, &config);
 
             // Object passes if its mtime is at or after the threshold
-            let object_chrono = chrono::DateTime::from_timestamp_millis(object_millis).unwrap().with_timezone(&Utc);
-            let expected = object_chrono >= threshold_chrono;
+            let object_time = crate::types::datetime::from_unix_millis(object_millis).unwrap();
+            let expected = object_time >= threshold_time;
 
             prop_assert_eq!(
                 passes, expected,
@@ -515,15 +514,15 @@ mod tests {
 
             let object = arbitrary_s3_object_with_mtime(object_millis);
 
-            let start_chrono = chrono::DateTime::from_timestamp_millis(start_millis).unwrap().with_timezone(&Utc);
-            let end_chrono = chrono::DateTime::from_timestamp_millis(end_millis).unwrap().with_timezone(&Utc);
+            let start_time = crate::types::datetime::from_unix_millis(start_millis).unwrap();
+            let end_time = crate::types::datetime::from_unix_millis(end_millis).unwrap();
 
             let after_config = FilterConfig {
-                after_time: Some(start_chrono),
+                after_time: Some(start_time),
                 ..Default::default()
             };
             let before_config = FilterConfig {
-                before_time: Some(end_chrono),
+                before_time: Some(end_time),
                 ..Default::default()
             };
 
@@ -532,8 +531,8 @@ mod tests {
 
             // Combined with AND: mtime >= start AND mtime < end
             let in_range = passes_after && passes_before;
-            let object_chrono = chrono::DateTime::from_timestamp_millis(object_millis).unwrap().with_timezone(&Utc);
-            let expected = object_chrono >= start_chrono && object_chrono < end_chrono;
+            let object_time = crate::types::datetime::from_unix_millis(object_millis).unwrap();
+            let expected = object_time >= start_time && object_time < end_time;
 
             prop_assert_eq!(
                 in_range, expected,

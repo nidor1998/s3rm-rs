@@ -958,7 +958,8 @@ async fn e2e_filter_mtime_before() {
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
         // Record the boundary timestamp
-        let boundary = chrono::Utc::now().to_rfc3339();
+        let boundary =
+            s3rm_rs::types::datetime::Rfc3339Ext::to_rfc3339(&time::OffsetDateTime::now_utc());
 
         // Wait again to ensure new objects are strictly after the boundary
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -1031,7 +1032,8 @@ async fn e2e_filter_mtime_after() {
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
         // Record the boundary timestamp
-        let boundary = chrono::Utc::now().to_rfc3339();
+        let boundary =
+            s3rm_rs::types::datetime::Rfc3339Ext::to_rfc3339(&time::OffsetDateTime::now_utc());
 
         // Wait again to ensure new objects are strictly after the boundary
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;

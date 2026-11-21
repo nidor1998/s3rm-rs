@@ -3,10 +3,9 @@
 //! Reused from s3sync's `pipeline/filter/mtime_before.rs`.
 //! Passes objects whose last_modified time is strictly before the configured threshold.
 
+use crate::types::datetime::{Rfc3339Ext, from_unix_millis};
 use anyhow::Result;
 use async_trait::async_trait;
-use aws_smithy_types::DateTime as SmithyDateTime;
-use aws_smithy_types_convert::date_time::DateTimeExt;
 use tracing::{debug, warn};
 
 use crate::config::FilterConfig;
@@ -60,14 +59,14 @@ fn is_before(object: &S3Object, config: &FilterConfig) -> bool {
         }
     };
 
-    let last_modified = match SmithyDateTime::from_millis(millis).to_chrono_utc() {
-        Ok(dt) => dt,
-        Err(e) => {
+    let last_modified = match from_unix_millis(millis) {
+        Some(dt) => dt,
+        None => {
             warn!(
                 name = FILTER_NAME,
                 key = object.key(),
-                error = %e,
-                "failed to convert last_modified to chrono DateTime, skipping object to be safe."
+                millis = millis,
+                "last_modified is out of the supported date-time range, skipping object to be safe."
             );
             return false;
         }
@@ -103,7 +102,6 @@ pub(crate) mod tests {
     use crate::test_utils::init_dummy_tracing_subscriber;
     use aws_sdk_s3::primitives::{DateTime, DateTimeFormat};
     use aws_sdk_s3::types::Object;
-    use std::str::FromStr;
 
     /// Test helper: expose is_before for property tests.
     pub(crate) fn test_is_before(object: &S3Object, config: &FilterConfig) -> bool {
@@ -124,7 +122,9 @@ pub(crate) mod tests {
         );
 
         let config = FilterConfig {
-            before_time: Some(chrono::DateTime::from_str("2023-01-20T00:00:00.001Z").unwrap()),
+            before_time: Some(
+                crate::types::datetime::parse_rfc3339_utc("2023-01-20T00:00:00.001Z").unwrap(),
+            ),
             ..Default::default()
         };
 
@@ -146,7 +146,9 @@ pub(crate) mod tests {
         );
 
         let config = FilterConfig {
-            before_time: Some(chrono::DateTime::from_str("2023-01-20T00:00:00.001Z").unwrap()),
+            before_time: Some(
+                crate::types::datetime::parse_rfc3339_utc("2023-01-20T00:00:00.001Z").unwrap(),
+            ),
             ..Default::default()
         };
 
@@ -168,7 +170,9 @@ pub(crate) mod tests {
         );
 
         let config = FilterConfig {
-            before_time: Some(chrono::DateTime::from_str("2023-01-20T00:00:00.001Z").unwrap()),
+            before_time: Some(
+                crate::types::datetime::parse_rfc3339_utc("2023-01-20T00:00:00.001Z").unwrap(),
+            ),
             ..Default::default()
         };
 
@@ -212,7 +216,9 @@ pub(crate) mod tests {
         );
 
         let config = FilterConfig {
-            before_time: Some(chrono::DateTime::from_str("2023-01-20T00:00:00.001Z").unwrap()),
+            before_time: Some(
+                crate::types::datetime::parse_rfc3339_utc("2023-01-20T00:00:00.001Z").unwrap(),
+            ),
             ..Default::default()
         };
 
@@ -220,22 +226,24 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn chrono_conversion_overflow_returns_false() {
+    fn time_conversion_overflow_returns_false() {
         init_dummy_tracing_subscriber();
 
         // A timestamp whose seconds*1000 still fits in an i64 (so to_millis()
-        // succeeds) but is far beyond chrono's representable range, so the
-        // conversion to a chrono DateTime fails and the object is skipped
+        // succeeds) but is far beyond the `time` crate's representable range, so the
+        // conversion to an OffsetDateTime fails and the object is skipped
         // (kept) to be safe.
         let object = S3Object::NotVersioning(
             Object::builder()
-                .key("overflow-chrono")
+                .key("overflow-time")
                 .last_modified(DateTime::from_secs(9_000_000_000_000_000))
                 .build(),
         );
 
         let config = FilterConfig {
-            before_time: Some(chrono::DateTime::from_str("2023-01-20T00:00:00.001Z").unwrap()),
+            before_time: Some(
+                crate::types::datetime::parse_rfc3339_utc("2023-01-20T00:00:00.001Z").unwrap(),
+            ),
             ..Default::default()
         };
 

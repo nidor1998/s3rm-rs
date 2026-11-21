@@ -46,7 +46,6 @@ aws-runtime = "1.10.2"
 aws-sdk-s3 = { version = "1.157.0", default-features = false, features = ["sigv4a", "http-1x", "default-https-client", "rt-tokio"] }
 aws-smithy-runtime-api = "1.20.0"
 aws-smithy-types = "1.9.3"
-aws-smithy-types-convert = { version = "0.61.1", features = ["convert-chrono"] }
 aws-types = "1.7.0"
 
 # CLI (same as s3sync)
@@ -55,7 +54,7 @@ clap_complete = "4.6.11"
 clap-verbosity-flag = "3.0.4"
 
 # Date/time
-chrono = "0.4.45"
+time = { version = "0.3.55", features = ["parsing"] }
 
 # Utilities (same as s3sync)
 dyn-clone = "1.0.20"

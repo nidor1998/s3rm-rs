@@ -4,16 +4,17 @@ use crate::config::{
     CLITimeoutConfig, ClientConfig, Config, FilterConfig, ForceRetryConfig, RetryConfig,
     TracingConfig,
 };
+use crate::types::datetime::parse_rfc3339_utc;
 use crate::types::{AccessKeys, ClientConfigLocation, S3Credentials, StoragePath};
 use aws_sdk_s3::types::RequestPayer;
 use aws_smithy_types::checksum_config::RequestChecksumCalculation;
-use chrono::{DateTime, Utc};
 use clap::Parser;
 use clap::builder::NonEmptyStringValueParser;
 use clap_verbosity_flag::{Verbosity, WarnLevel};
 use fancy_regex::Regex;
 use std::ffi::OsString;
 use std::path::PathBuf;
+use time::OffsetDateTime;
 
 #[cfg(feature = "version")]
 use shadow_rs::shadow;
@@ -265,21 +266,23 @@ Example: "key1=(value1|value2)&key2=value2""#)]
     #[arg(
         long,
         env,
+        value_parser = parse_rfc3339_utc,
         help_heading = "Filtering",
         long_help = r#"Delete only objects older than the given time (RFC 3339 format).
 Example: 2023-02-19T12:00:00Z"#
     )]
-    pub filter_mtime_before: Option<DateTime<Utc>>,
+    pub filter_mtime_before: Option<OffsetDateTime>,
 
     /// Delete only objects modified at or after this time
     #[arg(
         long,
         env,
+        value_parser = parse_rfc3339_utc,
         help_heading = "Filtering",
         long_help = r#"Delete only objects newer than or equal to the given time (RFC 3339 format).
 Example: 2023-02-19T12:00:00Z"#
     )]
-    pub filter_mtime_after: Option<DateTime<Utc>>,
+    pub filter_mtime_after: Option<OffsetDateTime>,
 
     /// Delete only objects smaller than this size
     #[arg(

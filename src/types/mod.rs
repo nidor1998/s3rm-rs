@@ -10,6 +10,7 @@ use aws_sdk_s3::primitives::DateTime;
 use aws_sdk_s3::types::{DeleteMarkerEntry, Object, ObjectVersion};
 use zeroize_derive::{Zeroize, ZeroizeOnDrop};
 
+pub mod datetime;
 pub mod error;
 pub mod event_callback;
 pub mod filter_callback;

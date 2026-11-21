@@ -5,8 +5,8 @@ use crate::callback::filter_manager::FilterManager;
 use crate::types::{ClientConfigLocation, S3Credentials, StoragePath};
 use aws_sdk_s3::types::RequestPayer;
 use aws_smithy_types::checksum_config::RequestChecksumCalculation;
-use chrono::{DateTime, Utc};
 use fancy_regex::Regex;
+use time::OffsetDateTime;
 
 /// Main configuration for the s3rm-rs deletion pipeline.
 ///
@@ -256,8 +256,8 @@ pub struct ForceRetryConfig {
 /// (check_size, check_etag, etc.) and retaining deletion-relevant filters.
 #[derive(Debug, Clone, Default)]
 pub struct FilterConfig {
-    pub before_time: Option<DateTime<Utc>>,
-    pub after_time: Option<DateTime<Utc>>,
+    pub before_time: Option<OffsetDateTime>,
+    pub after_time: Option<OffsetDateTime>,
     pub include_regex: Option<Regex>,
     pub exclude_regex: Option<Regex>,
     pub include_content_type_regex: Option<Regex>,

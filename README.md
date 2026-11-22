@@ -275,7 +275,7 @@ s3rm is designed to adapt to a wide range of deletion scenarios:
 
 ### Lua scripting support
 
-You can use a [Lua](https://www.lua.org) (5.4) script to implement custom filtering and event handling.
+You can use a [Lua](https://www.lua.org) (5.5) script to implement custom filtering and event handling.
 `--filter-callback-lua-script` and `--event-callback-lua-script` options are available for this purpose.
 Lua is widely recognized as a fast scripting language. The Lua engine is embedded in s3rm, so you can use Lua scripts without any additional dependencies.
 
@@ -381,7 +381,7 @@ Download the latest binary from [GitHub Releases](https://github.com/nidor1998/s
 
 ### Build from source
 
-s3rm requires Rust 1.94.1 or later.
+s3rm requires Rust 1.99.0 or later.
 
 ```bash
 # Clone the repository
@@ -768,8 +768,8 @@ Each Lua script is loaded and compiled once at startup and lives until the end o
 ### Lua VM security
 
 By default, a Lua script runs in safe mode.
-Lua's [Operating System facilities](https://www.lua.org/manual/5.4/manual.html#6.9)
-and [Input and Output Facilities](https://www.lua.org/manual/5.4/manual.html#6.8) are disabled by default.
+Lua's [Operating System facilities](https://www.lua.org/manual/5.5/manual.html#6.10)
+and [Input and Output Facilities](https://www.lua.org/manual/5.5/manual.html#6.9) are disabled by default.
 This is because these facilities can be used to execute arbitrary commands, which can be a security risk (especially set-uid/set-gid programs).
 Also, Lua VM is not allowed to load unsafe standard libraries or C modules.
 

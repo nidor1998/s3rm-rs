@@ -5,14 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.7.0] - 2026-11-22
+
+Update for the end of life (EOL) of the `chrono` crate and Lua 5.4. This release contains breaking changes to
+`--filter-mtime-before` / `--filter-mtime-after` parsing, the embedded Lua engine, and the library API.
 
 ### Security
 
 - Replaced the unmaintained `chrono` crate with `time`
-  ([RUSTSEC-2026-0543](https://rustsec.org/advisories/RUSTSEC-2026-0543)).
+  ([RUSTSEC-2026-0543](https://rustsec.org/advisories/RUSTSEC-2026-0543))
 - Updated `libz-sys` to `v1.1.33` to address
-  [RUSTSEC-2026-0544](https://rustsec.org/advisories/RUSTSEC-2026-0544).
+  [RUSTSEC-2026-0544](https://rustsec.org/advisories/RUSTSEC-2026-0544)
 
 ### Changed
 
@@ -21,10 +24,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`2023-02-19T12:00:00+0900`), a ` UTC` suffix (`2023-02-19T12:00:00 UTC`) or leading whitespace, are now rejected
   with an argument error. A leap second (`:60`) is accepted only at 23:59 on the last day of a month and is treated as
   `23:59:59.999999999`; elsewhere it is rejected. Standard RFC 3339 timestamps such as `2023-02-19T12:00:00Z` and
-  `2023-02-19T12:00:00+09:00` work as before.
+  `2023-02-19T12:00:00+09:00` work as before
 - [Breaking change] Library API: `FilterConfig::before_time` / `FilterConfig::after_time` and
   `CLIArgs::filter_mtime_before` / `CLIArgs::filter_mtime_after` are now `Option<time::OffsetDateTime>` instead of
-  `Option<chrono::DateTime<chrono::Utc>>`.
+  `Option<chrono::DateTime<chrono::Utc>>`
+- [Breaking change] The embedded Lua engine is now Lua 5.5 (previously Lua 5.4, which has reached end of life). Lua 5.5
+  is not fully compatible with Lua 5.4 (for example, `for` loop control variables are now read-only), so existing
+  `--filter-callback-lua-script` / `--event-callback-lua-script` scripts may need to be updated
+- aws-sdk-s3 `v1.157.0 -> v1.161.0`
+- MSRV `1.94.1 -> 1.99.0`
+- Updated other dependencies
 
 ## [1.6.6] - 2026-11-14
 

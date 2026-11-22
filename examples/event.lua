@@ -33,7 +33,7 @@ STATS_REPORT    = 256   -- 1 << 8
 
 -- Helper: check if a bitflag is set
 local function has_flag(value, flag)
-    -- Lua 5.4 bitwise AND
+    -- Lua 5.3+ bitwise AND
     return (value & flag) ~= 0
 end
 

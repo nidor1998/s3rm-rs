@@ -65,7 +65,7 @@ urlencoding = "2.1.3"
 leaky-bucket = "1.1.2"
 
 # Regex (same as s3sync)
-fancy-regex = "0.19.2"
+fancy-regex = "0.20.2"
 
 # Security (same as s3sync)
 zeroize = "1.9.2"

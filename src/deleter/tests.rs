@@ -82,6 +82,11 @@ struct MockStorage {
     delete_object_sdk_error: Arc<Mutex<Option<anyhow::Error>>>,
     /// If true, batch error entries omit the key (as some S3-compatible stores may).
     batch_omit_error_key: Arc<Mutex<bool>>,
+    /// If true, batch error entries carry an empty key (`<Key></Key>`).
+    batch_empty_error_key: Arc<Mutex<bool>>,
+    /// If set, an extra keyless error entry with this code is appended to every
+    /// batch response (in addition to the normal per-object entries).
+    batch_stray_keyless_error: Arc<Mutex<Option<String>>>,
 }
 
 impl MockStorage {
@@ -100,6 +105,8 @@ impl MockStorage {
             tagging_error: Arc::new(Mutex::new(None)),
             delete_object_sdk_error: Arc::new(Mutex::new(None)),
             batch_omit_error_key: Arc::new(Mutex::new(false)),
+            batch_empty_error_key: Arc::new(Mutex::new(false)),
+            batch_stray_keyless_error: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -203,6 +210,8 @@ impl StorageTrait for MockStorage {
     async fn delete_objects(&self, objects: Vec<ObjectIdentifier>) -> Result<DeleteObjectsOutput> {
         let batch_error_keys = self.batch_error_keys.lock().unwrap().clone();
         let omit_error_key = *self.batch_omit_error_key.lock().unwrap();
+        let empty_error_key = *self.batch_empty_error_key.lock().unwrap();
+        let stray_keyless_error = self.batch_stray_keyless_error.lock().unwrap().clone();
         self.delete_objects_calls
             .lock()
             .unwrap()
@@ -217,7 +226,9 @@ impl StorageTrait for MockStorage {
             let version_id = ident.version_id();
             if let Some(error_code) = batch_error_keys.get(key) {
                 let mut err_builder = aws_sdk_s3::types::Error::builder();
-                if !omit_error_key {
+                if empty_error_key {
+                    err_builder = err_builder.key("");
+                } else if !omit_error_key {
                     err_builder = err_builder.key(key);
                 }
                 err_builder = err_builder
@@ -234,6 +245,15 @@ impl StorageTrait for MockStorage {
                 }
                 builder = builder.deleted(del_builder.build());
             }
+        }
+
+        if let Some(code) = stray_keyless_error {
+            builder = builder.errors(
+                aws_sdk_s3::types::Error::builder()
+                    .code(code.as_str())
+                    .message(format!("{} error", code))
+                    .build(),
+            );
         }
 
         Ok(builder.build())
@@ -2020,10 +2040,10 @@ async fn batch_deleter_retryable_error_falls_back_to_single() {
 }
 
 #[tokio::test]
-async fn batch_deleter_retryable_error_without_key_skips_single_fallback() {
-    // A retryable batch error entry that omits the key must NOT fall back to a
-    // single DeleteObject (it would target a placeholder key). It is recorded
-    // as a failure instead.
+async fn batch_deleter_retryable_error_without_key_retries_unaccounted_object() {
+    // A retryable batch error entry that omits the key is attributed to the
+    // object no response entry accounts for, and that object is retried by
+    // its real key (never by a placeholder key).
     init_dummy_tracing_subscriber();
     let (stats_sender, _stats_receiver) = async_channel::unbounded();
     let (boxed, mock) = make_mock_storage_boxed(stats_sender);
@@ -2040,15 +2060,130 @@ async fn batch_deleter_retryable_error_without_key_skips_single_fallback() {
     let objects = vec![make_s3_object("key/0", 100), make_s3_object("key/1", 200)];
     let result = deleter.delete(&objects, &config).await.unwrap();
 
-    assert_eq!(result.deleted.len(), 1);
-    assert_eq!(result.failed.len(), 1);
-    assert_eq!(result.failed[0].error_code, "InternalError");
+    assert_eq!(result.deleted.len(), 2);
+    assert_eq!(result.failed.len(), 0);
+    assert!(result.deleted.iter().any(|d| d.key == "key/1"));
 
     let single_calls = mock.delete_object_calls.lock().unwrap();
-    assert!(
-        single_calls.is_empty(),
-        "no single DeleteObject should be issued for an error entry without a key"
-    );
+    assert_eq!(single_calls.len(), 1);
+    assert_eq!(single_calls[0].key, "key/1");
+}
+
+#[tokio::test]
+async fn batch_deleter_retryable_error_with_empty_key_retries_unaccounted_object() {
+    // An empty `<Key></Key>` is treated the same as a missing key.
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    mock.batch_error_keys
+        .lock()
+        .unwrap()
+        .insert("key/1".to_string(), "SlowDown".to_string());
+    *mock.batch_empty_error_key.lock().unwrap() = true;
+
+    let deleter = BatchDeleter::new(boxed);
+    let config = make_test_config();
+
+    let objects = vec![make_s3_object("key/0", 100), make_s3_object("key/1", 200)];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    assert_eq!(result.deleted.len(), 2);
+    assert_eq!(result.failed.len(), 0);
+
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(single_calls.len(), 1);
+    assert_eq!(single_calls[0].key, "key/1");
+}
+
+#[tokio::test]
+async fn batch_deleter_retryable_error_without_key_passes_version_id_and_etag() {
+    // The fallback for an attributed keyless error uses the object's own
+    // version ID and (with if_match) its own ETag.
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    mock.batch_error_keys
+        .lock()
+        .unwrap()
+        .insert("key/0".to_string(), "ServiceUnavailable".to_string());
+    *mock.batch_omit_error_key.lock().unwrap() = true;
+
+    let deleter = BatchDeleter::new(boxed);
+    let mut config = make_test_config();
+    config.if_match = true;
+
+    let objects = vec![S3Object::Versioning(
+        ObjectVersion::builder()
+            .key("key/0")
+            .version_id("ver-abc")
+            .size(100)
+            .e_tag("\"abc123\"")
+            .build(),
+    )];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    assert_eq!(result.deleted.len(), 1);
+    assert_eq!(result.failed.len(), 0);
+
+    let single_calls = mock.delete_object_calls.lock().unwrap();
+    assert_eq!(single_calls.len(), 1);
+    assert_eq!(single_calls[0].key, "key/0");
+    assert_eq!(single_calls[0].version_id, Some("ver-abc".to_string()));
+    assert_eq!(single_calls[0].if_match, Some("\"abc123\"".to_string()));
+}
+
+#[tokio::test]
+async fn batch_deleter_non_retryable_error_without_key_records_real_key() {
+    // A non-retryable keyless error is recorded as a failure under the real
+    // key of the unaccounted object, without a single-delete fallback.
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    mock.batch_error_keys
+        .lock()
+        .unwrap()
+        .insert("key/1".to_string(), "AccessDenied".to_string());
+    *mock.batch_omit_error_key.lock().unwrap() = true;
+
+    let deleter = BatchDeleter::new(boxed);
+    let config = make_test_config();
+
+    let objects = vec![make_s3_object("key/0", 100), make_s3_object("key/1", 200)];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    assert_eq!(result.deleted.len(), 1);
+    assert_eq!(result.failed.len(), 1);
+    assert_eq!(result.failed[0].key, "key/1");
+    assert_eq!(result.failed[0].error_code, "AccessDenied");
+
+    assert!(mock.delete_object_calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn batch_deleter_keyless_error_with_nothing_unaccounted_uses_placeholder() {
+    // If every object is already accounted for, a keyless error cannot be
+    // attributed; it is recorded under the placeholder key and never retried.
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    *mock.batch_stray_keyless_error.lock().unwrap() = Some("InternalError".to_string());
+
+    let deleter = BatchDeleter::new(boxed);
+    let config = make_test_config();
+
+    let objects = vec![make_s3_object("key/0", 100), make_s3_object("key/1", 200)];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    assert_eq!(result.deleted.len(), 2);
+    assert_eq!(result.failed.len(), 1);
+    assert_eq!(result.failed[0].key, crate::deleter::batch::UNKNOWN_KEY);
+    assert_eq!(result.failed[0].error_code, "InternalError");
+
+    assert!(mock.delete_object_calls.lock().unwrap().is_empty());
 }
 
 #[tokio::test]

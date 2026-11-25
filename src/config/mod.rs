@@ -54,7 +54,9 @@ use time::OffsetDateTime;
 /// # Default
 ///
 /// [`Config::default()`] creates a configuration targeting an empty bucket/prefix.
-/// You must set the `target` field before running a pipeline.
+/// You must set the `target` field before running a pipeline. Like
+/// [`Config::for_target`], it sets `target_client_config` to
+/// [`ClientConfig::default()`] (standard AWS environment/config chain).
 ///
 /// ```
 /// use s3rm_rs::Config;
@@ -133,7 +135,6 @@ impl Config {
                 bucket: bucket.to_string(),
                 prefix: prefix.to_string(),
             },
-            target_client_config: Some(ClientConfig::default()),
             force: true,
             ..Config::default()
         }
@@ -152,7 +153,7 @@ impl Default for Config {
                 prefix: String::new(),
             },
             show_no_progress: false,
-            target_client_config: None,
+            target_client_config: Some(ClientConfig::default()),
             force_retry_config: ForceRetryConfig::default(),
             tracing_config: None,
             worker_size: 16,
@@ -489,6 +490,7 @@ mod tests {
         assert_eq!(config.worker_size, 16);
         assert_eq!(config.batch_size, 200);
         assert!(!config.show_no_progress);
+        assert!(config.target_client_config.is_some());
         assert!(!config.dry_run);
         assert!(!config.warn_as_error);
         assert_eq!(config.max_parallel_listings, 16);

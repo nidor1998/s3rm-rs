@@ -16,10 +16,6 @@ use super::{DeleteResult, DeletedKey, Deleter, FailedKey};
 /// Maximum objects per batch DeleteObjects API call (S3 limit).
 pub const MAX_BATCH_SIZE: usize = 1000;
 
-/// Placeholder key recorded for a DeleteObjects error entry that has no key
-/// and cannot be matched to any requested object.
-pub const UNKNOWN_KEY: &str = "<unknown>";
-
 /// Determines whether an S3 batch deletion error code is retryable.
 ///
 /// Retryable errors are transient server-side issues that may succeed
@@ -125,22 +121,26 @@ impl BatchDeleter {
         })
     }
 
-    /// Retries a key via single DeleteObject and records the outcome in `result`.
-    #[allow(clippy::too_many_arguments)]
+    /// Retries an object via single DeleteObject (using its own key, version ID
+    /// and, when `if_match` is set, its own ETag) and records the outcome.
     async fn retry_and_record(
         &self,
-        key: &str,
-        version_id: Option<&str>,
-        if_match_etag: Option<String>,
+        obj: &S3Object,
         code: &str,
         message: &str,
         config: &Config,
         result: &mut DeleteResult,
     ) {
+        let if_match_etag = if config.if_match {
+            obj.e_tag().map(|s| s.to_string())
+        } else {
+            None
+        };
+
         match self
             .retry_failed_key_with_single_delete(
-                key,
-                version_id,
+                obj.key(),
+                obj.version_id(),
                 if_match_etag,
                 code,
                 message,
@@ -152,7 +152,7 @@ impl BatchDeleter {
             Err(failed_key) => {
                 self.target
                     .send_stats(DeletionStatistics::DeleteError {
-                        key: key.to_string(),
+                        key: obj.key().to_string(),
                     })
                     .await;
                 result.failed.push(failed_key);
@@ -160,136 +160,147 @@ impl BatchDeleter {
         }
     }
 
-    /// Records a failed key in `result` and reports it to the stats channel.
+    /// Records a non-retryable failure for `obj` and reports it to the stats channel.
     async fn record_failure(
         &self,
-        key: String,
-        version_id: Option<String>,
-        error_code: String,
-        error_message: String,
+        obj: &S3Object,
+        code: &str,
+        message: &str,
         result: &mut DeleteResult,
     ) {
+        warn!(
+            key = obj.key(),
+            version_id = obj.version_id(),
+            code = code,
+            message = message,
+            "S3 DeleteObjects partial failure for key '{}': {} ({}).",
+            obj.key(),
+            code,
+            message,
+        );
         self.target
-            .send_stats(DeletionStatistics::DeleteError { key: key.clone() })
+            .send_stats(DeletionStatistics::DeleteError {
+                key: obj.key().to_string(),
+            })
             .await;
         result.failed.push(FailedKey {
-            key,
-            version_id,
-            error_code,
-            error_message,
+            key: obj.key().to_string(),
+            version_id: obj.version_id().map(|v| v.to_string()),
+            error_code: code.to_string(),
+            error_message: message.to_string(),
         });
     }
 
-    /// Resolves DeleteObjects error entries that carry no key.
+    /// Handles error entries that could not be matched to exactly one
+    /// requested object (no key, an empty key, a key that was not in the
+    /// request, or an ambiguous key without a version ID).
     ///
-    /// The objects such errors refer to are inferred as the objects in
-    /// `chunk` that no `Deleted` entry and no keyed `Error` entry accounts
-    /// for. Those objects are then handled by their real key:
-    /// - if every keyless error is retryable, each is retried with a single
-    ///   DeleteObject (with its own version ID and, when `if_match` is set,
-    ///   its own ETag);
-    /// - otherwise each is recorded as a failure under its real key.
+    /// When the number of such errors equals the number of requested objects
+    /// that no response entry accounts for, the errors are taken to refer to
+    /// those objects. Their real identities are then used:
+    /// - if every error is non-retryable, each object is recorded as failed;
+    /// - otherwise each object is retried with a single DeleteObject, whose
+    ///   own outcome decides whether it is deleted or failed.
     ///
-    /// If no unaccounted object can be found, the keyless errors are recorded
-    /// as failures under the placeholder key `<unknown>`.
-    async fn resolve_keyless_errors(
+    /// Otherwise the errors cannot be attributed. No object is touched, and
+    /// the errors are reported in [`DeleteResult::unattributed_errors`] so the
+    /// run ends with a warning without inflating per-object failure counts.
+    async fn resolve_unattributed_errors(
         &self,
-        chunk: &[S3Object],
-        response: &aws_sdk_s3::operation::delete_objects::DeleteObjectsOutput,
-        keyless_errors: Vec<(String, String)>,
+        unaccounted: Vec<&S3Object>,
+        errors: Vec<(String, String)>,
         config: &Config,
         result: &mut DeleteResult,
     ) {
-        let reported = response
-            .deleted()
-            .iter()
-            .map(|d| (d.key(), d.version_id()))
-            .chain(response.errors().iter().map(|e| (e.key(), e.version_id())))
-            .filter_map(|(k, v)| k.filter(|k| !k.is_empty()).map(|k| (k, v)))
-            .collect::<Vec<_>>();
+        if errors.is_empty() {
+            return;
+        }
 
-        // A response entry accounts for a requested object when the keys match
-        // and the entry either echoes the same version ID or omits it.
-        let unaccounted: Vec<&S3Object> = chunk
-            .iter()
-            .filter(|obj| {
-                !reported
-                    .iter()
-                    .any(|(k, v)| *k == obj.key() && (v.is_none() || *v == obj.version_id()))
-            })
-            .collect();
-
-        if unaccounted.is_empty() {
-            for (code, message) in keyless_errors {
+        if unaccounted.len() != errors.len() {
+            for (code, message) in errors {
                 warn!(
                     code = code,
                     message = message,
-                    "S3 DeleteObjects returned an error without a key that could not be \
-                     matched to any object in the batch: {} ({}).",
+                    unaccounted_objects = unaccounted.len(),
+                    "S3 DeleteObjects returned an error that cannot be attributed to a \
+                     requested object: {} ({}).",
                     code,
                     message,
                 );
-                self.record_failure(UNKNOWN_KEY.to_string(), None, code, message, result)
-                    .await;
+                result.unattributed_errors += 1;
             }
             return;
         }
 
         warn!(
-            keyless_errors = keyless_errors.len(),
-            unaccounted_objects = unaccounted.len(),
-            "S3 DeleteObjects returned {} error(s) without a key; attributing them to {} \
-             object(s) not reported as deleted or failed.",
-            keyless_errors.len(),
-            unaccounted.len(),
+            errors = errors.len(),
+            "S3 DeleteObjects returned {} error(s) without an identifiable key; attributing \
+             them to the object(s) not reported as deleted or failed.",
+            errors.len(),
         );
 
-        let all_retryable = keyless_errors
-            .iter()
-            .all(|(code, _)| is_retryable_error_code(code));
-        // Prefer a non-retryable error as the reported cause, if there is one.
-        let (code, message) = keyless_errors
-            .iter()
-            .find(|(code, _)| !is_retryable_error_code(code))
-            .unwrap_or(&keyless_errors[0])
-            .clone();
+        // With several errors, which error belongs to which object is unknown,
+        // so a code is only reported per object when all errors agree.
+        let (code, message) = if errors.iter().all(|(c, _)| *c == errors[0].0) {
+            errors[0].clone()
+        } else {
+            let codes: Vec<&str> = errors.iter().map(|(c, _)| c.as_str()).collect();
+            (
+                "unknown".to_string(),
+                format!(
+                    "DeleteObjects errors without an identifiable key: {}",
+                    codes.join(", ")
+                ),
+            )
+        };
+        let all_non_retryable = errors.iter().all(|(c, _)| !is_retryable_error_code(c));
 
         for obj in unaccounted {
-            let key = obj.key().to_string();
-            let version_id = obj.version_id().map(|v| v.to_string());
-
-            if all_retryable {
-                let if_match_etag = if config.if_match {
-                    obj.e_tag().map(|s| s.to_string())
-                } else {
-                    None
-                };
-                self.retry_and_record(
-                    &key,
-                    version_id.as_deref(),
-                    if_match_etag,
-                    &code,
-                    &message,
-                    config,
-                    result,
-                )
-                .await;
+            if all_non_retryable {
+                self.record_failure(obj, &code, &message, result).await;
             } else {
-                warn!(
-                    key = key,
-                    version_id = version_id,
-                    code = code,
-                    message = message,
-                    "S3 DeleteObjects partial failure for key '{}' (reported without a key): \
-                     {} ({}).",
-                    key,
-                    code,
-                    message,
-                );
-                self.record_failure(key, version_id, code.clone(), message.clone(), result)
+                self.retry_and_record(obj, &code, &message, config, result)
                     .await;
             }
         }
+    }
+}
+
+/// Returns true if a response entry `(key, version_id)` can refer to `obj`.
+///
+/// The keys must match. Version IDs must match when both sides have one; an
+/// entry without a version ID, or a request without one (S3 may echo a
+/// delete-marker version ID), is compatible.
+fn entry_matches(key: &str, version_id: Option<&str>, obj: &S3Object) -> bool {
+    key == obj.key()
+        && match (version_id, obj.version_id()) {
+            (Some(a), Some(b)) => a == b,
+            _ => true,
+        }
+}
+
+/// Finds the single not-yet-accounted object in `chunk` that a response entry
+/// refers to. An exact `(key, version_id)` match wins; otherwise the entry
+/// must be compatible with exactly one object, else `None` (ambiguous or not
+/// part of the request).
+fn match_entry(
+    key: Option<&str>,
+    version_id: Option<&str>,
+    chunk: &[S3Object],
+    accounted: &[bool],
+) -> Option<usize> {
+    let key = key.filter(|k| !k.is_empty())?;
+    let open = || (0..chunk.len()).filter(|&i| !accounted[i]);
+
+    if let Some(i) = open().find(|&i| chunk[i].key() == key && chunk[i].version_id() == version_id)
+    {
+        return Some(i);
+    }
+
+    let mut candidates = open().filter(|&i| entry_matches(key, version_id, &chunk[i]));
+    match (candidates.next(), candidates.next()) {
+        (Some(i), None) => Some(i),
+        _ => None,
     }
 }
 
@@ -305,21 +316,6 @@ impl Deleter for BatchDeleter {
         let batch_size = (config.batch_size as usize).min(MAX_BATCH_SIZE);
 
         for chunk in objects.chunks(batch_size) {
-            // Build a lookup map from (key, version_id) -> &S3Object for ETag retrieval
-            // during single-delete fallback with if_match.
-            let obj_lookup: std::collections::HashMap<(String, Option<String>), &S3Object> = chunk
-                .iter()
-                .map(|obj| {
-                    (
-                        (
-                            obj.key().to_string(),
-                            obj.version_id().map(|v| v.to_string()),
-                        ),
-                        obj,
-                    )
-                })
-                .collect();
-
             let identifiers: Vec<ObjectIdentifier> = chunk
                 .iter()
                 .map(|obj| {
@@ -347,74 +343,56 @@ impl Deleter for BatchDeleter {
 
             let response = self.target.delete_objects(identifiers).await?;
 
+            // Tracks which requested objects a response entry has accounted for.
+            let mut accounted = vec![false; chunk.len()];
+
             for deleted in response.deleted() {
+                if let Some(i) = match_entry(deleted.key(), deleted.version_id(), chunk, &accounted)
+                {
+                    accounted[i] = true;
+                }
                 result.deleted.push(DeletedKey {
                     key: deleted.key().unwrap_or_default().to_string(),
                     version_id: deleted.version_id().map(|v| v.to_string()),
                 });
             }
 
-            // Handle partial failures: classify by error code and fall back
-            // to individual DeleteObject calls for retryable errors.
-            //
-            // Some S3-compatible stores may omit the key (or send an empty
-            // one) in an error entry. Those cannot be matched to an object
-            // directly, so they are collected and resolved after this loop
-            // against the objects in the chunk that no response entry
-            // accounts for.
-            let mut keyless_errors: Vec<(String, String)> = Vec::new();
+            // Handle partial failures. Every action taken uses the identity of
+            // a requested object, never a key taken verbatim from the response,
+            // so a malformed response cannot cause a delete outside the batch.
+            // Entries that cannot be matched to exactly one requested object
+            // are resolved afterwards.
+            let mut unmatched_errors: Vec<(String, String)> = Vec::new();
             for err in response.errors() {
                 let code = err.code().unwrap_or("unknown").to_string();
                 let message = err.message().unwrap_or("no message").to_string();
 
-                let Some(key) = err.key().filter(|k| !k.is_empty()).map(str::to_string) else {
-                    keyless_errors.push((code, message));
+                let Some(i) = match_entry(err.key(), err.version_id(), chunk, &accounted) else {
+                    unmatched_errors.push((code, message));
                     continue;
                 };
-                let version_id = err.version_id().map(|v| v.to_string());
+                accounted[i] = true;
+                let obj = &chunk[i];
 
                 if is_retryable_error_code(&code) {
                     // Retryable error: fall back to individual DeleteObject with retries
-                    let if_match_etag = if config.if_match {
-                        obj_lookup
-                            .get(&(key.clone(), version_id.clone()))
-                            .and_then(|obj| obj.e_tag().map(|s| s.to_string()))
-                    } else {
-                        None
-                    };
-
-                    self.retry_and_record(
-                        &key,
-                        version_id.as_deref(),
-                        if_match_etag,
-                        &code,
-                        &message,
-                        config,
-                        &mut result,
-                    )
-                    .await;
+                    self.retry_and_record(obj, &code, &message, config, &mut result)
+                        .await;
                 } else {
                     // Non-retryable error: treat as warning, not error.
                     // The caller (ObjectDeleter) handles warn-as-error promotion.
-                    warn!(
-                        key = key,
-                        version_id = version_id,
-                        code = code,
-                        message = message,
-                        "S3 DeleteObjects partial failure for key '{}': {} ({}).",
-                        key,
-                        code,
-                        message,
-                    );
-                    self.record_failure(key, version_id, code, message, &mut result)
-                        .await;
+                    self.record_failure(obj, &code, &message, &mut result).await;
                 }
             }
 
-            if !keyless_errors.is_empty() {
-                self.resolve_keyless_errors(chunk, &response, keyless_errors, config, &mut result)
-                    .await;
-            }
+            let unaccounted: Vec<&S3Object> = chunk
+                .iter()
+                .zip(&accounted)
+                .filter(|(_, done)| !**done)
+                .map(|(obj, _)| obj)
+                .collect();
+            self.resolve_unattributed_errors(unaccounted, unmatched_errors, config, &mut result)
+                .await;
 
             debug!(
                 deleted = result.deleted.len(),

@@ -442,30 +442,82 @@ mod tests {
 
     #[test]
     fn config_for_target_client_config_matches_cli_defaults() {
-        let config = Config::for_target("bucket", "prefix/");
-        let cli = crate::build_config_from_args(["s3rm", "s3://bucket/prefix/", "--force"])
-            .expect("valid args");
+        // Compare against the defaults declared on the clap arguments rather
+        // than a parsed CLI config, so the test does not depend on environment
+        // variables (clap `env`) such as TARGET_REGION or AWS_MAX_ATTEMPTS.
+        let cmd = <crate::config::args::CLIArgs as clap::CommandFactory>::command();
+        let default_of = |id: &str| -> Option<String> {
+            let arg = cmd
+                .get_arguments()
+                .find(|a| a.get_id() == id)
+                .unwrap_or_else(|| panic!("no CLI argument with id '{id}'"));
+            arg.get_default_values()
+                .first()
+                .map(|v| v.to_string_lossy().into_owned())
+        };
+        let flag_default = |id: &str| -> bool { default_of(id).is_some_and(|v| v == "true") };
+        let u64_default = |id: &str| -> Option<u64> {
+            default_of(id).map(|v| v.parse().expect("numeric default"))
+        };
 
-        let lib_cc = config.target_client_config.expect("client config set");
-        let cli_cc = cli.target_client_config.expect("client config set");
+        let cc = Config::for_target("bucket", "prefix/")
+            .target_client_config
+            .expect("client config set");
 
-        assert!(matches!(lib_cc.credential, S3Credentials::FromEnvironment));
-        assert_eq!(lib_cc.region, cli_cc.region);
-        assert_eq!(lib_cc.endpoint_url, cli_cc.endpoint_url);
-        assert_eq!(lib_cc.force_path_style, cli_cc.force_path_style);
-        assert_eq!(lib_cc.accelerate, cli_cc.accelerate);
-        assert_eq!(lib_cc.request_payer, cli_cc.request_payer);
+        // No credential arguments by default -> credentials from the environment.
+        assert!(matches!(cc.credential, S3Credentials::FromEnvironment));
+        assert_eq!(default_of("target_profile"), None);
+        assert_eq!(default_of("target_access_key"), None);
+
         assert_eq!(
-            lib_cc.retry_config.aws_max_attempts,
-            cli_cc.retry_config.aws_max_attempts
+            cc.client_config_location.aws_config_file,
+            default_of("aws_config_file").map(Into::into)
         );
         assert_eq!(
-            lib_cc.retry_config.initial_backoff_milliseconds,
-            cli_cc.retry_config.initial_backoff_milliseconds
+            cc.client_config_location.aws_shared_credentials_file,
+            default_of("aws_shared_credentials_file").map(Into::into)
+        );
+        assert_eq!(cc.region, default_of("target_region"));
+        assert_eq!(cc.endpoint_url, default_of("target_endpoint_url"));
+        assert_eq!(cc.force_path_style, flag_default("target_force_path_style"));
+        assert_eq!(cc.accelerate, flag_default("target_accelerate"));
+        assert_eq!(
+            cc.request_payer.is_some(),
+            flag_default("target_request_payer")
         );
         assert_eq!(
-            lib_cc.disable_stalled_stream_protection,
-            cli_cc.disable_stalled_stream_protection
+            Some(u64::from(cc.retry_config.aws_max_attempts)),
+            u64_default("aws_max_attempts")
+        );
+        assert_eq!(
+            Some(cc.retry_config.initial_backoff_milliseconds),
+            u64_default("initial_backoff_milliseconds")
+        );
+        let t = &cc.cli_timeout_config;
+        assert_eq!(
+            t.operation_timeout_milliseconds,
+            u64_default("operation_timeout_milliseconds")
+        );
+        assert_eq!(
+            t.operation_attempt_timeout_milliseconds,
+            u64_default("operation_attempt_timeout_milliseconds")
+        );
+        assert_eq!(
+            t.connect_timeout_milliseconds,
+            u64_default("connect_timeout_milliseconds")
+        );
+        assert_eq!(
+            t.read_timeout_milliseconds,
+            u64_default("read_timeout_milliseconds")
+        );
+        assert_eq!(
+            cc.disable_stalled_stream_protection,
+            flag_default("disable_stalled_stream_protection")
+        );
+        // Not configurable from the CLI; build_client_config always uses WhenRequired.
+        assert_eq!(
+            cc.request_checksum_calculation,
+            RequestChecksumCalculation::WhenRequired
         );
     }
 

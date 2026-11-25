@@ -47,6 +47,11 @@ pub struct DeleteResult {
     pub deleted: Vec<DeletedKey>,
     /// Keys that failed with error details.
     pub failed: Vec<FailedKey>,
+    /// Number of batch error entries that could not be attributed to a
+    /// requested object (e.g. a malformed response from an S3-compatible
+    /// store). They are logged and make the run end with a warning, but are
+    /// not counted as per-object failures.
+    pub unattributed_errors: usize,
 }
 
 /// A successfully deleted key.
@@ -493,7 +498,7 @@ impl ObjectDeleter {
                         version_id: o.version_id().map(|v| v.to_string()),
                     })
                     .collect(),
-                failed: vec![],
+                ..DeleteResult::default()
             }
         } else {
             match self.deleter.delete(&batch, &self.base.config).await {
@@ -589,14 +594,16 @@ impl ObjectDeleter {
                 .await;
         }
 
-        // Set warning flag and optionally stop pipeline on deletion failures.
-        if !delete_result.failed.is_empty() {
+        // Set warning flag and optionally stop pipeline on deletion failures
+        // (including batch errors that could not be attributed to an object).
+        if !delete_result.failed.is_empty() || delete_result.unattributed_errors > 0 {
             self.base.set_warning();
 
             if self.base.config.warn_as_error {
                 warn!(
                     worker_index = self.worker_index,
                     failed_count = delete_result.failed.len(),
+                    unattributed_error_count = delete_result.unattributed_errors,
                     "deletion failures promoted to error (--warn-as-error). cancelling pipeline.",
                 );
                 self.base.cancellation_token.cancel();

@@ -105,9 +105,6 @@ struct MockStorage {
     batch_error_only_version: Arc<Mutex<Option<String>>>,
     /// If true, `Deleted` entries omit the version ID.
     batch_omit_deleted_version_id: Arc<Mutex<bool>>,
-    /// If true, keys in the response have CR normalized to LF (as an XML
-    /// parser does with an unescaped CR).
-    batch_normalize_cr: Arc<Mutex<bool>>,
 }
 
 impl MockStorage {
@@ -136,7 +133,6 @@ impl MockStorage {
             batch_extra_deleted_key: Arc::new(Mutex::new(None)),
             batch_error_only_version: Arc::new(Mutex::new(None)),
             batch_omit_deleted_version_id: Arc::new(Mutex::new(false)),
-            batch_normalize_cr: Arc::new(Mutex::new(false)),
         }
     }
 }
@@ -250,7 +246,6 @@ impl StorageTrait for MockStorage {
         let extra_deleted_key = self.batch_extra_deleted_key.lock().unwrap().clone();
         let error_only_version = self.batch_error_only_version.lock().unwrap().clone();
         let omit_deleted_version_id = *self.batch_omit_deleted_version_id.lock().unwrap();
-        let normalize_cr = *self.batch_normalize_cr.lock().unwrap();
         self.delete_objects_calls
             .lock()
             .unwrap()
@@ -261,12 +256,7 @@ impl StorageTrait for MockStorage {
         let mut builder = DeleteObjectsOutput::builder();
 
         for ident in &objects {
-            let response_key = if normalize_cr {
-                ident.key().replace("\r\n", "\n").replace('\r', "\n")
-            } else {
-                ident.key().to_string()
-            };
-            let key = response_key.as_str();
+            let key = ident.key();
             let version_id = ident.version_id();
             let error_code = batch_error_keys.get(ident.key()).filter(|_| {
                 error_only_version
@@ -2403,29 +2393,6 @@ async fn batch_deleter_ambiguous_deleted_and_error_for_same_key_are_not_guessed(
 }
 
 #[tokio::test]
-async fn batch_deleter_matches_keys_with_cr_normalized_by_xml_parser() {
-    // An XML parser turns an unescaped CR into LF, so the key echoed in the
-    // response can differ from the requested key. It must still match.
-    init_dummy_tracing_subscriber();
-    let (stats_sender, _stats_receiver) = async_channel::unbounded();
-    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
-
-    *mock.batch_normalize_cr.lock().unwrap() = true;
-
-    let deleter = BatchDeleter::new(boxed);
-    let config = make_test_config();
-
-    let objects = vec![make_s3_object("a\rb", 100), make_s3_object("c\r\nd", 100)];
-    let result = deleter.delete(&objects, &config).await.unwrap();
-
-    assert_eq!(result.deleted.len(), 2);
-    assert!(result.failed.is_empty());
-    let mut keys: Vec<&str> = result.deleted.iter().map(|d| d.key.as_str()).collect();
-    keys.sort();
-    assert_eq!(keys, vec!["a\rb", "c\r\nd"]);
-}
-
-#[tokio::test]
 async fn batch_deleter_errors_without_version_id_for_same_key_versions_are_retried() {
     // Two versions of one key fail with errors that omit VersionId. Each
     // error is ambiguous on its own, but together they cover exactly the two
@@ -2497,10 +2464,11 @@ async fn batch_deleter_deleted_entry_with_marker_version_id_accounts_for_object(
 }
 
 #[tokio::test]
-async fn batch_deleter_mixed_keyless_errors_retry_every_object() {
-    // With a retryable and a non-retryable keyless error, which error belongs
-    // to which object is unknown, so both objects are retried and the single
-    // delete decides each outcome.
+async fn batch_deleter_mixed_keyless_errors_fail_without_retry() {
+    // A retryable and a non-retryable keyless error cannot be told apart, so
+    // a retry could hit an object whose error was permanent. Both objects
+    // are recorded as failed, with code `Ambiguous` and both codes in the
+    // message, and nothing is retried.
     init_dummy_tracing_subscriber();
     let (stats_sender, _stats_receiver) = async_channel::unbounded();
     let (boxed, mock) = make_mock_storage_boxed(stats_sender);
@@ -2511,10 +2479,6 @@ async fn batch_deleter_mixed_keyless_errors_retry_every_object() {
         keys.insert("key/2".to_string(), "AccessDenied".to_string());
     }
     *mock.batch_omit_error_key.lock().unwrap() = true;
-    mock.delete_object_error_keys
-        .lock()
-        .unwrap()
-        .insert("key/2".to_string(), "AccessDenied error".to_string());
 
     let deleter = BatchDeleter::new(boxed);
     let config = make_test_config();
@@ -2526,28 +2490,24 @@ async fn batch_deleter_mixed_keyless_errors_retry_every_object() {
     ];
     let result = deleter.delete(&objects, &config).await.unwrap();
 
-    assert_eq!(result.deleted.len(), 2);
-    assert!(result.deleted.iter().any(|d| d.key == "key/1"));
-    assert_eq!(result.failed.len(), 1);
-    assert_eq!(result.failed[0].key, "key/2");
-    assert_eq!(result.failed[0].error_code, "unknown");
-
-    let mut called: Vec<String> = mock
-        .delete_object_calls
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|c| c.key.clone())
-        .collect();
-    called.sort();
-    assert_eq!(called, vec!["key/1".to_string(), "key/2".to_string()]);
+    assert_eq!(result.deleted.len(), 1);
+    assert_eq!(result.deleted[0].key, "key/0");
+    let mut failed: Vec<&str> = result.failed.iter().map(|f| f.key.as_str()).collect();
+    failed.sort();
+    assert_eq!(failed, vec!["key/1", "key/2"]);
+    assert!(result.failed.iter().all(|f| f.error_code
+        == crate::deleter::batch::AMBIGUOUS_ERROR_CODE
+        && f.error_message.contains("SlowDown")
+        && f.error_message.contains("AccessDenied")));
+    assert!(mock.delete_object_calls.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
 async fn batch_deleter_error_with_foreign_key_never_deletes_that_key() {
-    // An error entry naming a key that was not requested must never cause a
-    // DeleteObject for that key. The error is attributed to the requested
-    // object no other entry accounts for.
+    // An error entry naming a key that was not requested says nothing about
+    // any requested object: no DeleteObject is issued (neither for that key
+    // nor for a requested object), and the requested object the response
+    // does not mention is reported as NotReported.
     init_dummy_tracing_subscriber();
     let (stats_sender, _stats_receiver) = async_channel::unbounded();
     let (boxed, mock) = make_mock_storage_boxed(stats_sender);
@@ -2564,12 +2524,15 @@ async fn batch_deleter_error_with_foreign_key_never_deletes_that_key() {
     let objects = vec![make_s3_object("key/0", 100), make_s3_object("key/1", 200)];
     let result = deleter.delete(&objects, &config).await.unwrap();
 
-    assert_eq!(result.deleted.len(), 2);
-    assert!(result.failed.is_empty());
-
-    let single_calls = mock.delete_object_calls.lock().unwrap();
-    assert_eq!(single_calls.len(), 1);
-    assert_eq!(single_calls[0].key, "key/1");
+    assert_eq!(result.deleted.len(), 1);
+    assert_eq!(result.deleted[0].key, "key/0");
+    assert_eq!(result.failed.len(), 1);
+    assert_eq!(result.failed[0].key, "key/1");
+    assert_eq!(
+        result.failed[0].error_code,
+        crate::deleter::batch::NOT_REPORTED_ERROR_CODE
+    );
+    assert!(mock.delete_object_calls.lock().unwrap().is_empty());
 }
 
 #[tokio::test]

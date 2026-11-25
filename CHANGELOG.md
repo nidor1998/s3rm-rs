@@ -14,17 +14,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   store can no longer cause a delete of a key that was not selected, and a retry for a versioned object no longer
   falls back to an unversioned delete when the error entry omits `VersionId`
 - Error entries without a key (or with an empty key) are no longer retried or reported under a placeholder key.
-  They are attributed to the submitted objects the response leaves unaccounted for when that is unambiguous, and
-  otherwise logged and ignored
+  They are attributed to the submitted objects the response does not mention when that is unambiguous (and then
+  retried or recorded by those objects' identity), and otherwise logged and ignored. Entries naming a key that was
+  not submitted are logged and ignored
 - `Config::default()` and `Config::for_target()` now set `target_client_config` to `ClientConfig::default()`, so
   a library pipeline built from them has an S3 client
 - README: the `--dry-run` example no longer combines `--dry-run` with `--force`, which is rejected
 
 ### Changed
 
-- A submitted object that a `DeleteObjects` response reports neither as deleted nor as failed is now recorded as a
-  failure with error code `NotReported` (DeleteError stat, `DELETE_FAILED` event, exit code 3) instead of being
-  silently treated as processed. S3-compatible stores that omit `Deleted` entries from their responses are affected
+- A submitted object whose outcome a `DeleteObjects` response does not determine (not mentioned, or mentioned only
+  ambiguously or contradictorily) is now recorded as a failure with error code `NotReported` (DeleteError stat,
+  `DELETE_FAILED` event, exit code 3) instead of being silently treated as processed. S3-compatible stores that
+  omit `Deleted` entries from their responses are affected
+- When several `DeleteObjects` errors with different codes cannot be told apart, the affected objects are recorded
+  as failed with error code `Ambiguous` (the message lists the codes) and are not retried
+- Library API: `Config::default()` now sets `target_client_config` to `ClientConfig::default()` instead of `None`,
+  so storage creation builds an S3 client from the standard AWS environment/config chain
 
 ## [1.7.0] - 2026-11-22
 

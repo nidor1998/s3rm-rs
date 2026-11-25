@@ -110,6 +110,10 @@ impl Config {
     /// (16 workers, batch size 200, etc.). The `force` flag is set to `true` to
     /// skip interactive confirmation prompts, which is appropriate for programmatic use.
     ///
+    /// `target_client_config` is set to [`ClientConfig::default()`], which loads
+    /// credentials and region from the standard AWS environment/config chain
+    /// (the same behavior as the CLI with no credential/region flags).
+    ///
     /// **Note:** This bypasses CLI-level validation (conflicting flags, rate-limit
     /// vs batch-size, etc.). Prefer [`build_config_from_args`](crate::build_config_from_args)
     /// when possible.
@@ -129,6 +133,7 @@ impl Config {
                 bucket: bucket.to_string(),
                 prefix: prefix.to_string(),
             },
+            target_client_config: Some(ClientConfig::default()),
             force: true,
             ..Config::default()
         }
@@ -205,6 +210,38 @@ pub struct ClientConfig {
     pub cli_timeout_config: CLITimeoutConfig,
     pub disable_stalled_stream_protection: bool,
     pub request_checksum_calculation: RequestChecksumCalculation,
+}
+
+impl Default for ClientConfig {
+    /// Create a `ClientConfig` matching the CLI defaults: credentials and region
+    /// from the standard AWS environment/config chain, no custom endpoint,
+    /// SDK retries with exponential backoff, and no explicit timeouts.
+    fn default() -> Self {
+        ClientConfig {
+            client_config_location: ClientConfigLocation {
+                aws_config_file: None,
+                aws_shared_credentials_file: None,
+            },
+            credential: S3Credentials::FromEnvironment,
+            region: None,
+            endpoint_url: None,
+            force_path_style: false,
+            accelerate: false,
+            request_payer: None,
+            retry_config: RetryConfig {
+                aws_max_attempts: args::DEFAULT_AWS_MAX_ATTEMPTS,
+                initial_backoff_milliseconds: args::DEFAULT_INITIAL_BACKOFF_MILLISECONDS,
+            },
+            cli_timeout_config: CLITimeoutConfig {
+                operation_timeout_milliseconds: None,
+                operation_attempt_timeout_milliseconds: None,
+                connect_timeout_milliseconds: None,
+                read_timeout_milliseconds: None,
+            },
+            disable_stalled_stream_protection: false,
+            request_checksum_calculation: RequestChecksumCalculation::WhenRequired,
+        }
+    }
 }
 
 /// Retry configuration for AWS SDK operations.
@@ -396,10 +433,39 @@ mod tests {
         assert!(!config.if_match);
         assert!(config.max_delete.is_none());
         assert!(config.tracing_config.is_none());
-        assert!(config.target_client_config.is_none());
+        assert!(config.target_client_config.is_some());
         assert!(config.rate_limit_objects.is_none());
         assert!(!config.warn_as_error);
         assert!(!config.test_user_defined_callback);
+    }
+
+    #[test]
+    fn config_for_target_client_config_matches_cli_defaults() {
+        let config = Config::for_target("bucket", "prefix/");
+        let cli = crate::build_config_from_args(["s3rm", "s3://bucket/prefix/", "--force"])
+            .expect("valid args");
+
+        let lib_cc = config.target_client_config.expect("client config set");
+        let cli_cc = cli.target_client_config.expect("client config set");
+
+        assert!(matches!(lib_cc.credential, S3Credentials::FromEnvironment));
+        assert_eq!(lib_cc.region, cli_cc.region);
+        assert_eq!(lib_cc.endpoint_url, cli_cc.endpoint_url);
+        assert_eq!(lib_cc.force_path_style, cli_cc.force_path_style);
+        assert_eq!(lib_cc.accelerate, cli_cc.accelerate);
+        assert_eq!(lib_cc.request_payer, cli_cc.request_payer);
+        assert_eq!(
+            lib_cc.retry_config.aws_max_attempts,
+            cli_cc.retry_config.aws_max_attempts
+        );
+        assert_eq!(
+            lib_cc.retry_config.initial_backoff_milliseconds,
+            cli_cc.retry_config.initial_backoff_milliseconds
+        );
+        assert_eq!(
+            lib_cc.disable_stalled_stream_protection,
+            cli_cc.disable_stalled_stream_protection
+        );
     }
 
     #[test]

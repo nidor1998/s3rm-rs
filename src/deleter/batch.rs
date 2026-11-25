@@ -186,12 +186,17 @@ impl Deleter for BatchDeleter {
             // Handle partial failures: classify by error code and fall back
             // to individual DeleteObject calls for retryable errors.
             for err in response.errors() {
-                let key = err.key().unwrap_or("unknown").to_string();
+                // Some S3-compatible stores may omit the key from an error entry.
+                // Without a key we cannot identify the object, so we must never
+                // fall back to a single DeleteObject (that would target a
+                // placeholder key). Record it as a failure instead.
+                let key_is_known = err.key().is_some();
+                let key = err.key().unwrap_or("<unknown>").to_string();
                 let version_id = err.version_id().map(|v| v.to_string());
                 let code = err.code().unwrap_or("unknown").to_string();
                 let message = err.message().unwrap_or("no message").to_string();
 
-                if is_retryable_error_code(&code) {
+                if key_is_known && is_retryable_error_code(&code) {
                     // Retryable error: fall back to individual DeleteObject with retries
                     let if_match_etag = if config.if_match {
                         obj_lookup

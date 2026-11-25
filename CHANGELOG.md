@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `DeleteObjects` responses are now reconciled against the submitted objects. A single-object fallback retry
+  always uses a submitted object's own key, version ID and ETag, so a malformed response from an S3-compatible
+  store can no longer cause a delete of a key that was not selected, and a retry for a versioned object no longer
+  falls back to an unversioned delete when the error entry omits `VersionId`
+- Error entries without a key (or with an empty key) are no longer retried or reported under a placeholder key.
+  They are attributed to the submitted objects the response leaves unaccounted for when that is unambiguous, and
+  otherwise logged and ignored
+- `Config::default()` and `Config::for_target()` now set `target_client_config` to `ClientConfig::default()`, so
+  a library pipeline built from them has an S3 client
+- README: the `--dry-run` example no longer combines `--dry-run` with `--force`, which is rejected
+
+### Changed
+
+- A submitted object that a `DeleteObjects` response reports neither as deleted nor as failed is now recorded as a
+  failure with error code `NotReported` (DeleteError stat, `DELETE_FAILED` event, exit code 3) instead of being
+  silently treated as processed. S3-compatible stores that omit `Deleted` entries from their responses are affected
+
 ## [1.7.0] - 2026-11-22
 
 Update for the end of life (EOL) of the `chrono` crate and Lua 5.4. This release contains breaking changes to

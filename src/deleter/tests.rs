@@ -96,6 +96,18 @@ struct MockStorage {
     batch_error_key_override: Arc<Mutex<Option<String>>>,
     /// If true, error entries omit the version ID.
     batch_omit_error_version_id: Arc<Mutex<bool>>,
+    /// If set, every `Deleted` entry carries this version ID, even when the
+    /// request had a different one (a malformed response).
+    batch_force_deleted_version_id: Arc<Mutex<Option<String>>>,
+    /// If set, an extra `Deleted` entry with this key is appended.
+    batch_extra_deleted_key: Arc<Mutex<Option<String>>>,
+    /// If set, `batch_error_keys` applies only to the object with this version ID.
+    batch_error_only_version: Arc<Mutex<Option<String>>>,
+    /// If true, `Deleted` entries omit the version ID.
+    batch_omit_deleted_version_id: Arc<Mutex<bool>>,
+    /// If true, keys in the response have CR normalized to LF (as an XML
+    /// parser does with an unescaped CR).
+    batch_normalize_cr: Arc<Mutex<bool>>,
 }
 
 impl MockStorage {
@@ -120,6 +132,11 @@ impl MockStorage {
             batch_deleted_version_id: Arc::new(Mutex::new(None)),
             batch_error_key_override: Arc::new(Mutex::new(None)),
             batch_omit_error_version_id: Arc::new(Mutex::new(false)),
+            batch_force_deleted_version_id: Arc::new(Mutex::new(None)),
+            batch_extra_deleted_key: Arc::new(Mutex::new(None)),
+            batch_error_only_version: Arc::new(Mutex::new(None)),
+            batch_omit_deleted_version_id: Arc::new(Mutex::new(false)),
+            batch_normalize_cr: Arc::new(Mutex::new(false)),
         }
     }
 }
@@ -229,6 +246,11 @@ impl StorageTrait for MockStorage {
         let deleted_version_id = self.batch_deleted_version_id.lock().unwrap().clone();
         let error_key_override = self.batch_error_key_override.lock().unwrap().clone();
         let omit_error_version_id = *self.batch_omit_error_version_id.lock().unwrap();
+        let force_deleted_version_id = self.batch_force_deleted_version_id.lock().unwrap().clone();
+        let extra_deleted_key = self.batch_extra_deleted_key.lock().unwrap().clone();
+        let error_only_version = self.batch_error_only_version.lock().unwrap().clone();
+        let omit_deleted_version_id = *self.batch_omit_deleted_version_id.lock().unwrap();
+        let normalize_cr = *self.batch_normalize_cr.lock().unwrap();
         self.delete_objects_calls
             .lock()
             .unwrap()
@@ -239,9 +261,19 @@ impl StorageTrait for MockStorage {
         let mut builder = DeleteObjectsOutput::builder();
 
         for ident in &objects {
-            let key = ident.key();
+            let response_key = if normalize_cr {
+                ident.key().replace("\r\n", "\n").replace('\r', "\n")
+            } else {
+                ident.key().to_string()
+            };
+            let key = response_key.as_str();
             let version_id = ident.version_id();
-            if let Some(error_code) = batch_error_keys.get(key) {
+            let error_code = batch_error_keys.get(ident.key()).filter(|_| {
+                error_only_version
+                    .as_deref()
+                    .is_none_or(|v| version_id == Some(v))
+            });
+            if let Some(error_code) = error_code {
                 let mut err_builder = aws_sdk_s3::types::Error::builder();
                 if empty_error_key {
                     err_builder = err_builder.key("");
@@ -259,11 +291,20 @@ impl StorageTrait for MockStorage {
                 builder = builder.errors(err_builder.build());
             } else if !omit_deleted {
                 let mut del_builder = DeletedObject::builder().key(key);
-                if let Some(vid) = version_id.or(deleted_version_id.as_deref()) {
+                if let Some(vid) = force_deleted_version_id
+                    .as_deref()
+                    .or(version_id)
+                    .or(deleted_version_id.as_deref())
+                    .filter(|_| !omit_deleted_version_id)
+                {
                     del_builder = del_builder.version_id(vid);
                 }
                 builder = builder.deleted(del_builder.build());
             }
+        }
+
+        if let Some(extra) = extra_deleted_key {
+            builder = builder.deleted(DeletedObject::builder().key(extra).build());
         }
 
         if let Some(code) = stray_keyless_error {
@@ -2182,9 +2223,9 @@ async fn batch_deleter_non_retryable_error_without_key_records_real_key() {
 }
 
 #[tokio::test]
-async fn batch_deleter_keyless_error_with_nothing_unaccounted_is_unattributed() {
+async fn batch_deleter_keyless_error_with_nothing_unaccounted_is_ignored() {
     // If every object is already accounted for, a keyless error cannot be
-    // attributed. It is reported as an unattributed error (not a per-object
+    // attributed. It is only logged (not a per-object
     // failure) and nothing is retried.
     init_dummy_tracing_subscriber();
     let (stats_sender, stats_receiver) = async_channel::unbounded();
@@ -2200,16 +2241,15 @@ async fn batch_deleter_keyless_error_with_nothing_unaccounted_is_unattributed() 
 
     assert_eq!(result.deleted.len(), 2);
     assert!(result.failed.is_empty());
-    assert_eq!(result.unattributed_errors, 1);
     assert!(mock.delete_object_calls.lock().unwrap().is_empty());
     assert!(
         stats_receiver.is_empty(),
-        "unattributed errors must not emit per-object DeleteError stats"
+        "an ignored error must not emit per-object DeleteError stats"
     );
 }
 
 #[tokio::test]
-async fn batch_deleter_keyless_error_with_quiet_style_response_is_unattributed() {
+async fn batch_deleter_keyless_error_with_quiet_style_response_is_not_attributed() {
     // A store that omits `Deleted` entries leaves every object unaccounted.
     // One keyless error must not be applied to all of them.
     init_dummy_tracing_subscriber();
@@ -2233,9 +2273,197 @@ async fn batch_deleter_keyless_error_with_quiet_style_response_is_unattributed()
     ];
     let result = deleter.delete(&objects, &config).await.unwrap();
 
-    assert!(result.failed.is_empty());
-    assert_eq!(result.unattributed_errors, 1);
+    assert!(result.deleted.is_empty());
+    // The error cannot be attributed; the objects the response does not
+    // mention are recorded as failed (they may still exist), not retried.
+    assert_eq!(result.failed.len(), 3);
+    assert!(
+        result
+            .failed
+            .iter()
+            .all(|f| f.error_code == crate::deleter::batch::NOT_REPORTED_ERROR_CODE)
+    );
     assert!(mock.delete_object_calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn batch_deleter_objects_missing_from_response_are_recorded_as_failed() {
+    // Objects the response neither deletes nor fails are not silently
+    // treated as processed: each is recorded as failed (NotReported).
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    *mock.batch_omit_deleted.lock().unwrap() = true;
+
+    let deleter = BatchDeleter::new(boxed);
+    let config = make_test_config();
+
+    let objects = vec![make_s3_object("key/0", 100), make_s3_object("key/1", 200)];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    assert!(result.deleted.is_empty());
+    let mut failed: Vec<&str> = result.failed.iter().map(|f| f.key.as_str()).collect();
+    failed.sort();
+    assert_eq!(failed, vec!["key/0", "key/1"]);
+    assert!(
+        result
+            .failed
+            .iter()
+            .all(|f| f.error_code == crate::deleter::batch::NOT_REPORTED_ERROR_CODE)
+    );
+    assert!(mock.delete_object_calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn batch_deleter_deleted_entry_for_unrequested_key_is_not_counted() {
+    // A `Deleted` entry naming a key that was not requested is not reported
+    // as a deletion.
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    *mock.batch_extra_deleted_key.lock().unwrap() = Some("other/prefix/file".to_string());
+
+    let deleter = BatchDeleter::new(boxed);
+    let config = make_test_config();
+
+    let objects = vec![make_s3_object("key/0", 100)];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    assert_eq!(result.deleted.len(), 1);
+    assert_eq!(result.deleted[0].key, "key/0");
+}
+
+#[tokio::test]
+async fn batch_deleter_does_not_attribute_errors_to_object_named_in_response() {
+    // An object whose key appears in an unmatched response entry (here a
+    // `Deleted` entry with a mismatched version ID) may already be deleted,
+    // so a keyless error is never attributed to it and it is not retried.
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    *mock.batch_force_deleted_version_id.lock().unwrap() = Some("ver-other".to_string());
+    *mock.batch_stray_keyless_error.lock().unwrap() = Some("InternalError".to_string());
+
+    let deleter = BatchDeleter::new(boxed);
+    let config = make_test_config();
+
+    let objects = vec![make_versioned_s3_object("key/0", "ver-abc", 100)];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    assert!(result.deleted.is_empty());
+    // The object itself is reported as failed (outcome unknown), not retried.
+    assert_eq!(result.failed.len(), 1);
+    assert_eq!(result.failed[0].key, "key/0");
+    assert_eq!(
+        result.failed[0].error_code,
+        crate::deleter::batch::NOT_REPORTED_ERROR_CODE
+    );
+    assert!(mock.delete_object_calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn batch_deleter_ambiguous_deleted_and_error_for_same_key_are_not_guessed() {
+    // Two versions of one key; the response has one Deleted and one Error
+    // entry, neither with a version ID. Which version failed is unknown, so
+    // neither entry is assigned by guessing: both versions are reported as
+    // NotReported failures and nothing is retried.
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    mock.batch_error_keys
+        .lock()
+        .unwrap()
+        .insert("key/0".to_string(), "InternalError".to_string());
+    *mock.batch_error_only_version.lock().unwrap() = Some("v1".to_string());
+    *mock.batch_omit_error_version_id.lock().unwrap() = true;
+    *mock.batch_omit_deleted_version_id.lock().unwrap() = true;
+
+    let deleter = BatchDeleter::new(boxed);
+    let config = make_test_config();
+
+    let objects = vec![
+        make_versioned_s3_object("key/0", "v1", 100),
+        make_versioned_s3_object("key/0", "v2", 100),
+    ];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    assert!(result.deleted.is_empty());
+    assert_eq!(result.failed.len(), 2);
+    assert!(
+        result
+            .failed
+            .iter()
+            .all(|f| f.error_code == crate::deleter::batch::NOT_REPORTED_ERROR_CODE)
+    );
+    assert!(mock.delete_object_calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn batch_deleter_matches_keys_with_cr_normalized_by_xml_parser() {
+    // An XML parser turns an unescaped CR into LF, so the key echoed in the
+    // response can differ from the requested key. It must still match.
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    *mock.batch_normalize_cr.lock().unwrap() = true;
+
+    let deleter = BatchDeleter::new(boxed);
+    let config = make_test_config();
+
+    let objects = vec![make_s3_object("a\rb", 100), make_s3_object("c\r\nd", 100)];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    assert_eq!(result.deleted.len(), 2);
+    assert!(result.failed.is_empty());
+    let mut keys: Vec<&str> = result.deleted.iter().map(|d| d.key.as_str()).collect();
+    keys.sort();
+    assert_eq!(keys, vec!["a\rb", "c\r\nd"]);
+}
+
+#[tokio::test]
+async fn batch_deleter_errors_without_version_id_for_same_key_versions_are_retried() {
+    // Two versions of one key fail with errors that omit VersionId. Each
+    // error is ambiguous on its own, but together they cover exactly the two
+    // unaccounted versions, so both are retried with their own version IDs.
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+
+    mock.batch_error_keys
+        .lock()
+        .unwrap()
+        .insert("key/0".to_string(), "SlowDown".to_string());
+    *mock.batch_omit_error_version_id.lock().unwrap() = true;
+
+    let deleter = BatchDeleter::new(boxed);
+    let config = make_test_config();
+
+    let objects = vec![
+        make_versioned_s3_object("key/0", "v1", 100),
+        make_versioned_s3_object("key/0", "v2", 100),
+    ];
+    let result = deleter.delete(&objects, &config).await.unwrap();
+
+    assert_eq!(result.deleted.len(), 2);
+    assert!(result.failed.is_empty());
+
+    let mut versions: Vec<Option<String>> = mock
+        .delete_object_calls
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|c| c.version_id.clone())
+        .collect();
+    versions.sort();
+    assert_eq!(
+        versions,
+        vec![Some("v1".to_string()), Some("v2".to_string())]
+    );
 }
 
 #[tokio::test]

@@ -3,9 +3,12 @@
 //! Groups objects into batches of up to 1000 and calls the S3 batch
 //! delete API for high-throughput deletion.
 
+use std::borrow::Cow;
+use std::collections::HashMap;
+
 use anyhow::Result;
 use async_trait::async_trait;
-use aws_sdk_s3::types::ObjectIdentifier;
+use aws_sdk_s3::types::{DeletedObject, ObjectIdentifier};
 use tracing::{debug, warn};
 
 use crate::config::Config;
@@ -15,6 +18,10 @@ use super::{DeleteResult, DeletedKey, Deleter, FailedKey};
 
 /// Maximum objects per batch DeleteObjects API call (S3 limit).
 pub const MAX_BATCH_SIZE: usize = 1000;
+
+/// Error code recorded for a requested object that a DeleteObjects response
+/// neither reported as deleted nor as failed.
+pub const NOT_REPORTED_ERROR_CODE: &str = "NotReported";
 
 /// Determines whether an S3 batch deletion error code is retryable.
 ///
@@ -191,56 +198,107 @@ impl BatchDeleter {
         });
     }
 
-    /// Handles error entries that could not be matched to exactly one
-    /// requested object (no key, an empty key, a key that was not in the
-    /// request, or an ambiguous key without a version ID).
+    /// Resolves what is left after the unambiguous matching pass: `Deleted`
+    /// entries and `Error` entries that could not be matched to exactly one
+    /// requested object (no key, an empty key, a key that was not requested,
+    /// or a key shared by several requested versions without a version ID),
+    /// and the requested objects no entry accounted for.
     ///
-    /// When the number of such errors equals the number of requested objects
-    /// that no response entry accounts for, the errors are taken to refer to
-    /// those objects. Their real identities are then used:
-    /// - if every error is non-retryable, each object is recorded as failed;
-    /// - otherwise each object is retried with a single DeleteObject, whose
-    ///   own outcome decides whether it is deleted or failed.
+    /// - With no leftover errors, leftover `Deleted` entries may take the
+    ///   first compatible object (e.g. several versions of a key reported
+    ///   without version IDs).
+    /// - With leftover errors and no leftover `Deleted` entries, the errors
+    ///   are taken to refer to the unaccounted objects when the counts are
+    ///   equal. If every error is non-retryable, each object is recorded as
+    ///   failed; otherwise each object is retried with a single DeleteObject,
+    ///   whose own outcome decides whether it is deleted or failed. Which
+    ///   error belongs to which object is unknown, so when the codes differ a
+    ///   failure is reported with code `unknown` and a message listing them.
+    /// - Otherwise no guess is made.
     ///
-    /// Otherwise the errors cannot be attributed. No object is touched, and
-    /// the errors are reported in [`DeleteResult::unattributed_errors`] so the
-    /// run ends with a warning without inflating per-object failure counts.
-    async fn resolve_unattributed_errors(
+    /// Leftover entries that are not used are only logged: they say nothing
+    /// reliable about a requested object. Every requested object that is
+    /// still unaccounted is recorded as failed with code
+    /// [`NOT_REPORTED_ERROR_CODE`] (it may still exist) and is never retried.
+    #[allow(clippy::too_many_arguments)]
+    async fn resolve_leftovers(
         &self,
-        unaccounted: Vec<&S3Object>,
+        chunk: &[S3Object],
+        index: &HashMap<String, Vec<usize>>,
+        accounted: &mut [bool],
+        pending_deleted: Vec<&DeletedObject>,
+        unmatched_errors: Vec<(String, String)>,
+        config: &Config,
+        result: &mut DeleteResult,
+    ) {
+        if unmatched_errors.is_empty() {
+            for deleted in pending_deleted {
+                match match_entry(
+                    deleted.key(),
+                    deleted.version_id(),
+                    chunk,
+                    index,
+                    accounted,
+                    true,
+                ) {
+                    Some(i) => {
+                        accounted[i] = true;
+                        result.deleted.push(deleted_key_of(&chunk[i]));
+                    }
+                    None => warn_ignored_deleted(deleted),
+                }
+            }
+        } else {
+            let unaccounted: Vec<&S3Object> = unaccounted_objects(chunk, accounted).collect();
+            if pending_deleted.is_empty() && unaccounted.len() == unmatched_errors.len() {
+                self.attribute_errors(unaccounted, unmatched_errors, config, result)
+                    .await;
+                return;
+            }
+
+            for deleted in pending_deleted {
+                warn_ignored_deleted(deleted);
+            }
+            for (code, message) in &unmatched_errors {
+                warn!(
+                    code = code,
+                    message = message,
+                    "S3 DeleteObjects returned an error that cannot be attributed to a \
+                     requested object; ignoring it: {} ({}).",
+                    code,
+                    message,
+                );
+            }
+        }
+
+        let unaccounted: Vec<&S3Object> = unaccounted_objects(chunk, accounted).collect();
+        for obj in unaccounted {
+            self.record_failure(
+                obj,
+                NOT_REPORTED_ERROR_CODE,
+                "DeleteObjects response did not report this object as deleted or failed",
+                result,
+            )
+            .await;
+        }
+    }
+
+    /// Applies `errors` to `objects` (same length) as described in
+    /// [`resolve_leftovers`](Self::resolve_leftovers).
+    async fn attribute_errors(
+        &self,
+        objects: Vec<&S3Object>,
         errors: Vec<(String, String)>,
         config: &Config,
         result: &mut DeleteResult,
     ) {
-        if errors.is_empty() {
-            return;
-        }
-
-        if unaccounted.len() != errors.len() {
-            for (code, message) in errors {
-                warn!(
-                    code = code,
-                    message = message,
-                    unaccounted_objects = unaccounted.len(),
-                    "S3 DeleteObjects returned an error that cannot be attributed to a \
-                     requested object: {} ({}).",
-                    code,
-                    message,
-                );
-                result.unattributed_errors += 1;
-            }
-            return;
-        }
-
         warn!(
             errors = errors.len(),
-            "S3 DeleteObjects returned {} error(s) without an identifiable key; attributing \
+            "S3 DeleteObjects returned {} error(s) without an identifiable object; attributing \
              them to the object(s) not reported as deleted or failed.",
             errors.len(),
         );
 
-        // With several errors, which error belongs to which object is unknown,
-        // so a code is only reported per object when all errors agree.
         let (code, message) = if errors.iter().all(|(c, _)| *c == errors[0].0) {
             errors[0].clone()
         } else {
@@ -248,14 +306,14 @@ impl BatchDeleter {
             (
                 "unknown".to_string(),
                 format!(
-                    "DeleteObjects errors without an identifiable key: {}",
+                    "DeleteObjects errors without an identifiable object: {}",
                     codes.join(", ")
                 ),
             )
         };
         let all_non_retryable = errors.iter().all(|(c, _)| !is_retryable_error_code(c));
 
-        for obj in unaccounted {
+        for obj in objects {
             if all_non_retryable {
                 self.record_failure(obj, &code, &message, result).await;
             } else {
@@ -266,40 +324,93 @@ impl BatchDeleter {
     }
 }
 
-/// Returns true if a response entry `(key, version_id)` can refer to `obj`.
-///
-/// The keys must match. Version IDs must match when both sides have one; an
-/// entry without a version ID, or a request without one (S3 may echo a
-/// delete-marker version ID), is compatible.
-fn entry_matches(key: &str, version_id: Option<&str>, obj: &S3Object) -> bool {
-    key == obj.key()
-        && match (version_id, obj.version_id()) {
-            (Some(a), Some(b)) => a == b,
-            _ => true,
-        }
+fn warn_ignored_deleted(deleted: &DeletedObject) {
+    warn!(
+        key = deleted.key(),
+        version_id = deleted.version_id(),
+        "S3 DeleteObjects reported a deleted entry that matches no requested object; \
+         ignoring it.",
+    );
 }
 
-/// Finds the single not-yet-accounted object in `chunk` that a response entry
-/// refers to. An exact `(key, version_id)` match wins; otherwise the entry
-/// must be compatible with exactly one object, else `None` (ambiguous or not
-/// part of the request).
+fn unaccounted_objects<'a>(
+    chunk: &'a [S3Object],
+    accounted: &'a [bool],
+) -> impl Iterator<Item = &'a S3Object> {
+    chunk
+        .iter()
+        .zip(accounted)
+        .filter(|(_, done)| !**done)
+        .map(|(obj, _)| obj)
+}
+
+/// The [`DeletedKey`] for a requested object, using its own identity.
+fn deleted_key_of(obj: &S3Object) -> DeletedKey {
+    DeletedKey {
+        key: obj.key().to_string(),
+        version_id: obj.version_id().map(|v| v.to_string()),
+    }
+}
+
+/// Normalizes line endings the way an XML parser does (CR LF and lone CR
+/// become LF), so a key echoed in a parsed response still matches the
+/// requested key.
+fn normalize_key(key: &str) -> Cow<'_, str> {
+    if key.contains('\r') {
+        Cow::Owned(key.replace("\r\n", "\n").replace('\r', "\n"))
+    } else {
+        Cow::Borrowed(key)
+    }
+}
+
+/// Indices of the requested objects in `chunk`, by normalized key.
+fn index_by_key(chunk: &[S3Object]) -> HashMap<String, Vec<usize>> {
+    let mut index: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, obj) in chunk.iter().enumerate() {
+        index
+            .entry(normalize_key(obj.key()).into_owned())
+            .or_default()
+            .push(i);
+    }
+    index
+}
+
+/// Returns true if a response entry's version ID is compatible with a
+/// requested object's: they must be equal when both are present; an entry
+/// without a version ID, or a request without one (S3 may echo a
+/// delete-marker version ID), is compatible.
+fn versions_compatible(entry: Option<&str>, requested: Option<&str>) -> bool {
+    match (entry, requested) {
+        (Some(a), Some(b)) => a == b,
+        _ => true,
+    }
+}
+
+/// Finds the not-yet-accounted object in `chunk` that a response entry
+/// refers to. An exact version match wins; otherwise the entry must be
+/// compatible with exactly one object with that key. With `first_fit`, an
+/// entry compatible with several objects takes the first of them instead.
+/// `None` means the entry is ambiguous or names no requested object.
 fn match_entry(
     key: Option<&str>,
     version_id: Option<&str>,
     chunk: &[S3Object],
+    index: &HashMap<String, Vec<usize>>,
     accounted: &[bool],
+    first_fit: bool,
 ) -> Option<usize> {
     let key = key.filter(|k| !k.is_empty())?;
-    let open = || (0..chunk.len()).filter(|&i| !accounted[i]);
+    let indices = index.get(normalize_key(key).as_ref())?;
+    let open = || indices.iter().copied().filter(|&i| !accounted[i]);
 
-    if let Some(i) = open().find(|&i| chunk[i].key() == key && chunk[i].version_id() == version_id)
-    {
+    if let Some(i) = open().find(|&i| chunk[i].version_id() == version_id) {
         return Some(i);
     }
 
-    let mut candidates = open().filter(|&i| entry_matches(key, version_id, &chunk[i]));
+    let mut candidates = open().filter(|&i| versions_compatible(version_id, chunk[i].version_id()));
     match (candidates.next(), candidates.next()) {
         (Some(i), None) => Some(i),
+        (Some(i), Some(_)) if first_fit => Some(i),
         _ => None,
     }
 }
@@ -343,31 +454,49 @@ impl Deleter for BatchDeleter {
 
             let response = self.target.delete_objects(identifiers).await?;
 
+            let deleted_before = result.deleted.len();
+            let failed_before = result.failed.len();
+
+            let index = index_by_key(chunk);
             // Tracks which requested objects a response entry has accounted for.
             let mut accounted = vec![false; chunk.len()];
 
+            // Every recorded outcome uses the identity of a requested object,
+            // never a key taken verbatim from the response, so a malformed
+            // response can neither cause a delete outside the batch nor report
+            // one. This first pass only accepts unambiguous matches; the rest
+            // is handled by `resolve_leftovers`.
+            let mut pending_deleted = Vec::new();
             for deleted in response.deleted() {
-                if let Some(i) = match_entry(deleted.key(), deleted.version_id(), chunk, &accounted)
-                {
-                    accounted[i] = true;
+                match match_entry(
+                    deleted.key(),
+                    deleted.version_id(),
+                    chunk,
+                    &index,
+                    &accounted,
+                    false,
+                ) {
+                    Some(i) => {
+                        accounted[i] = true;
+                        result.deleted.push(deleted_key_of(&chunk[i]));
+                    }
+                    None => pending_deleted.push(deleted),
                 }
-                result.deleted.push(DeletedKey {
-                    key: deleted.key().unwrap_or_default().to_string(),
-                    version_id: deleted.version_id().map(|v| v.to_string()),
-                });
             }
 
-            // Handle partial failures. Every action taken uses the identity of
-            // a requested object, never a key taken verbatim from the response,
-            // so a malformed response cannot cause a delete outside the batch.
-            // Entries that cannot be matched to exactly one requested object
-            // are resolved afterwards.
             let mut unmatched_errors: Vec<(String, String)> = Vec::new();
             for err in response.errors() {
                 let code = err.code().unwrap_or("unknown").to_string();
                 let message = err.message().unwrap_or("no message").to_string();
 
-                let Some(i) = match_entry(err.key(), err.version_id(), chunk, &accounted) else {
+                let Some(i) = match_entry(
+                    err.key(),
+                    err.version_id(),
+                    chunk,
+                    &index,
+                    &accounted,
+                    false,
+                ) else {
                     unmatched_errors.push((code, message));
                     continue;
                 };
@@ -385,18 +514,20 @@ impl Deleter for BatchDeleter {
                 }
             }
 
-            let unaccounted: Vec<&S3Object> = chunk
-                .iter()
-                .zip(&accounted)
-                .filter(|(_, done)| !**done)
-                .map(|(obj, _)| obj)
-                .collect();
-            self.resolve_unattributed_errors(unaccounted, unmatched_errors, config, &mut result)
-                .await;
+            self.resolve_leftovers(
+                chunk,
+                &index,
+                &mut accounted,
+                pending_deleted,
+                unmatched_errors,
+                config,
+                &mut result,
+            )
+            .await;
 
             debug!(
-                deleted = result.deleted.len(),
-                failed = result.failed.len(),
+                deleted = result.deleted.len() - deleted_before,
+                failed = result.failed.len() - failed_before,
                 "DeleteObjects batch completed."
             );
         }

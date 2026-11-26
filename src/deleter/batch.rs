@@ -270,23 +270,35 @@ fn versions_compatible(entry: Option<&str>, requested: Option<&str>) -> bool {
 /// The outcome for objects that `errors` refer to, when it is known that
 /// the errors and the objects correspond one to one but not in which order.
 ///
-/// If all errors share a code, that code is used; otherwise the code is
-/// [`AMBIGUOUS_ERROR_CODE`] and the message lists the codes. If every code is retryable the
-/// objects are retried; otherwise they are recorded as failed.
+/// If all errors share a code, that code is used, with the shared message
+/// if all messages agree (otherwise a message saying the messages could not
+/// be assigned to individual objects), and the objects are retried if the
+/// code is retryable and recorded as failed otherwise. If the codes differ,
+/// the code is [`AMBIGUOUS_ERROR_CODE`], the message lists the codes, and the
+/// objects are recorded as failed without retry.
 fn outcome_for_errors(errors: &[(String, String)]) -> Outcome {
-    let (code, message) = if errors.iter().all(|(c, _)| *c == errors[0].0) {
-        errors[0].clone()
-    } else {
+    let (first_code, first_message) = &errors[0];
+    if errors.iter().any(|(c, _)| c != first_code) {
         let codes: Vec<&str> = errors.iter().map(|(c, _)| c.as_str()).collect();
-        (
-            AMBIGUOUS_ERROR_CODE.to_string(),
-            format!(
+        return Outcome::Failed {
+            code: AMBIGUOUS_ERROR_CODE.to_string(),
+            message: format!(
                 "DeleteObjects errors that cannot be told apart: {}",
                 codes.join(", ")
             ),
+        };
+    }
+    let code = first_code.clone();
+    let message = if errors.iter().all(|(_, m)| m == first_message) {
+        first_message.clone()
+    } else {
+        let messages: Vec<&str> = errors.iter().map(|(_, m)| m.as_str()).collect();
+        format!(
+            "DeleteObjects error messages could not be assigned to individual objects: {}",
+            messages.join(" | ")
         )
     };
-    if errors.iter().all(|(c, _)| is_retryable_error_code(c)) {
+    if is_retryable_error_code(&code) {
         Outcome::Retry { code, message }
     } else {
         Outcome::Failed { code, message }
@@ -676,6 +688,54 @@ mod tests {
             Outcome::Failed { code, .. } if code == AMBIGUOUS_ERROR_CODE
         )));
         assert!(!is_retryable_error_code(AMBIGUOUS_ERROR_CODE));
+    }
+
+    #[test]
+    fn reconcile_mixed_retryable_codes_are_ambiguous_and_not_retried() {
+        let chunk = [version("a", "v1"), version("a", "v2")];
+        let response = DeleteObjectsOutput::builder()
+            .errors(error(Some("a"), None, "SlowDown"))
+            .errors(error(Some("a"), None, "InternalError"))
+            .build();
+        let outcomes = reconcile(&chunk, &response);
+        assert!(outcomes.iter().all(|o| matches!(
+            o,
+            Outcome::Failed { code, message }
+                if code == AMBIGUOUS_ERROR_CODE
+                    && message.contains("SlowDown")
+                    && message.contains("InternalError")
+        )));
+    }
+
+    #[test]
+    fn reconcile_same_code_different_messages_are_not_pinned_on_one_version() {
+        let chunk = [version("a", "v1"), version("a", "v2")];
+        let response = DeleteObjectsOutput::builder()
+            .errors(
+                S3Error::builder()
+                    .key("a")
+                    .code("AccessDenied")
+                    .message("first")
+                    .build(),
+            )
+            .errors(
+                S3Error::builder()
+                    .key("a")
+                    .code("AccessDenied")
+                    .message("second")
+                    .build(),
+            )
+            .build();
+        let outcomes = reconcile(&chunk, &response);
+        assert_eq!(outcomes[0], outcomes[1]);
+        match &outcomes[0] {
+            Outcome::Failed { code, message } => {
+                assert_eq!(code, "AccessDenied");
+                assert!(message.contains("could not be assigned"));
+                assert!(message.contains("first") && message.contains("second"));
+            }
+            other => panic!("unexpected outcome: {other:?}"),
+        }
     }
 
     #[test]

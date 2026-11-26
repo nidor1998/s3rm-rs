@@ -113,8 +113,11 @@ impl Config {
     /// skip interactive confirmation prompts, which is appropriate for programmatic use.
     ///
     /// `target_client_config` is set to [`ClientConfig::default()`], which loads
-    /// credentials and region from the standard AWS environment/config chain
-    /// (the same behavior as the CLI with no credential/region flags).
+    /// credentials and region from the standard AWS environment/config chain.
+    /// This matches the CLI only when no credential/region options are given
+    /// either as flags or through their environment variables (e.g.
+    /// `TARGET_PROFILE`, `TARGET_REGION`, `TARGET_ACCESS_KEY`), which the CLI
+    /// honors but `for_target` ignores.
     ///
     /// **Note:** This bypasses CLI-level validation (conflicting flags, rate-limit
     /// vs batch-size, etc.). Prefer [`build_config_from_args`](crate::build_config_from_args)

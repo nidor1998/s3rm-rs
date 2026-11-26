@@ -323,7 +323,9 @@ fn outcome_for_errors(errors: &[(String, String)]) -> Outcome {
 ///    when their numbers are equal, every entry is version-compatible with
 ///    every object, and the entries are all `Deleted` (the objects are
 ///    deleted) or all errors (see [`outcome_for_errors`]). Otherwise the
-///    remaining objects are `NotReported`.
+///    remaining objects are `NotReported`, and so is any object that step 2
+///    marked for retry when a remaining `Deleted` entry is version-compatible
+///    with it (it may already have been deleted).
 /// 4. Error entries without a key (missing or empty) apply, as in step 3,
 ///    to the objects no entry mentions at all, when their numbers are equal
 ///    and every other entry of the response was used (an unused entry, e.g.
@@ -452,6 +454,17 @@ pub(crate) fn reconcile(
                 outcomes[i] = Some(outcome.clone());
             }
         } else {
+            // An unused `Deleted` entry might describe an object that an
+            // exact-version error marked for retry; retrying it could act on
+            // an object that is already deleted, so its outcome is unknown.
+            for &i in claims.keys() {
+                let conflicts = open_entries.iter().any(|e| {
+                    e.error.is_none() && versions_compatible(e.version_id, chunk[i].version_id())
+                });
+                if conflicts && matches!(outcomes[i], Some(Outcome::Retry { .. })) {
+                    outcomes[i] = Some(Outcome::NotReported);
+                }
+            }
             ignored += open_entries.len();
         }
     }
@@ -736,6 +749,28 @@ mod tests {
             }
             other => panic!("unexpected outcome: {other:?}"),
         }
+    }
+
+    #[test]
+    fn reconcile_retry_conflicting_with_unused_deleted_entry_is_not_reported() {
+        // The versionless Deleted entry may describe v1, so the exact-version
+        // SlowDown must not trigger another delete.
+        let chunk = [version("a", "v1")];
+        let response = DeleteObjectsOutput::builder()
+            .deleted(deleted("a", None))
+            .errors(error(Some("a"), Some("v1"), "SlowDown"))
+            .build();
+        assert_eq!(reconcile(&chunk, &response), vec![Outcome::NotReported]);
+    }
+
+    #[test]
+    fn reconcile_retry_kept_when_unused_deleted_entry_is_incompatible() {
+        let chunk = [version("a", "v1")];
+        let response = DeleteObjectsOutput::builder()
+            .deleted(deleted("a", Some("other")))
+            .errors(error(Some("a"), Some("v1"), "SlowDown"))
+            .build();
+        assert_eq!(reconcile(&chunk, &response), vec![retry("SlowDown")]);
     }
 
     #[test]

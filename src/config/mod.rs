@@ -54,7 +54,9 @@ use time::OffsetDateTime;
 /// # Default
 ///
 /// [`Config::default()`] creates a configuration targeting an empty bucket/prefix.
-/// You must set the `target` field before running a pipeline.
+/// You must set the `target` field before running a pipeline. Like
+/// [`Config::for_target`], it sets `target_client_config` to
+/// [`ClientConfig::default()`] (standard AWS environment/config chain).
 ///
 /// ```
 /// use s3rm_rs::Config;
@@ -110,6 +112,13 @@ impl Config {
     /// (16 workers, batch size 200, etc.). The `force` flag is set to `true` to
     /// skip interactive confirmation prompts, which is appropriate for programmatic use.
     ///
+    /// `target_client_config` is set to [`ClientConfig::default()`], which loads
+    /// credentials and region from the standard AWS environment/config chain.
+    /// This matches the CLI only when no credential/region options are given
+    /// either as flags or through their environment variables (e.g.
+    /// `TARGET_PROFILE`, `TARGET_REGION`, `TARGET_ACCESS_KEY`), which the CLI
+    /// honors but `for_target` ignores.
+    ///
     /// **Note:** This bypasses CLI-level validation (conflicting flags, rate-limit
     /// vs batch-size, etc.). Prefer [`build_config_from_args`](crate::build_config_from_args)
     /// when possible.
@@ -147,7 +156,7 @@ impl Default for Config {
                 prefix: String::new(),
             },
             show_no_progress: false,
-            target_client_config: None,
+            target_client_config: Some(ClientConfig::default()),
             force_retry_config: ForceRetryConfig::default(),
             tracing_config: None,
             worker_size: 16,
@@ -205,6 +214,38 @@ pub struct ClientConfig {
     pub cli_timeout_config: CLITimeoutConfig,
     pub disable_stalled_stream_protection: bool,
     pub request_checksum_calculation: RequestChecksumCalculation,
+}
+
+impl Default for ClientConfig {
+    /// Create a `ClientConfig` matching the CLI defaults: credentials and region
+    /// from the standard AWS environment/config chain, no custom endpoint,
+    /// SDK retries with exponential backoff, and no explicit timeouts.
+    fn default() -> Self {
+        ClientConfig {
+            client_config_location: ClientConfigLocation {
+                aws_config_file: None,
+                aws_shared_credentials_file: None,
+            },
+            credential: S3Credentials::FromEnvironment,
+            region: None,
+            endpoint_url: None,
+            force_path_style: false,
+            accelerate: false,
+            request_payer: None,
+            retry_config: RetryConfig {
+                aws_max_attempts: args::DEFAULT_AWS_MAX_ATTEMPTS,
+                initial_backoff_milliseconds: args::DEFAULT_INITIAL_BACKOFF_MILLISECONDS,
+            },
+            cli_timeout_config: CLITimeoutConfig {
+                operation_timeout_milliseconds: None,
+                operation_attempt_timeout_milliseconds: None,
+                connect_timeout_milliseconds: None,
+                read_timeout_milliseconds: None,
+            },
+            disable_stalled_stream_protection: false,
+            request_checksum_calculation: RequestChecksumCalculation::WhenRequired,
+        }
+    }
 }
 
 /// Retry configuration for AWS SDK operations.
@@ -396,10 +437,91 @@ mod tests {
         assert!(!config.if_match);
         assert!(config.max_delete.is_none());
         assert!(config.tracing_config.is_none());
-        assert!(config.target_client_config.is_none());
+        assert!(config.target_client_config.is_some());
         assert!(config.rate_limit_objects.is_none());
         assert!(!config.warn_as_error);
         assert!(!config.test_user_defined_callback);
+    }
+
+    #[test]
+    fn config_for_target_client_config_matches_cli_defaults() {
+        // Compare against the defaults declared on the clap arguments rather
+        // than a parsed CLI config, so the test does not depend on environment
+        // variables (clap `env`) such as TARGET_REGION or AWS_MAX_ATTEMPTS.
+        let cmd = <crate::config::args::CLIArgs as clap::CommandFactory>::command();
+        let default_of = |id: &str| -> Option<String> {
+            let arg = cmd
+                .get_arguments()
+                .find(|a| a.get_id() == id)
+                .unwrap_or_else(|| panic!("no CLI argument with id '{id}'"));
+            arg.get_default_values()
+                .first()
+                .map(|v| v.to_string_lossy().into_owned())
+        };
+        let flag_default = |id: &str| -> bool { default_of(id).is_some_and(|v| v == "true") };
+        let u64_default = |id: &str| -> Option<u64> {
+            default_of(id).map(|v| v.parse().expect("numeric default"))
+        };
+
+        let cc = Config::for_target("bucket", "prefix/")
+            .target_client_config
+            .expect("client config set");
+
+        // No credential arguments by default -> credentials from the environment.
+        assert!(matches!(cc.credential, S3Credentials::FromEnvironment));
+        assert_eq!(default_of("target_profile"), None);
+        assert_eq!(default_of("target_access_key"), None);
+
+        assert_eq!(
+            cc.client_config_location.aws_config_file,
+            default_of("aws_config_file").map(Into::into)
+        );
+        assert_eq!(
+            cc.client_config_location.aws_shared_credentials_file,
+            default_of("aws_shared_credentials_file").map(Into::into)
+        );
+        assert_eq!(cc.region, default_of("target_region"));
+        assert_eq!(cc.endpoint_url, default_of("target_endpoint_url"));
+        assert_eq!(cc.force_path_style, flag_default("target_force_path_style"));
+        assert_eq!(cc.accelerate, flag_default("target_accelerate"));
+        assert_eq!(
+            cc.request_payer.is_some(),
+            flag_default("target_request_payer")
+        );
+        assert_eq!(
+            Some(u64::from(cc.retry_config.aws_max_attempts)),
+            u64_default("aws_max_attempts")
+        );
+        assert_eq!(
+            Some(cc.retry_config.initial_backoff_milliseconds),
+            u64_default("initial_backoff_milliseconds")
+        );
+        let t = &cc.cli_timeout_config;
+        assert_eq!(
+            t.operation_timeout_milliseconds,
+            u64_default("operation_timeout_milliseconds")
+        );
+        assert_eq!(
+            t.operation_attempt_timeout_milliseconds,
+            u64_default("operation_attempt_timeout_milliseconds")
+        );
+        assert_eq!(
+            t.connect_timeout_milliseconds,
+            u64_default("connect_timeout_milliseconds")
+        );
+        assert_eq!(
+            t.read_timeout_milliseconds,
+            u64_default("read_timeout_milliseconds")
+        );
+        assert_eq!(
+            cc.disable_stalled_stream_protection,
+            flag_default("disable_stalled_stream_protection")
+        );
+        // Not configurable from the CLI; build_client_config always uses WhenRequired.
+        assert_eq!(
+            cc.request_checksum_calculation,
+            RequestChecksumCalculation::WhenRequired
+        );
     }
 
     #[test]
@@ -423,6 +545,7 @@ mod tests {
         assert_eq!(config.worker_size, 16);
         assert_eq!(config.batch_size, 200);
         assert!(!config.show_no_progress);
+        assert!(config.target_client_config.is_some());
         assert!(!config.dry_run);
         assert!(!config.warn_as_error);
         assert_eq!(config.max_parallel_listings, 16);

@@ -493,7 +493,7 @@ impl ObjectDeleter {
                         version_id: o.version_id().map(|v| v.to_string()),
                     })
                     .collect(),
-                failed: vec![],
+                ..DeleteResult::default()
             }
         } else {
             match self.deleter.delete(&batch, &self.base.config).await {

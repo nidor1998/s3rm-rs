@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `DeleteObjects` responses are now reconciled against the submitted objects. A single-object fallback retry
+  always uses a submitted object's own key, version ID and ETag, so a malformed response from an S3-compatible
+  store can no longer cause a delete of a key that was not selected, and a retry for a versioned object no longer
+  falls back to an unversioned delete when the error entry omits `VersionId`
+- Error entries without a key (or with an empty key) are no longer retried or reported under a placeholder key.
+  They are attributed to the submitted objects the response does not mention when that is unambiguous (and then
+  retried or recorded by those objects' identity), and otherwise logged and ignored. Entries naming a key that was
+  not submitted are logged and ignored
+- `Config::default()` and `Config::for_target()` now set `target_client_config` to `ClientConfig::default()`, so
+  a library pipeline built from them has an S3 client
+- README: the `--dry-run` example no longer combines `--dry-run` with `--force`, which is rejected
+
+### Changed
+
+- A submitted object whose outcome a `DeleteObjects` response does not determine (not mentioned, or mentioned only
+  ambiguously or contradictorily) is now recorded as a failure with error code `NotReported` (DeleteError stat,
+  `DELETE_FAILED` event, exit code 3) instead of being silently treated as processed. S3-compatible stores that
+  omit `Deleted` entries from their responses are affected
+- When several `DeleteObjects` errors with different codes cannot be told apart, the affected objects are recorded
+  as failed with error code `Ambiguous` (the message lists the codes) and are not retried
+- Library API: `Config::default()` now sets `target_client_config` to `ClientConfig::default()` instead of `None`,
+  so storage creation builds an S3 client from the standard AWS environment/config chain
+
 ## [1.7.0] - 2026-11-22
 
 Update for the end of life (EOL) of the `chrono` crate and Lua 5.4. This release contains breaking changes to

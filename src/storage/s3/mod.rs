@@ -1846,4 +1846,719 @@ mod tests {
             "Error should reference the resolved prefix 'my-prefix/', got: {err_msg}"
         );
     }
+
+    // ---------------------------------------------------------------
+    // Listing against a mocked HTTP layer
+    // ---------------------------------------------------------------
+    //
+    // These tests drive the real `aws_sdk_s3::Client` (request building,
+    // XML parsing) over an in-memory HTTP connector, so pagination and
+    // parallel sub-prefix listing can be exercised without a network.
+
+    mod mocked_http {
+        use super::*;
+        use aws_smithy_runtime_api::client::http::{
+            HttpConnector, HttpConnectorFuture, SharedHttpConnector, http_client_fn,
+        };
+        use aws_smithy_runtime_api::client::orchestrator::HttpRequest;
+        use aws_smithy_runtime_api::http::{Response, StatusCode};
+        use aws_smithy_types::body::SdkBody;
+        use std::collections::HashMap;
+        use std::sync::Mutex;
+
+        /// Decoded query parameters of one request.
+        type Query = HashMap<String, String>;
+        type Handler = dyn Fn(&Query) -> (u16, String) + Send + Sync;
+
+        /// In-memory HTTP connector: records each request's query and answers
+        /// with whatever the handler returns.
+        struct MockS3Http {
+            handler: Box<Handler>,
+            requests: Arc<Mutex<Vec<Query>>>,
+        }
+
+        impl std::fmt::Debug for MockS3Http {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("MockS3Http")
+            }
+        }
+
+        impl HttpConnector for MockS3Http {
+            fn call(&self, request: HttpRequest) -> HttpConnectorFuture {
+                let query = parse_query(request.uri());
+                self.requests.lock().unwrap().push(query.clone());
+                let (status, body) = (self.handler)(&query);
+                HttpConnectorFuture::ready(Ok(Response::new(
+                    StatusCode::try_from(status).unwrap(),
+                    SdkBody::from(body),
+                )))
+            }
+        }
+
+        fn parse_query(uri: &str) -> Query {
+            let Some((_, query)) = uri.split_once('?') else {
+                return Query::new();
+            };
+            query
+                .split('&')
+                .filter(|pair| !pair.is_empty())
+                .map(|pair| {
+                    let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+                    (
+                        urlencoding::decode(key).unwrap().into_owned(),
+                        urlencoding::decode(value).unwrap().into_owned(),
+                    )
+                })
+                .collect()
+        }
+
+        fn param<'a>(query: &'a Query, name: &str) -> Option<&'a str> {
+            query.get(name).map(String::as_str)
+        }
+
+        const BUCKET: &str = "test-bucket";
+        const PREFIX: &str = "p/";
+        const LAST_MODIFIED: &str = "2024-01-01T00:00:00.000Z";
+
+        /// Build an `S3Storage` whose client talks to `handler`.
+        ///
+        /// Returns the storage, its cancellation token, and the log of requests.
+        fn make_mocked_storage(
+            max_parallel_listings: u16,
+            handler: impl Fn(&Query) -> (u16, String) + Send + Sync + 'static,
+        ) -> (
+            S3Storage,
+            crate::types::token::PipelineCancellationToken,
+            Arc<Mutex<Vec<Query>>>,
+        ) {
+            init_dummy_tracing_subscriber();
+
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let connector = SharedHttpConnector::new(MockS3Http {
+                handler: Box::new(handler),
+                requests: requests.clone(),
+            });
+            let sdk_config = aws_sdk_s3::Config::builder()
+                .behavior_version(aws_sdk_s3::config::BehaviorVersion::latest())
+                .region(aws_sdk_s3::config::Region::new("us-east-1"))
+                .credentials_provider(aws_sdk_s3::config::Credentials::new(
+                    "test", "test", None, None, "test",
+                ))
+                .endpoint_url("http://localhost:9000")
+                .force_path_style(true)
+                .retry_config(aws_sdk_s3::config::retry::RetryConfig::disabled())
+                .http_client(http_client_fn(move |_, _| connector.clone()))
+                .build();
+
+            let mut config = make_test_config(BUCKET, PREFIX);
+            config.max_parallel_listings = max_parallel_listings;
+            // Depth 1 (the root) lists with a delimiter; sub-prefixes do not.
+            config.max_parallel_listing_max_depth = 1;
+
+            let cancellation_token = crate::types::token::create_pipeline_cancellation_token();
+            let (stats_sender, _) = async_channel::unbounded();
+            let storage = S3Storage {
+                config,
+                bucket: BUCKET.to_string(),
+                prefix: PREFIX.to_string(),
+                cancellation_token: cancellation_token.clone(),
+                client: Some(Arc::new(Client::from_conf(sdk_config))),
+                request_payer: None,
+                stats_sender,
+                rate_limit_objects_per_sec: None,
+                has_warning: Arc::new(AtomicBool::new(false)),
+                listing_worker_semaphore: Arc::new(tokio::sync::Semaphore::new(
+                    max_parallel_listings as usize,
+                )),
+            };
+            (storage, cancellation_token, requests)
+        }
+
+        fn ok(body: String) -> (u16, String) {
+            (200, body)
+        }
+
+        fn internal_error() -> (u16, String) {
+            (
+                500,
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Error><Code>InternalError</Code>\
+                 <Message>mock failure</Message></Error>"
+                    .to_string(),
+            )
+        }
+
+        fn common_prefixes_xml(sub_prefixes: &[&str]) -> String {
+            sub_prefixes
+                .iter()
+                .map(|p| format!("<CommonPrefixes><Prefix>{p}</Prefix></CommonPrefixes>"))
+                .collect()
+        }
+
+        /// A ListObjectsV2 response body.
+        fn objects_page(
+            keys: &[&str],
+            sub_prefixes: &[&str],
+            is_truncated: bool,
+            next_token: Option<&str>,
+        ) -> String {
+            let contents: String = keys
+                .iter()
+                .map(|k| {
+                    format!(
+                        "<Contents><Key>{k}</Key><LastModified>{LAST_MODIFIED}</LastModified>\
+                         <ETag>&quot;etag&quot;</ETag><Size>1</Size>\
+                         <StorageClass>STANDARD</StorageClass></Contents>"
+                    )
+                })
+                .collect();
+            let token = next_token
+                .map(|t| format!("<NextContinuationToken>{t}</NextContinuationToken>"))
+                .unwrap_or_default();
+            format!(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
+                 <ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">\
+                 <Name>{BUCKET}</Name><IsTruncated>{is_truncated}</IsTruncated>{token}\
+                 {contents}{}</ListBucketResult>",
+                common_prefixes_xml(sub_prefixes)
+            )
+        }
+
+        /// A ListObjectVersions response body. Entries are `(key, version_id)`.
+        fn versions_page(
+            versions: &[(&str, &str)],
+            delete_markers: &[(&str, &str)],
+            sub_prefixes: &[&str],
+            is_truncated: bool,
+            next_key_marker: Option<&str>,
+            next_version_id_marker: Option<&str>,
+        ) -> String {
+            let versions: String = versions
+                .iter()
+                .map(|(k, v)| {
+                    format!(
+                        "<Version><Key>{k}</Key><VersionId>{v}</VersionId>\
+                         <IsLatest>false</IsLatest><LastModified>{LAST_MODIFIED}</LastModified>\
+                         <ETag>&quot;etag&quot;</ETag><Size>1</Size>\
+                         <StorageClass>STANDARD</StorageClass></Version>"
+                    )
+                })
+                .collect();
+            let delete_markers: String = delete_markers
+                .iter()
+                .map(|(k, v)| {
+                    format!(
+                        "<DeleteMarker><Key>{k}</Key><VersionId>{v}</VersionId>\
+                         <IsLatest>true</IsLatest><LastModified>{LAST_MODIFIED}</LastModified>\
+                         </DeleteMarker>"
+                    )
+                })
+                .collect();
+            let key_marker = next_key_marker
+                .map(|m| format!("<NextKeyMarker>{m}</NextKeyMarker>"))
+                .unwrap_or_default();
+            let version_id_marker = next_version_id_marker
+                .map(|m| format!("<NextVersionIdMarker>{m}</NextVersionIdMarker>"))
+                .unwrap_or_default();
+            format!(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
+                 <ListVersionsResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">\
+                 <Name>{BUCKET}</Name><IsTruncated>{is_truncated}</IsTruncated>\
+                 {key_marker}{version_id_marker}{versions}{delete_markers}{}\
+                 </ListVersionsResult>",
+                common_prefixes_xml(sub_prefixes)
+            )
+        }
+
+        /// Sorted `key` or `key@version` (with a `!` suffix for delete markers)
+        /// of everything the listing sent.
+        fn drain(receiver: &async_channel::Receiver<S3Object>) -> Vec<String> {
+            let mut listed = Vec::new();
+            while let Ok(object) = receiver.try_recv() {
+                let mut entry = object.key().to_string();
+                if let Some(version_id) = object.version_id() {
+                    entry.push('@');
+                    entry.push_str(version_id);
+                }
+                if object.is_delete_marker() {
+                    entry.push('!');
+                }
+                listed.push(entry);
+            }
+            listed.sort();
+            listed
+        }
+
+        async fn run_parallel(
+            storage: &S3Storage,
+            mode: ListingMode,
+            sender: &Sender<S3Object>,
+        ) -> Result<()> {
+            let permit = storage
+                .listing_worker_semaphore
+                .clone()
+                .acquire_owned()
+                .await
+                .unwrap();
+            storage
+                .list_with_parallel(mode, "", sender, 1000, 1, permit)
+                .await
+        }
+
+        fn error_message(result: Result<()>) -> String {
+            format!("{:#}", result.expect_err("listing should fail"))
+        }
+
+        // -----------------------------------------------------------
+        // Sequential listing
+        // -----------------------------------------------------------
+
+        #[tokio::test]
+        async fn list_sequential_objects_follows_continuation_token() {
+            let (storage, _, requests) =
+                make_mocked_storage(1, |q| match param(q, "continuation-token") {
+                    None => ok(objects_page(&["p/a", "p/b"], &[], true, Some("t1"))),
+                    Some("t1") => ok(objects_page(&["p/c"], &[], true, Some("t2"))),
+                    Some("t2") => ok(objects_page(&["p/d"], &[], false, None)),
+                    other => panic!("unexpected continuation token: {other:?}"),
+                });
+            let (sender, receiver) = async_channel::unbounded();
+
+            storage
+                .list_sequential(ListingMode::Objects, &sender, 1000)
+                .await
+                .unwrap();
+
+            assert_eq!(drain(&receiver), ["p/a", "p/b", "p/c", "p/d"]);
+            let requests = requests.lock().unwrap();
+            assert_eq!(requests.len(), 3);
+            for request in requests.iter() {
+                assert_eq!(param(request, "list-type"), Some("2"));
+                assert_eq!(param(request, "prefix"), Some(PREFIX));
+                assert_eq!(param(request, "max-keys"), Some("1000"));
+                assert_eq!(
+                    param(request, "delimiter"),
+                    None,
+                    "sequential listing must not use a delimiter"
+                );
+            }
+        }
+
+        #[tokio::test]
+        async fn list_sequential_objects_truncated_without_token_is_error() {
+            let (storage, _, requests) =
+                make_mocked_storage(1, |_| ok(objects_page(&["p/a"], &[], true, None)));
+            let (sender, receiver) = async_channel::unbounded();
+
+            let message = error_message(
+                storage
+                    .list_sequential(ListingMode::Objects, &sender, 1000)
+                    .await,
+            );
+
+            assert!(
+                message.contains("truncated response but no continuation token")
+                    && message.contains("s3://test-bucket/p/"),
+                "unexpected error: {message}"
+            );
+            // The page that was received is still delivered; no second request.
+            assert_eq!(drain(&receiver), ["p/a"]);
+            assert_eq!(requests.lock().unwrap().len(), 1);
+        }
+
+        #[tokio::test]
+        async fn list_sequential_objects_repeated_token_is_error() {
+            // Every page claims to be truncated and hands back the same token.
+            let (storage, _, requests) =
+                make_mocked_storage(1, |_| ok(objects_page(&["p/a"], &[], true, Some("t1"))));
+            let (sender, _receiver) = async_channel::unbounded();
+
+            let message = error_message(
+                storage
+                    .list_sequential(ListingMode::Objects, &sender, 1000)
+                    .await,
+            );
+
+            assert!(
+                message.contains("same continuation token twice"),
+                "unexpected error: {message}"
+            );
+            // First request (no token) plus the one that got the token back.
+            assert_eq!(requests.lock().unwrap().len(), 2);
+        }
+
+        #[tokio::test]
+        async fn list_sequential_versions_follows_markers() {
+            let (storage, _, requests) = make_mocked_storage(1, |q| {
+                match (param(q, "key-marker"), param(q, "version-id-marker")) {
+                    (None, None) => ok(versions_page(
+                        &[("p/a", "v2")],
+                        &[("p/a", "v3")],
+                        &[],
+                        true,
+                        Some("p/a"),
+                        Some("v2"),
+                    )),
+                    // Same key marker, new version-ID marker: still progress.
+                    (Some("p/a"), Some("v2")) => ok(versions_page(
+                        &[("p/a", "v1")],
+                        &[],
+                        &[],
+                        true,
+                        Some("p/a"),
+                        Some("v1"),
+                    )),
+                    (Some("p/a"), Some("v1")) => {
+                        ok(versions_page(&[("p/b", "v1")], &[], &[], false, None, None))
+                    }
+                    other => panic!("unexpected markers: {other:?}"),
+                }
+            });
+            let (sender, receiver) = async_channel::unbounded();
+
+            storage
+                .list_sequential(ListingMode::Versions, &sender, 1000)
+                .await
+                .unwrap();
+
+            assert_eq!(drain(&receiver), ["p/a@v1", "p/a@v2", "p/a@v3!", "p/b@v1"]);
+            let requests = requests.lock().unwrap();
+            assert_eq!(requests.len(), 3);
+            assert!(requests.iter().all(|r| r.contains_key("versions")));
+        }
+
+        #[tokio::test]
+        async fn list_sequential_versions_truncated_without_key_marker_is_error() {
+            let (storage, _, requests) = make_mocked_storage(1, |_| {
+                ok(versions_page(&[("p/a", "v1")], &[], &[], true, None, None))
+            });
+            let (sender, _receiver) = async_channel::unbounded();
+
+            let message = error_message(
+                storage
+                    .list_sequential(ListingMode::Versions, &sender, 1000)
+                    .await,
+            );
+
+            assert!(
+                message.contains("truncated response but no next key marker"),
+                "unexpected error: {message}"
+            );
+            assert_eq!(requests.lock().unwrap().len(), 1);
+        }
+
+        #[tokio::test]
+        async fn list_sequential_versions_repeated_markers_is_error() {
+            let (storage, _, requests) = make_mocked_storage(1, |_| {
+                ok(versions_page(
+                    &[("p/a", "v1")],
+                    &[],
+                    &[],
+                    true,
+                    Some("p/a"),
+                    Some("v1"),
+                ))
+            });
+            let (sender, _receiver) = async_channel::unbounded();
+
+            let message = error_message(
+                storage
+                    .list_sequential(ListingMode::Versions, &sender, 1000)
+                    .await,
+            );
+
+            assert!(
+                message.contains("same key/version marker twice"),
+                "unexpected error: {message}"
+            );
+            assert_eq!(requests.lock().unwrap().len(), 2);
+        }
+
+        #[tokio::test]
+        async fn list_sequential_applies_rate_limit_per_page() {
+            let (mut storage, _, requests) =
+                make_mocked_storage(1, |q| match param(q, "continuation-token") {
+                    None => ok(objects_page(&["p/a"], &[], true, Some("t1"))),
+                    _ => ok(objects_page(&["p/b"], &[], false, None)),
+                });
+            // Two tokens available up front: exactly enough for the two pages.
+            let limiter = Arc::new(
+                RateLimiter::builder()
+                    .max(2)
+                    .initial(2)
+                    .refill(1)
+                    .interval(std::time::Duration::from_secs(3600))
+                    .build(),
+            );
+            storage.rate_limit_objects_per_sec = Some(limiter.clone());
+            let (sender, receiver) = async_channel::unbounded();
+
+            storage
+                .list_sequential(ListingMode::Objects, &sender, 1000)
+                .await
+                .unwrap();
+
+            assert_eq!(drain(&receiver), ["p/a", "p/b"]);
+            assert_eq!(requests.lock().unwrap().len(), 2);
+            assert_eq!(limiter.balance(), 0, "one token per page request");
+        }
+
+        // -----------------------------------------------------------
+        // Parallel listing
+        // -----------------------------------------------------------
+
+        #[tokio::test]
+        async fn list_parallel_objects_descends_into_sub_prefixes() {
+            let (storage, ct, requests) = make_mocked_storage(2, |q| {
+                match (param(q, "prefix"), param(q, "continuation-token")) {
+                    (Some("p/"), None) => ok(objects_page(
+                        &["p/root"],
+                        &["p/x/", "p/y/", "p/z/"],
+                        false,
+                        None,
+                    )),
+                    (Some("p/x/"), None) => ok(objects_page(&["p/x/1"], &[], true, Some("x2"))),
+                    (Some("p/x/"), Some("x2")) => ok(objects_page(&["p/x/2"], &[], false, None)),
+                    (Some("p/y/"), None) => ok(objects_page(&["p/y/1"], &[], false, None)),
+                    (Some("p/z/"), None) => ok(objects_page(&[], &[], false, None)),
+                    other => panic!("unexpected request: {other:?}"),
+                }
+            });
+            let (sender, receiver) = async_channel::unbounded();
+
+            run_parallel(&storage, ListingMode::Objects, &sender)
+                .await
+                .unwrap();
+
+            assert_eq!(
+                drain(&receiver),
+                ["p/root", "p/x/1", "p/x/2", "p/y/1"],
+                "every object must be listed exactly once"
+            );
+            assert!(!ct.is_cancelled());
+            assert_eq!(
+                storage.listing_worker_semaphore.available_permits(),
+                2,
+                "all listing permits must be returned"
+            );
+
+            let requests = requests.lock().unwrap();
+            assert_eq!(requests.len(), 5);
+            for request in requests.iter() {
+                // Only the root (depth 1 <= max depth 1) lists with a delimiter.
+                let expected = (param(request, "prefix") == Some("p/")).then_some("/");
+                assert_eq!(param(request, "delimiter"), expected, "{request:?}");
+            }
+        }
+
+        #[tokio::test]
+        async fn list_parallel_versions_descends_into_sub_prefixes() {
+            let (storage, _, requests) =
+                make_mocked_storage(2, |q| match (param(q, "prefix"), param(q, "key-marker")) {
+                    (Some("p/"), None) => ok(versions_page(
+                        &[("p/root", "v1")],
+                        &[("p/gone", "v2")],
+                        &["p/x/"],
+                        false,
+                        None,
+                        None,
+                    )),
+                    (Some("p/x/"), None) => ok(versions_page(
+                        &[("p/x/1", "v1")],
+                        &[],
+                        &[],
+                        true,
+                        Some("p/x/1"),
+                        Some("v1"),
+                    )),
+                    (Some("p/x/"), Some("p/x/1")) => {
+                        assert_eq!(param(q, "version-id-marker"), Some("v1"));
+                        ok(versions_page(
+                            &[("p/x/2", "v1")],
+                            &[],
+                            &[],
+                            false,
+                            None,
+                            None,
+                        ))
+                    }
+                    other => panic!("unexpected request: {other:?}"),
+                });
+            let (sender, receiver) = async_channel::unbounded();
+
+            run_parallel(&storage, ListingMode::Versions, &sender)
+                .await
+                .unwrap();
+
+            assert_eq!(
+                drain(&receiver),
+                ["p/gone@v2!", "p/root@v1", "p/x/1@v1", "p/x/2@v1"]
+            );
+            assert_eq!(requests.lock().unwrap().len(), 3);
+        }
+
+        /// `list_objects` with `max_parallel_listings > 1` goes through the
+        /// parallel path end to end.
+        #[tokio::test]
+        async fn list_objects_dispatches_to_parallel_listing() {
+            let (storage, _, _) = make_mocked_storage(2, |q| match param(q, "prefix") {
+                Some("p/") => ok(objects_page(&["p/root"], &["p/x/"], false, None)),
+                Some("p/x/") => ok(objects_page(&["p/x/1"], &[], false, None)),
+                other => panic!("unexpected prefix: {other:?}"),
+            });
+            let (sender, receiver) = async_channel::unbounded();
+
+            storage.list_objects(&sender, 1000).await.unwrap();
+
+            assert_eq!(drain(&receiver), ["p/root", "p/x/1"]);
+        }
+
+        #[tokio::test]
+        async fn list_parallel_objects_truncated_without_token_is_error() {
+            let (storage, _, _) =
+                make_mocked_storage(2, |_| ok(objects_page(&["p/a"], &[], true, None)));
+            let (sender, _receiver) = async_channel::unbounded();
+
+            let message =
+                error_message(run_parallel(&storage, ListingMode::Objects, &sender).await);
+
+            assert!(
+                message.contains("truncated response but no continuation token")
+                    && message.contains("s3://test-bucket/p/"),
+                "unexpected error: {message}"
+            );
+        }
+
+        #[tokio::test]
+        async fn list_parallel_objects_repeated_token_is_error() {
+            let (storage, _, requests) =
+                make_mocked_storage(2, |_| ok(objects_page(&["p/a"], &[], true, Some("t1"))));
+            let (sender, _receiver) = async_channel::unbounded();
+
+            let message =
+                error_message(run_parallel(&storage, ListingMode::Objects, &sender).await);
+
+            assert!(
+                message.contains("same continuation token twice"),
+                "unexpected error: {message}"
+            );
+            assert_eq!(requests.lock().unwrap().len(), 2);
+        }
+
+        #[tokio::test]
+        async fn list_parallel_versions_truncated_without_key_marker_is_error() {
+            let (storage, _, _) = make_mocked_storage(2, |_| {
+                ok(versions_page(&[("p/a", "v1")], &[], &[], true, None, None))
+            });
+            let (sender, _receiver) = async_channel::unbounded();
+
+            let message =
+                error_message(run_parallel(&storage, ListingMode::Versions, &sender).await);
+
+            assert!(
+                message.contains("truncated response but no next key marker"),
+                "unexpected error: {message}"
+            );
+        }
+
+        #[tokio::test]
+        async fn list_parallel_versions_repeated_markers_is_error() {
+            let (storage, _, requests) = make_mocked_storage(2, |_| {
+                ok(versions_page(
+                    &[("p/a", "v1")],
+                    &[],
+                    &[],
+                    true,
+                    Some("p/a"),
+                    Some("v1"),
+                ))
+            });
+            let (sender, _receiver) = async_channel::unbounded();
+
+            let message =
+                error_message(run_parallel(&storage, ListingMode::Versions, &sender).await);
+
+            assert!(
+                message.contains("same key/version marker twice"),
+                "unexpected error: {message}"
+            );
+            assert_eq!(requests.lock().unwrap().len(), 2);
+        }
+
+        #[tokio::test]
+        async fn list_parallel_sub_prefix_error_cancels_pipeline() {
+            let (storage, ct, _) = make_mocked_storage(2, |q| match param(q, "prefix") {
+                Some("p/") => ok(objects_page(&["p/root"], &["p/bad/"], false, None)),
+                _ => internal_error(),
+            });
+            let (sender, receiver) = async_channel::unbounded();
+
+            let message =
+                error_message(run_parallel(&storage, ListingMode::Objects, &sender).await);
+
+            assert!(
+                message.contains("Failed to list objects in sub-prefix")
+                    && message.contains("s3://test-bucket/p/bad/"),
+                "unexpected error: {message}"
+            );
+            assert!(
+                ct.is_cancelled(),
+                "a failed sub-prefix must cancel the pipeline"
+            );
+            assert_eq!(drain(&receiver), ["p/root"]);
+        }
+
+        #[tokio::test]
+        async fn list_parallel_sub_prefix_panic_cancels_pipeline() {
+            let (storage, ct, _) = make_mocked_storage(2, |q| match param(q, "prefix") {
+                Some("p/") => ok(objects_page(&[], &["p/bad/"], false, None)),
+                // Runs inside the spawned sub-prefix task.
+                _ => panic!("simulated panic in a sub-prefix listing task"),
+            });
+            let (sender, _receiver) = async_channel::unbounded();
+
+            let message =
+                error_message(run_parallel(&storage, ListingMode::Objects, &sender).await);
+
+            assert!(message.contains("panicked"), "unexpected error: {message}");
+            assert!(
+                ct.is_cancelled(),
+                "a panicked sub-prefix task must cancel the pipeline"
+            );
+        }
+
+        /// Cancellation that arrives while sub-prefix tasks are being spawned
+        /// stops the fan-out; the remaining sub-prefixes are never requested.
+        #[tokio::test]
+        async fn list_parallel_cancelled_during_fan_out_skips_remaining_sub_prefixes() {
+            let cancel_slot: Arc<Mutex<Option<crate::types::token::PipelineCancellationToken>>> =
+                Arc::new(Mutex::new(None));
+            let slot = cancel_slot.clone();
+            let (storage, ct, requests) =
+                make_mocked_storage(1, move |q| match param(q, "prefix") {
+                    Some("p/") => ok(objects_page(&[], &["p/x/", "p/y/", "p/z/"], false, None)),
+                    Some("p/x/") => {
+                        // With a single listing permit, this runs while the root
+                        // is waiting for a permit to spawn "p/y/". That task then
+                        // starts cancelled, and "p/z/" is never spawned at all.
+                        slot.lock().unwrap().as_ref().unwrap().cancel();
+                        ok(objects_page(&["p/x/1"], &[], false, None))
+                    }
+                    other => panic!("unexpected prefix: {other:?}"),
+                });
+            *cancel_slot.lock().unwrap() = Some(ct.clone());
+            let (sender, _receiver) = async_channel::unbounded();
+
+            run_parallel(&storage, ListingMode::Objects, &sender)
+                .await
+                .unwrap();
+
+            let requests = requests.lock().unwrap();
+            let listed: Vec<_> = requests.iter().filter_map(|r| param(r, "prefix")).collect();
+            assert_eq!(
+                listed,
+                ["p/", "p/x/"],
+                "nothing may be listed after cancellation"
+            );
+        }
+    }
 }

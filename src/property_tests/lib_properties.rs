@@ -471,6 +471,47 @@ mod tests {
             prop_assert_eq!(&target.bucket, &bucket);
         }
 
+        /// Feature: s3rm-rs, Property 47: Library Async Result Handling (Literal Prefix)
+        /// **Validates: Requirements 12.8**
+        ///
+        /// S3Target::parse should keep the prefix exactly as given: '?' and '#' are part
+        /// of it, percent escapes are not decoded, and dot segments are not collapsed.
+        #[test]
+        fn s3_target_parse_keeps_prefix_literal(
+            bucket in "[a-z][a-z0-9-]{2,20}",
+            prefix in "[a-zA-Z0-9/?#%. _-]{1,30}",
+        ) {
+            use crate::types::S3Target;
+
+            let uri = format!("s3://{bucket}/{prefix}");
+            let target = S3Target::parse(&uri).unwrap();
+            prop_assert_eq!(&target.bucket, &bucket);
+            prop_assert_eq!(target.prefix.as_deref(), Some(prefix.as_str()));
+            prop_assert_eq!(target.to_string(), uri);
+        }
+
+        /// Feature: s3rm-rs, Property 47: Library Async Result Handling (Invalid Bucket)
+        /// **Validates: Requirements 12.8**
+        ///
+        /// S3Target::parse should return Err when '?' or '#' appears before the first '/'.
+        #[test]
+        fn s3_target_parse_rejects_query_or_fragment_in_bucket(
+            bucket_head in "[a-z][a-z0-9-]{0,10}",
+            delimiter in "[?#]",
+            bucket_tail in "[a-z0-9?#-]{0,10}",
+            prefix in prop::option::of("[a-z0-9/?#%.]{0,20}"),
+        ) {
+            use crate::types::S3Target;
+
+            let uri = match prefix {
+                Some(prefix) => format!("s3://{bucket_head}{delimiter}{bucket_tail}/{prefix}"),
+                None => format!("s3://{bucket_head}{delimiter}{bucket_tail}"),
+            };
+            let result = S3Target::parse(&uri);
+            prop_assert!(result.is_err(), "uri: {}", uri);
+            prop_assert!(result.unwrap_err().to_string().contains("Bucket name cannot contain"));
+        }
+
         /// Feature: s3rm-rs, Property 47: Library Async Result Handling (Invalid URI)
         /// **Validates: Requirements 12.8**
         ///

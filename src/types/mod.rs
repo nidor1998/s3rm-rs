@@ -454,6 +454,13 @@ impl S3Target {
             ))));
         }
 
+        // '?' and '#' are part of the prefix after the first '/', but not valid in a bucket name.
+        if bucket.contains(['?', '#']) {
+            return Err(anyhow::anyhow!(error::S3rmError::InvalidUri(format!(
+                "Bucket name cannot contain '?' or '#': {s3_uri}"
+            ))));
+        }
+
         Ok(S3Target {
             bucket,
             prefix,
@@ -1147,6 +1154,82 @@ mod tests {
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("Bucket name cannot be empty"));
+    }
+
+    #[test]
+    fn s3_target_parse_invalid_query_or_fragment_in_bucket() {
+        for uri in ["s3://my-bucket?old", "s3://my-bucket#old/prefix"] {
+            let err_msg = S3Target::parse(uri).unwrap_err().to_string();
+            assert!(err_msg.contains("Bucket name cannot contain"), "uri: {uri}");
+        }
+    }
+
+    #[test]
+    fn s3_target_parse_prefix_is_literal() {
+        let target = S3Target::parse("s3://my-bucket/a?x/../y#%2e%2e/z").unwrap();
+        assert_eq!(target.bucket, "my-bucket");
+        assert_eq!(target.prefix.as_deref(), Some("a?x/../y#%2e%2e/z"));
+    }
+
+    #[test]
+    fn s3_target_parse_query_or_fragment_in_bucket_is_invalid_uri() {
+        for uri in [
+            "s3://my-bucket?old",
+            "s3://my-bucket#old",
+            "s3://my-bucket?",
+            "s3://my-bucket#",
+            "s3://my-bucket?old/prefix",
+            "s3://my-bucket#old/prefix",
+            "s3://?",
+        ] {
+            let error = S3Target::parse(uri).unwrap_err();
+            assert!(
+                matches!(
+                    error.downcast_ref::<error::S3rmError>(),
+                    Some(error::S3rmError::InvalidUri(_))
+                ),
+                "uri: {uri}"
+            );
+            assert!(error.to_string().contains(uri), "uri: {uri}");
+        }
+    }
+
+    #[test]
+    fn s3_target_parse_query_and_fragment_in_prefix() {
+        let cases = [
+            ("s3://my-bucket/data#old/", "data#old/"),
+            ("s3://my-bucket/data?old/", "data?old/"),
+            ("s3://my-bucket/data#", "data#"),
+            ("s3://my-bucket/data?", "data?"),
+            ("s3://my-bucket/a?b#c?d#e/", "a?b#c?d#e/"),
+            ("s3://my-bucket/a#b?c/", "a#b?c/"),
+            (
+                "s3://my-bucket/dir/こんにちは#☃?x y/",
+                "dir/こんにちは#☃?x y/",
+            ),
+            ("s3://my-bucket/100%", "100%"),
+            ("s3://my-bucket/dir\\file", "dir\\file"),
+            ("s3://my-bucket/#top", "#top"),
+            ("s3://my-bucket/?top", "?top"),
+            ("s3://my-bucket/a%23b%3Fc#d", "a%23b%3Fc#d"),
+            ("s3://my-bucket/%FF", "%FF"),
+            ("s3://my-bucket/a%20b c", "a%20b c"),
+            ("s3://my-bucket/a/../b", "a/../b"),
+            ("s3://my-bucket/./a/./b/", "./a/./b/"),
+            ("s3://my-bucket//", "/"),
+        ];
+
+        for (uri, expected_prefix) in cases {
+            let target = S3Target::parse(uri).unwrap();
+            assert_eq!(target.bucket, "my-bucket", "uri: {uri}");
+            assert_eq!(
+                target.prefix.as_deref(),
+                Some(expected_prefix),
+                "uri: {uri}"
+            );
+            // Display gives back the URI as it was given.
+            assert_eq!(target.to_string(), uri, "uri: {uri}");
+        }
     }
 
     #[test]

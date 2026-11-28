@@ -447,3 +447,133 @@ async fn e2e_single_deletion_respects_prefix_boundary() {
         guard.cleanup().await;
     });
 }
+
+// ---------------------------------------------------------------------------
+// Literal prefix: '?', '#', percent escapes and dot segments
+// ---------------------------------------------------------------------------
+
+/// Deletes each of `prefixes` in turn and checks that exactly the objects under that
+/// prefix are removed, while the objects under every other prefix remain.
+async fn assert_prefixes_are_deleted_literally(
+    all_prefixes: &[&str],
+    prefixes_to_delete: &[&str],
+    extra_args: &[&str],
+) {
+    const OBJECTS_PER_PREFIX: usize = 2;
+
+    let helper = TestHelper::new().await;
+    let bucket = helper.generate_bucket_name();
+    helper.create_bucket(&bucket).await;
+
+    let guard = helper.bucket_guard(&bucket);
+
+    for prefix in all_prefixes {
+        for i in 0..OBJECTS_PER_PREFIX {
+            helper
+                .put_object(&bucket, &format!("{prefix}file{i}.dat"), vec![b'x'; 10])
+                .await;
+        }
+    }
+
+    let mut expected_keys: Vec<String> = helper.list_objects(&bucket, "").await;
+    expected_keys.sort();
+    assert_eq!(
+        expected_keys.len(),
+        all_prefixes.len() * OBJECTS_PER_PREFIX,
+        "Every test object should be created under its own key"
+    );
+
+    for prefix in prefixes_to_delete {
+        let target = format!("s3://{bucket}/{prefix}");
+        let mut args = vec![target.as_str(), "--force"];
+        args.extend_from_slice(extra_args);
+
+        let result = TestHelper::run_pipeline(TestHelper::build_config(args)).await;
+
+        assert!(
+            !result.has_error,
+            "Pipeline should complete without errors for prefix {prefix}: {:?}",
+            result.errors
+        );
+        assert_eq!(
+            result.stats.stats_deleted_objects, OBJECTS_PER_PREFIX as u64,
+            "Only the objects under {prefix} should be deleted"
+        );
+        assert_eq!(
+            result.stats.stats_failed_objects, 0,
+            "No objects should fail for prefix {prefix}"
+        );
+
+        expected_keys.retain(|key| !key.starts_with(prefix));
+        let mut remaining_keys = helper.list_objects(&bucket, "").await;
+        remaining_keys.sort();
+        assert_eq!(
+            remaining_keys, expected_keys,
+            "Objects under other prefixes must not be affected by deleting {prefix}"
+        );
+    }
+
+    guard.cleanup().await;
+}
+
+// Each prefix to delete has a neighbor that URL parsing would have confused it with:
+// "data#old/" and "data?old/" would be truncated to "data", "a%20b/" would be decoded
+// to "a b/", and "data%23old/" would be decoded to "data#old/".
+const LITERAL_PREFIXES: [&str; 7] = [
+    "data#old/",
+    "data?old/",
+    "data/",
+    "data%23old/",
+    "a%20b/",
+    "a b/",
+    "%FF/",
+];
+
+const LITERAL_PREFIXES_TO_DELETE: [&str; 4] = ["data#old/", "data?old/", "a%20b/", "%FF/"];
+
+#[tokio::test]
+async fn e2e_batch_deletion_uses_prefix_literally() {
+    e2e_timeout!(async {
+        // Purpose: Verify that '?', '#' and percent escapes in the target are part of
+        //          the prefix and are not interpreted as URL syntax (DeleteObjects).
+        // Setup:   2 objects under each of 7 prefixes that differ only in such characters.
+        // Expected: Deleting a prefix removes its 2 objects and nothing else.
+
+        assert_prefixes_are_deleted_literally(&LITERAL_PREFIXES, &LITERAL_PREFIXES_TO_DELETE, &[])
+            .await;
+    });
+}
+
+#[tokio::test]
+async fn e2e_single_deletion_uses_prefix_literally() {
+    e2e_timeout!(async {
+        // Purpose: Same as the batch test, with the DeleteObject API (--batch-size 1),
+        //          where the key is sent in the request path instead of the body.
+        // Setup:   2 objects under each of 7 prefixes that differ only in such characters.
+        // Expected: Deleting a prefix removes its 2 objects and nothing else.
+
+        assert_prefixes_are_deleted_literally(
+            &LITERAL_PREFIXES,
+            &LITERAL_PREFIXES_TO_DELETE,
+            &["--batch-size", "1"],
+        )
+        .await;
+    });
+}
+
+#[tokio::test]
+async fn e2e_deletion_does_not_collapse_dot_segments_in_prefix() {
+    e2e_timeout!(async {
+        // Purpose: Verify that "." and ".." segments in the target are part of the
+        //          prefix and are not collapsed ("a/../b/" must not become "b/").
+        // Setup:   2 objects under each of "a/../b/", "b/", "./c/" and "c/".
+        // Expected: Deleting "a/../b/" and "./c/" leaves "b/" and "c/" untouched.
+
+        assert_prefixes_are_deleted_literally(
+            &["a/../b/", "b/", "./c/", "c/"],
+            &["a/../b/", "./c/"],
+            &[],
+        )
+        .await;
+    });
+}

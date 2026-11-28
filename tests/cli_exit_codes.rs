@@ -52,6 +52,98 @@ fn empty_bucket_target_exits_with_config_error() {
     );
 }
 
+const INVALID_TARGET_MESSAGE: &str = "target must be an S3 path (e.g. s3://bucket/prefix)";
+
+/// `?` or `#` directly after the bucket name is not a prefix and is not valid
+/// in a bucket name, so the clap value-parser rejects the target and the
+/// process exits with code 2 before any S3 request is made.
+#[test]
+fn query_or_fragment_after_bucket_exits_with_argument_error() {
+    for target in [
+        "s3://test-bucket?old",
+        "s3://test-bucket#old",
+        "s3://test-bucket?old/prefix/",
+        "s3://test-bucket#old/prefix/",
+    ] {
+        let output = base_command()
+            .arg("--force")
+            .arg(target)
+            .output()
+            .expect("failed to spawn s3rm");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "target {target} should exit with code 2; stderr: {stderr}"
+        );
+        assert!(
+            stderr.contains(INVALID_TARGET_MESSAGE),
+            "target {target} should report an invalid target; stderr: {stderr}"
+        );
+    }
+}
+
+/// `?`, `#`, percent escapes and dot segments after the first `/` are part of
+/// the prefix, so such a target passes argument parsing. With an unreachable
+/// endpoint the run then fails while listing, not with an invalid-target error.
+#[test]
+fn query_or_fragment_in_prefix_is_accepted_as_target() {
+    for target in [
+        "s3://test-bucket/data#old/",
+        "s3://test-bucket/data?old/",
+        "s3://test-bucket/a%20b/../c#d?e",
+    ] {
+        let output = base_command()
+            .arg("--dry-run")
+            .arg("--target-endpoint-url")
+            .arg("https://anything.invalid")
+            .arg("--connect-timeout-milliseconds")
+            .arg("1")
+            .arg("--aws-max-attempts")
+            .arg("0")
+            .arg(target)
+            .output()
+            .expect("failed to spawn s3rm");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert!(
+            !stderr.contains(INVALID_TARGET_MESSAGE),
+            "target {target} should pass argument parsing; stderr: {stderr}"
+        );
+        assert_ne!(
+            output.status.code(),
+            Some(101),
+            "target {target} should not cause an abnormal termination; stderr: {stderr}"
+        );
+    }
+}
+
+/// The help text of every size option says that a lowercase `b` means bits.
+#[test]
+fn help_documents_case_sensitive_size_suffixes() {
+    let output = Command::new(s3rm_bin())
+        .arg("--help")
+        .stdin(Stdio::null())
+        .output()
+        .expect("failed to spawn s3rm");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert_eq!(output.status.code(), Some(0));
+
+    let note = "A suffix ending in a lowercase b means bits, not bytes (e.g. 8Mb = 1MB).";
+    let expected_count = if stdout.contains("--lua-vm-memory-limit") {
+        3
+    } else {
+        2
+    };
+    assert_eq!(
+        stdout.matches(note).count(),
+        expected_count,
+        "--help output: {stdout}"
+    );
+}
+
 /// Running a destructive deletion in a non-interactive environment (no TTY)
 /// without `--force` and without `--dry-run` must fail the safety check. This
 /// drives `run()` -> `check_prerequisites()` -> the non-cancelled error branch,

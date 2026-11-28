@@ -95,9 +95,16 @@ mod tests {
         fn prop_original_middle_not_leaked(key in "[A-Za-z0-9]{10,64}") {
             let masked = mask_access_key(&key);
             let original_middle = &key[4..key.len() - 4];
-            // Only check if middle is non-empty and not all the same char
-            // (e.g., "AAAA" middle could appear in prefix/suffix by coincidence)
-            if original_middle.len() > 1 {
+            let prefix = &key[..4];
+            let suffix = &key[key.len() - 4..];
+            // The prefix and suffix are shown on purpose, so a short middle
+            // that happens to repeat inside one of them (e.g. middle "27" in
+            // "a0aA2727AA", whose suffix is "27AA") is not a leak. Skip those
+            // coincidences; any other occurrence would be a real leak.
+            if original_middle.len() > 1
+                && !prefix.contains(original_middle)
+                && !suffix.contains(original_middle)
+            {
                 prop_assert!(
                     !masked.contains(original_middle),
                     "Masked output must not contain the original middle: {}",

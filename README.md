@@ -75,6 +75,7 @@ This demo shows Express One Zone deleting approximately 34,000 objects per secon
     * [Lua VM](#lua-vm)
     * [Lua VM security](#lua-vm-security)
     * [Lua script error](#lua-script-error)
+    * [Size suffixes](#size-suffixes)
     * [CLI process exit codes](#cli-process-exit-codes)
 - [Advanced options](#advanced-options)
     * [--worker-size](#--worker-size)
@@ -381,7 +382,7 @@ Download the latest binary from [GitHub Releases](https://github.com/nidor1998/s
 
 ### Build from source
 
-s3rm requires Rust 1.99.0 or later.
+s3rm requires Rust 1.100.0 or later.
 
 ```bash
 # Clone the repository
@@ -782,6 +783,27 @@ Note: The statically linked binary cannot load C modules.
 If a filter callback Lua script raises an error, s3rm will stop the operation and exit with error code `1`.
 An event callback Lua script does not stop the operation — just shows a warning message.
 
+### Size suffixes
+
+Options that take a size (`--filter-smaller-size`, `--filter-larger-size`, and `--lua-vm-memory-limit`) accept a plain
+number of bytes or a number with a suffix such as `KB`, `KiB`, `MB`, `MiB`, `GB`, `GiB`.
+
+The last letter of the suffix is case-sensitive: an uppercase `B` means bytes, and a lowercase `b` means bits.  
+A value written with a lowercase `b` is parsed as bits, so it is one eighth of the value written with an uppercase `B`.  
+A bit count that is not a multiple of 8 is rounded up to the next whole byte (e.g. `1b` is 1 byte, and `9b` is 2 bytes).
+
+| Value  | Meaning     | Bytes         |
+|--------|-------------|---------------|
+| `8MiB` | 8 mebibytes | 8,388,608     |
+| `8MB`  | 8 megabytes | 8,000,000     |
+| `8Mib` | 8 mebibits  | 1,048,576     |
+| `8mb`  | 8 megabits  | 1,000,000     |
+| `5GiB` | 5 gibibytes | 5,368,709,120 |
+| `5gib` | 5 gibibits  | 671,088,640   |
+
+For example, `--filter-larger-size 100mb` matches objects of 12.5MB or larger, not 100MB or larger.  
+Always write the suffix with an uppercase `B` (`MB`, `MiB`, `GB`, `GiB`) unless you intend bits.
+
 ### CLI process exit codes
 
 - 0: Exit without error
@@ -895,8 +917,8 @@ For more information, see `s3rm --help`.
 | `--filter-exclude-tag-regex` | Skip objects whose tags match (extra API call) |
 | `--filter-mtime-before` | Delete only objects modified before this time (RFC 3339) |
 | `--filter-mtime-after` | Delete only objects modified at or after this time (RFC 3339) |
-| `--filter-smaller-size` | Delete only objects smaller than this size |
-| `--filter-larger-size` | Delete only objects larger than or equal to this size |
+| `--filter-smaller-size` | Delete only objects smaller than this size (see [Size suffixes](#size-suffixes)) |
+| `--filter-larger-size` | Delete only objects larger than or equal to this size (see [Size suffixes](#size-suffixes)) |
 
 ### Tracing/Logging
 
@@ -972,7 +994,7 @@ For more information, see `s3rm --help`.
 | `--filter-callback-lua-script` | | Path to Lua filter callback script |
 | `--event-callback-lua-script` | | Path to Lua event callback script |
 | `--allow-lua-os-library` | `false` | Allow Lua OS/IO library access |
-| `--lua-vm-memory-limit` | `64MiB` | Memory limit for the Lua VM |
+| `--lua-vm-memory-limit` | `64MiB` | Memory limit for the Lua VM (see [Size suffixes](#size-suffixes)) |
 
 ### Dangerous
 

@@ -138,7 +138,7 @@ impl FilterCallback for LuaFilterCallback {
 mod tests {
     use super::*;
     use aws_sdk_s3::primitives::DateTime;
-    use aws_sdk_s3::types::Object;
+    use aws_sdk_s3::types::{DeleteMarkerEntry, Object, ObjectVersion};
 
     fn make_test_object(key: &str) -> S3Object {
         S3Object::NotVersioning(
@@ -286,5 +286,96 @@ mod tests {
         let object = make_test_object("test-key");
         let result = callback.filter(&object).await.unwrap();
         assert!(result);
+    }
+
+    // With --delete-all-versions, delete markers reach the filter. A delete marker has
+    // no content, so the fields it lacks must be nil or zero instead of an error.
+    #[tokio::test]
+    async fn filter_delete_marker() {
+        let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false, 5000);
+        callback
+            .load_and_compile_from_string(
+                r#"
+                function filter(obj)
+                    return obj.key == "dir21/deleted.dat"
+                        and obj.version_id == "version1"
+                        and obj.is_delete_marker == true
+                        and obj.is_latest == true
+                        and obj.e_tag == nil
+                        and obj.size == 0
+                        and type(obj.last_modified) == "string"
+                end
+                "#,
+            )
+            .unwrap();
+
+        let delete_marker = S3Object::DeleteMarker(
+            DeleteMarkerEntry::builder()
+                .key("dir21/deleted.dat")
+                .version_id("version1")
+                .is_latest(true)
+                .last_modified(DateTime::from_secs(1))
+                .build(),
+        );
+
+        assert!(callback.filter(&delete_marker).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn filter_delete_marker_without_optional_fields() {
+        for callback_timeout_ms in [0, 5000] {
+            let mut callback =
+                LuaFilterCallback::new(8 * 1024 * 1024, false, false, callback_timeout_ms);
+            callback
+                .load_and_compile_from_string(
+                    r#"
+                    function filter(obj)
+                        return obj.is_delete_marker and obj.version_id == nil and obj.e_tag == nil
+                    end
+                    "#,
+                )
+                .unwrap();
+
+            // Only the fields S3 always returns are set: no version ID and no is_latest.
+            let delete_marker = S3Object::DeleteMarker(
+                DeleteMarkerEntry::builder()
+                    .key("deleted.dat")
+                    .last_modified(DateTime::from_secs(1))
+                    .build(),
+            );
+
+            assert!(callback.filter(&delete_marker).await.unwrap());
+        }
+    }
+
+    #[tokio::test]
+    async fn filter_object_version() {
+        let mut callback = LuaFilterCallback::new(8 * 1024 * 1024, false, false, 5000);
+        callback
+            .load_and_compile_from_string(
+                r#"
+                function filter(obj)
+                    return obj.version_id == "version1"
+                        and obj.is_delete_marker == false
+                        and obj.is_latest == false
+                        and obj.e_tag == "\"etag1\""
+                        and obj.size == 6
+                end
+                "#,
+            )
+            .unwrap();
+
+        let version = S3Object::Versioning(
+            ObjectVersion::builder()
+                .key("dir21/data.dat")
+                .version_id("version1")
+                .is_latest(false)
+                .e_tag("\"etag1\"")
+                .size(6)
+                .last_modified(DateTime::from_secs(1))
+                .build(),
+        );
+
+        assert!(callback.filter(&version).await.unwrap());
     }
 }

@@ -789,7 +789,8 @@ Options that take a size (`--filter-smaller-size`, `--filter-larger-size`, and `
 number of bytes or a number with a suffix such as `KB`, `KiB`, `MB`, `MiB`, `GB`, `GiB`.
 
 The last letter of the suffix is case-sensitive: an uppercase `B` means bytes, and a lowercase `b` means bits.  
-A value written with a lowercase `b` is parsed as bits, so it is one eighth of the value written with an uppercase `B`.
+A value written with a lowercase `b` is parsed as bits, so it is one eighth of the value written with an uppercase `B`.  
+A bit count that is not a multiple of 8 is rounded up to the next whole byte (e.g. `1b` is 1 byte, and `9b` is 2 bytes).
 
 | Value  | Meaning     | Bytes         |
 |--------|-------------|---------------|

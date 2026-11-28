@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- A target with `?` or `#` directly after the bucket name (e.g. `s3://bucket?x`) is now rejected with an argument
+  error. Previously, these characters were passed to S3 as part of the bucket name, and the request failed at run
+  time. `?` and `#` after the first `/` are still part of the prefix (e.g. `s3://bucket/data#old/`), because any
+  UTF-8 string is a valid S3 key. The prefix is used exactly as given: percent escapes are not decoded, and `.` /
+  `..` segments are not collapsed. `S3Target::parse` in the library API rejects such a bucket name as well.
+
+### Changed
+
+- Documented that size suffixes are case-sensitive in the help text of `--filter-smaller-size`,
+  `--filter-larger-size`, and `--lua-vm-memory-limit`, and in a new `Size suffixes` section of `README.md`. A suffix
+  ending in a lowercase `b` means bits, not bytes (e.g. `8mb` is 1MB). The behavior is unchanged.
+- MSRV `1.99.0 -> 1.100.0`
+
 ## [1.7.0] - 2026-11-22
 
 Update for the end of life (EOL) of the `chrono` crate and Lua 5.4. This release contains breaking changes to

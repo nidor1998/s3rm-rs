@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["nidor1998 <nidor1998@gmail.com>"]
 description = "Fast Amazon S3 object deletion tool."
 license = "Apache-2.0"
-rust-version = "1.99.0"
+rust-version = "1.100.0"
 repository = "https://github.com/nidor1998/s3rm-rs"
 documentation = "https://docs.rs/s3rm-rs"
 readme = "README.md"
@@ -27,7 +27,7 @@ include = [
 
 [dependencies]
 # Error handling (same as s3sync)
-anyhow = "1.0.104"
+anyhow = "1.0.105"
 thiserror = "2.0.21"
 
 # Async runtime (same as s3sync)
@@ -49,7 +49,7 @@ aws-smithy-types = "1.9.4"
 aws-types = "1.7.0"
 
 # CLI (same as s3sync)
-clap = { version = "4.6.8", features = ["derive", "env", "cargo", "string"] }
+clap = { version = "4.6.9", features = ["derive", "env", "cargo", "string"] }
 clap_complete = "4.6.12"
 clap-verbosity-flag = "3.0.4"
 
@@ -58,11 +58,11 @@ time = { version = "0.3.55", features = ["parsing"] }
 
 # Utilities (same as s3sync)
 dyn-clone = "1.0.20"
-url = "2.5.8"
+url = "2.5.9"
 urlencoding = "2.1.3"
 
 # Rate limiter (same as s3sync)
-leaky-bucket = "1.1.2"
+leaky-bucket = "1.1.3"
 
 # Regex (same as s3sync)
 fancy-regex = "0.20.2"
@@ -80,7 +80,7 @@ indicatif = "0.18.6"
 simple_moving_average = "1.0.2"
 
 # Lua support (same as s3sync, optional)
-mlua = { version = "0.12.2", features = ["lua55", "async", "send", "vendored"], optional = true }
+mlua = { version = "0.12.3", features = ["lua55", "async", "send", "vendored"], optional = true }
 
 # Byte unit parsing (same as s3sync)
 byte-unit = "5.2.6"

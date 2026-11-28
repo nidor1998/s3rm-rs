@@ -79,11 +79,19 @@ const ERROR_MESSAGE_INVALID_TARGET: &str = "target must be an S3 path (e.g. s3:/
 // ---------------------------------------------------------------------------
 
 fn check_s3_target(s: &str) -> Result<String, String> {
-    if s.starts_with("s3://") && s.len() > 5 {
+    if s.starts_with("s3://") && s.len() > 5 && !has_query_or_fragment_in_bucket(&s[5..]) {
         Ok(s.to_string())
     } else {
         Err(ERROR_MESSAGE_INVALID_TARGET.to_string())
     }
+}
+
+// Any UTF-8 string is a valid S3 key, so '?' and '#' after the first '/' are part of the prefix.
+// Before it (e.g. "s3://bucket?x") there is no prefix to attach them to, and they are not valid
+// in a bucket name, so the target is rejected instead of being sent to S3 as a bucket name.
+fn has_query_or_fragment_in_bucket(without_scheme: &str) -> bool {
+    let bucket = without_scheme.split('/').next().unwrap_or_default();
+    bucket.contains(['?', '#'])
 }
 
 fn parse_human_bytes(s: &str) -> Result<u64, String> {
@@ -292,6 +300,7 @@ Example: 2023-02-19T12:00:00Z"#
         help_heading = "Filtering",
         long_help = r#"Delete only objects smaller than the given size.
 Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB
+A suffix ending in a lowercase b means bits, not bytes (e.g. 8Mb = 1MB).
 Delete markers have no size and are excluded from deletion when this filter is active."#
     )]
     pub filter_smaller_size: Option<String>,
@@ -304,6 +313,7 @@ Delete markers have no size and are excluded from deletion when this filter is a
         help_heading = "Filtering",
         long_help = r#"Delete only objects larger than or equal to the given size.
 Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB
+A suffix ending in a lowercase b means bits, not bytes (e.g. 8Mb = 1MB).
 Delete markers have no size and are excluded from deletion when this filter is active."#
     )]
     pub filter_larger_size: Option<String>,
@@ -496,7 +506,7 @@ Delete markers have no size and are excluded from deletion when this filter is a
         default_value = DEFAULT_LUA_VM_MEMORY_LIMIT,
         value_parser = value_parser::human_bytes::check_human_bytes,
         help_heading = "Lua scripting support",
-        long_help = "Memory limit for the Lua VM.\nSupported suffixes: KB, KiB, MB, MiB, GB, GiB.\nSet to 0 for no limit. Exceeding this limit terminates the process."
+        long_help = "Memory limit for the Lua VM.\nSupported suffixes: KB, KiB, MB, MiB, GB, GiB.\nA suffix ending in a lowercase b means bits, not bytes (e.g. 8Mb = 1MB).\nSet to 0 for no limit. Exceeding this limit terminates the process."
     )]
     pub lua_vm_memory_limit: String,
 
@@ -713,7 +723,7 @@ impl CLIArgs {
             None => (without_scheme.to_string(), String::new()),
         };
 
-        if bucket.is_empty() {
+        if bucket.is_empty() || has_query_or_fragment_in_bucket(&bucket) {
             return Err(ERROR_MESSAGE_INVALID_TARGET.to_string());
         }
 

@@ -57,6 +57,48 @@ mod tests {
     }
 
     #[test]
+    fn parse_lowercase_b_suffix_as_bits() {
+        // The last letter of the suffix is case-sensitive: "B" is bytes, "b" is bits.
+        assert_eq!(8_000_000, parse_human_bytes("8MB").unwrap());
+        assert_eq!(1_000_000, parse_human_bytes("8Mb").unwrap());
+        assert_eq!(1_000_000, parse_human_bytes("8mb").unwrap());
+        assert_eq!(8 * 1024 * 1024, parse_human_bytes("8MiB").unwrap());
+        assert_eq!(1024 * 1024, parse_human_bytes("8Mib").unwrap());
+        assert_eq!(671_088_640, parse_human_bytes("5gib").unwrap());
+    }
+
+    #[test]
+    fn check_accepts_lowercase_b_suffix() {
+        // Bits are accepted, not rejected: the value is just one eighth of the byte value.
+        assert_eq!(check_human_bytes("8Mb").unwrap(), "8Mb");
+        assert_eq!(check_human_bytes("8mb").unwrap(), "8mb");
+        assert_eq!(check_human_bytes("5gib").unwrap(), "5gib");
+    }
+
+    #[test]
+    fn parse_readme_size_suffix_table() {
+        // The values of the "Size suffixes" table in README.md.
+        let cases = [
+            ("8MiB", 8_388_608),
+            ("8MB", 8_000_000),
+            ("8Mib", 1_048_576),
+            ("8mb", 1_000_000),
+            ("5GiB", 5_368_709_120),
+            ("5gib", 671_088_640),
+            // "--filter-larger-size 100mb matches objects of 12.5MB or larger"
+            ("100mb", 12_500_000),
+        ];
+
+        for (value, expected_bytes) in cases {
+            assert_eq!(
+                parse_human_bytes(value).unwrap(),
+                expected_bytes,
+                "value: {value}"
+            );
+        }
+    }
+
+    #[test]
     fn parse_zero() {
         assert_eq!(0, parse_human_bytes("0").unwrap());
     }

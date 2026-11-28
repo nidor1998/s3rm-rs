@@ -242,6 +242,240 @@ fn config_from_empty_bucket_target_is_err() {
     assert!(result.is_err());
 }
 
+#[test]
+fn parse_target_with_query_or_fragment_after_bucket_is_err() {
+    // Without '/' after the bucket name, there is no prefix to attach '?' or '#' to.
+    for target in [
+        "s3://my-bucket?old",
+        "s3://my-bucket#old",
+        "s3://my-bucket?old/prefix",
+        "s3://my-bucket#old/prefix",
+    ] {
+        let result = parse_from_args(vec!["s3rm", target]);
+        assert!(result.is_err(), "target: {target}");
+    }
+}
+
+#[test]
+fn config_from_query_or_fragment_bucket_target_is_err() {
+    init_dummy_tracing_subscriber();
+
+    // CLIArgs fields are public, so the target can be changed after clap validated it.
+    let mut cli = parse_from_args(vec!["s3rm", "s3://my-bucket/prefix"]).unwrap();
+    cli.target = "s3://my-bucket?old".to_string();
+    assert!(Config::try_from(cli).is_err());
+}
+
+#[test]
+fn config_target_prefix_is_literal() {
+    init_dummy_tracing_subscriber();
+
+    // The prefix is used as given: '?' and '#' are part of it, percent escapes are not
+    // decoded, and "." / ".." segments are not collapsed.
+    let cases = [
+        ("s3://test-bucket/data#old/", "data#old/"),
+        ("s3://test-bucket/data?old/", "data?old/"),
+        ("s3://test-bucket/data#", "data#"),
+        ("s3://test-bucket/data?", "data?"),
+        ("s3://test-bucket/a?b#c?d#e/", "a?b#c?d#e/"),
+        ("s3://test-bucket/a#b?c/", "a#b?c/"),
+        ("s3://test-bucket/#top", "#top"),
+        ("s3://test-bucket/?top", "?top"),
+        (
+            "s3://test-bucket/dir/こんにちは#☃?x y/",
+            "dir/こんにちは#☃?x y/",
+        ),
+        ("s3://test-bucket/a%23b%3Fc#d", "a%23b%3Fc#d"),
+        ("s3://test-bucket/%FF", "%FF"),
+        ("s3://test-bucket/100%", "100%"),
+        ("s3://test-bucket/a%20b c", "a%20b c"),
+        ("s3://test-bucket/a/../b", "a/../b"),
+        ("s3://test-bucket/./a/./b/", "./a/./b/"),
+        ("s3://test-bucket/a?x/../y#%2e%2e/z", "a?x/../y#%2e%2e/z"),
+        ("s3://test-bucket/dir\\file", "dir\\file"),
+        ("s3://test-bucket//", "/"),
+        ("s3://test-bucket/", ""),
+        ("s3://test-bucket", ""),
+    ];
+
+    for (target, expected_prefix) in cases {
+        let cli = parse_from_args(vec!["s3rm", target]).unwrap();
+        let config = Config::try_from(cli).unwrap();
+        let StoragePath::S3 { bucket, prefix } = config.target;
+        assert_eq!(bucket, "test-bucket", "target: {target}");
+        assert_eq!(prefix, expected_prefix, "target: {target}");
+    }
+}
+
+#[test]
+fn check_s3_target_accepts_bucket_and_literal_prefix() {
+    for target in [
+        "s3://my-bucket",
+        "s3://my-bucket/",
+        "s3://my-bucket/prefix",
+        "s3://my-bucket/data#old/",
+        "s3://my-bucket/data?old/",
+        "s3://my-bucket/#top",
+        "s3://my-bucket/?top",
+        "s3://my-bucket/a/b?c#d",
+    ] {
+        assert_eq!(check_s3_target(target).unwrap(), target, "target: {target}");
+    }
+}
+
+#[test]
+fn check_s3_target_rejects_query_or_fragment_in_bucket() {
+    for target in [
+        "s3://my-bucket?old",
+        "s3://my-bucket#old",
+        "s3://my-bucket?",
+        "s3://my-bucket#",
+        "s3://?",
+        "s3://#",
+        "s3://my-bucket?old/prefix",
+        "s3://my-bucket#old/prefix",
+        "s3://my-bucket?a#b/prefix?x#y",
+    ] {
+        assert_eq!(
+            check_s3_target(target).unwrap_err(),
+            ERROR_MESSAGE_INVALID_TARGET,
+            "target: {target}"
+        );
+    }
+}
+
+#[test]
+fn check_s3_target_rejects_non_s3_and_empty() {
+    for target in ["", "s3://", "s3:/", "my-bucket", "http://my-bucket/x"] {
+        assert_eq!(
+            check_s3_target(target).unwrap_err(),
+            ERROR_MESSAGE_INVALID_TARGET,
+            "target: {target:?}"
+        );
+    }
+}
+
+#[test]
+fn has_query_or_fragment_in_bucket_checks_only_the_bucket() {
+    assert!(has_query_or_fragment_in_bucket("bucket?x"));
+    assert!(has_query_or_fragment_in_bucket("bucket#x"));
+    assert!(has_query_or_fragment_in_bucket("bucket?x/prefix"));
+    assert!(has_query_or_fragment_in_bucket("?"));
+
+    assert!(!has_query_or_fragment_in_bucket("bucket"));
+    assert!(!has_query_or_fragment_in_bucket("bucket/"));
+    assert!(!has_query_or_fragment_in_bucket("bucket/a?b#c"));
+    assert!(!has_query_or_fragment_in_bucket("/?#"));
+    assert!(!has_query_or_fragment_in_bucket(""));
+}
+
+#[test]
+fn parse_target_with_query_or_fragment_error_is_value_validation() {
+    let error = parse_from_args(vec!["s3rm", "s3://my-bucket?old"]).unwrap_err();
+    assert_eq!(error.kind(), clap::error::ErrorKind::ValueValidation);
+    assert!(
+        error.to_string().contains(ERROR_MESSAGE_INVALID_TARGET),
+        "error: {error}"
+    );
+}
+
+#[test]
+fn config_from_query_or_fragment_bucket_target_error_message() {
+    init_dummy_tracing_subscriber();
+
+    for target in ["s3://my-bucket?old", "s3://my-bucket#old/prefix"] {
+        let mut cli = parse_from_args(vec!["s3rm", "s3://my-bucket/prefix"]).unwrap();
+        cli.target = target.to_string();
+        assert_eq!(
+            Config::try_from(cli).unwrap_err(),
+            ERROR_MESSAGE_INVALID_TARGET,
+            "target: {target}"
+        );
+    }
+}
+
+fn long_help_of(arg_id: &str) -> String {
+    use clap::CommandFactory;
+    CLIArgs::command()
+        .get_arguments()
+        .find(|arg| arg.get_id() == arg_id)
+        .unwrap_or_else(|| panic!("argument not found: {arg_id}"))
+        .get_long_help()
+        .unwrap_or_else(|| panic!("argument has no long help: {arg_id}"))
+        .to_string()
+}
+
+const SIZE_SUFFIX_BITS_NOTE: &str =
+    "A suffix ending in a lowercase b means bits, not bytes (e.g. 8Mb = 1MB).";
+
+#[test]
+fn filter_size_help_documents_case_sensitive_suffix() {
+    for arg_id in ["filter_smaller_size", "filter_larger_size"] {
+        let help = long_help_of(arg_id);
+        assert!(help.contains(SIZE_SUFFIX_BITS_NOTE), "{arg_id}: {help}");
+        assert!(
+            help.contains("Supported suffixes: KB, KiB, MB, MiB, GB, GiB, TB, TiB"),
+            "{arg_id}: {help}"
+        );
+    }
+}
+
+#[cfg(feature = "lua_support")]
+#[test]
+fn lua_vm_memory_limit_help_documents_case_sensitive_suffix() {
+    let help = long_help_of("lua_vm_memory_limit");
+    assert!(help.contains(SIZE_SUFFIX_BITS_NOTE), "{help}");
+    assert!(help.contains("Set to 0 for no limit."), "{help}");
+}
+
+// The help text example must match what the parser does.
+#[test]
+fn filter_size_lowercase_b_suffix_is_bits() {
+    init_dummy_tracing_subscriber();
+
+    let cli = parse_from_args(vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-larger-size",
+        "8Mb",
+        "--filter-smaller-size",
+        "8Mib",
+    ])
+    .unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert_eq!(config.filter_config.larger_size, Some(1_000_000));
+    assert_eq!(config.filter_config.smaller_size, Some(1024 * 1024));
+
+    let cli = parse_from_args(vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-larger-size",
+        "8MB",
+        "--filter-smaller-size",
+        "8MiB",
+    ])
+    .unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert_eq!(config.filter_config.larger_size, Some(8_000_000));
+    assert_eq!(config.filter_config.smaller_size, Some(8 * 1024 * 1024));
+}
+
+#[cfg(feature = "lua_support")]
+#[test]
+fn lua_vm_memory_limit_lowercase_b_suffix_is_bits() {
+    init_dummy_tracing_subscriber();
+
+    let cli =
+        parse_from_args(vec!["s3rm", "s3://bucket/", "--lua-vm-memory-limit", "8Mb"]).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert_eq!(config.lua_vm_memory_limit, 1_000_000);
+
+    let cli =
+        parse_from_args(vec!["s3rm", "s3://bucket/", "--lua-vm-memory-limit", "8MB"]).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert_eq!(config.lua_vm_memory_limit, 8_000_000);
+}
+
 // ---------------------------------------------------------------------------
 // Config::try_from tests
 // ---------------------------------------------------------------------------
@@ -626,6 +860,36 @@ proptest! {
         let args = vec!["s3rm".to_string(), bad_prefix.clone()];
         let result = parse_from_args(args);
         prop_assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_input_validation_rejects_query_or_fragment_in_bucket(
+        bucket_head in "[a-z][a-z0-9\\-]{0,10}",
+        delimiter in "[?#]",
+        bucket_tail in "[a-z0-9?#\\-]{0,10}",
+        prefix in prop::option::of("[a-z0-9/?#%.]{0,20}"),
+    ) {
+        // '?' or '#' before the first '/' is never accepted, with or without a prefix.
+        let target = match prefix {
+            Some(prefix) => format!("s3://{bucket_head}{delimiter}{bucket_tail}/{prefix}"),
+            None => format!("s3://{bucket_head}{delimiter}{bucket_tail}"),
+        };
+        let result = parse_from_args(vec!["s3rm".to_string(), target.clone()]);
+        prop_assert!(result.is_err(), "target: {}", target);
+    }
+
+    #[test]
+    fn test_input_validation_keeps_prefix_literal(
+        bucket in "[a-z][a-z0-9\\-]{2,10}",
+        prefix in "[a-zA-Z0-9/?#%. _\\-]{0,30}",
+    ) {
+        // Whatever follows the first '/' is the prefix, byte for byte.
+        let target = format!("s3://{bucket}/{prefix}");
+        let cli = parse_from_args(vec!["s3rm".to_string(), target.clone()]).unwrap();
+        let config = Config::try_from(cli).unwrap();
+        let StoragePath::S3 { bucket: parsed_bucket, prefix: parsed_prefix } = config.target;
+        prop_assert_eq!(parsed_bucket, bucket, "target: {}", target);
+        prop_assert_eq!(parsed_prefix, prefix, "target: {}", target);
     }
 
     #[test]

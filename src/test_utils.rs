@@ -13,11 +13,17 @@ use crate::types::{S3Object, StoragePath};
 
 /// Initialise a dummy tracing subscriber for tests.
 ///
+/// Every level is enabled so that the fields of `trace!`/`debug!`/`warn!`
+/// call sites are actually evaluated and formatted (a disabled call site
+/// skips its arguments entirely, hiding bugs in them and leaving those lines
+/// unexercised). The output is discarded to keep test output quiet.
+///
 /// Uses `try_init` so that only the first call in a process actually
 /// installs the subscriber; subsequent calls are silently ignored.
 pub(crate) fn init_dummy_tracing_subscriber() {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("dummy=trace")
+        .with_env_filter("trace")
+        .with_writer(std::io::sink)
         .try_init();
 }
 

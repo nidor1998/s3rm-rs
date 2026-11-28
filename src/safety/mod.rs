@@ -314,3 +314,153 @@ fn is_whole_bucket(target: &StoragePath) -> bool {
         StoragePath::S3 { prefix, .. } => prefix.is_empty(),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    //! `StdioPromptHandler` talks to the real stdin/stdout, so it cannot be
+    //! driven in-process. Each scenario re-executes this test binary, running
+    //! only [`stdio_prompt_handler_child`] with stdin/stdout piped, and
+    //! inspects what the child printed.
+
+    use super::*;
+    use std::process::{Command, Stdio};
+
+    /// Set in the child process to `<use_color>,<whole_bucket>`.
+    const CHILD_ENV: &str = "S3RM_TEST_STDIO_PROMPT_CHILD";
+    const CHILD_TEST_NAME: &str = "safety::tests::stdio_prompt_handler_child";
+    const TARGET: &str = "s3://test-bucket/some/prefix/";
+    const RESULT_MARKER: &str = "PROMPT_RESULT=";
+
+    /// Child half of the tests below. A no-op in a normal test run.
+    #[test]
+    fn stdio_prompt_handler_child() {
+        let Ok(mode) = std::env::var(CHILD_ENV) else {
+            return;
+        };
+        let (use_color, whole_bucket) = mode.split_once(',').expect("malformed child mode");
+        let handler = StdioPromptHandler;
+
+        // stdin/stdout are pipes in the child, never a TTY.
+        assert!(!handler.is_interactive());
+
+        let answer = handler
+            .read_confirmation(
+                TARGET,
+                use_color.parse().unwrap(),
+                whole_bucket.parse().unwrap(),
+            )
+            .unwrap();
+        println!("\n{RESULT_MARKER}<{answer}>");
+    }
+
+    /// Run the child with the given flags and stdin; return its stdout.
+    fn run_prompt_child(use_color: bool, whole_bucket: bool, stdin: &str) -> String {
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                CHILD_TEST_NAME,
+                "--exact",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(CHILD_ENV, format!("{use_color},{whole_bucket}"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("failed to re-execute the test binary");
+
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(stdin.as_bytes())
+            .unwrap();
+        // stdin is dropped (closed) here, so a child that reads past the
+        // supplied input sees EOF rather than blocking.
+
+        let output = child.wait_with_output().unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        assert!(
+            output.status.success(),
+            "child failed.\nstdout: {stdout}\nstderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            stdout.contains("1 passed"),
+            "child did not run exactly the child test.\nstdout: {stdout}"
+        );
+        stdout
+    }
+
+    fn assert_common_prompt_text(stdout: &str) {
+        assert!(stdout.contains(
+            "If versioning is not enabled on the bucket, deleted objects cannot be recovered."
+        ));
+        assert!(stdout.contains(
+            "Use --dry-run to preview which objects would be deleted without actually removing them."
+        ));
+        assert!(stdout.contains("Type 'yes' to confirm deletion: "));
+    }
+
+    #[test]
+    fn stdio_prompt_plain_prefix_returns_trimmed_input() {
+        let stdout = run_prompt_child(false, false, "  yes  \n");
+
+        assert!(stdout.contains(&format!(
+            "WARNING: All objects under prefix {TARGET} will be deleted."
+        )));
+        assert_common_prompt_text(&stdout);
+        assert!(!stdout.contains('\x1b'), "no ANSI codes expected: {stdout}");
+        assert!(stdout.contains(&format!("{RESULT_MARKER}<yes>")));
+    }
+
+    #[test]
+    fn stdio_prompt_plain_whole_bucket_escalates_warning() {
+        let stdout = run_prompt_child(false, true, "no\n");
+
+        assert!(stdout.contains(&format!(
+            "WARNING: ALL objects in bucket {TARGET} will be deleted (no prefix specified)."
+        )));
+        assert_common_prompt_text(&stdout);
+        assert!(!stdout.contains('\x1b'), "no ANSI codes expected: {stdout}");
+        assert!(stdout.contains(&format!("{RESULT_MARKER}<no>")));
+    }
+
+    #[test]
+    fn stdio_prompt_color_prefix_highlights_target() {
+        let stdout = run_prompt_child(true, false, "yes\n");
+
+        assert!(stdout.contains(&format!(
+            "{ANSI_BOLD_RED}WARNING:{ANSI_RESET} All objects under prefix \
+             {ANSI_BOLD_YELLOW}{TARGET}{ANSI_RESET} will be deleted."
+        )));
+        assert_common_prompt_text(&stdout);
+        assert!(stdout.contains(&format!("{RESULT_MARKER}<yes>")));
+    }
+
+    #[test]
+    fn stdio_prompt_color_whole_bucket_escalates_warning() {
+        let stdout = run_prompt_child(true, true, "yes\n");
+
+        assert!(stdout.contains(&format!(
+            "{ANSI_BOLD_RED}WARNING:{ANSI_RESET} {ANSI_BOLD_RED}ALL{ANSI_RESET} objects in bucket \
+             {ANSI_BOLD_YELLOW}{TARGET}{ANSI_RESET} will be deleted (no prefix specified)."
+        )));
+        assert_common_prompt_text(&stdout);
+        assert!(stdout.contains(&format!("{RESULT_MARKER}<yes>")));
+    }
+
+    /// Closed stdin (EOF) must read as an empty answer, which the caller
+    /// treats as "not confirmed" — never as "yes".
+    #[test]
+    fn stdio_prompt_eof_returns_empty_answer() {
+        let stdout = run_prompt_child(false, false, "");
+
+        assert_common_prompt_text(&stdout);
+        assert!(stdout.contains(&format!("{RESULT_MARKER}<>")));
+    }
+}

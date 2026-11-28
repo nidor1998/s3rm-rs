@@ -1754,3 +1754,167 @@ fn parse_filter_mtime_rejects_invalid_values() {
         assert!(parse_from_args(args).is_err(), "accepted {value}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Config::try_from re-validation of values that bypassed the clap parsers
+// ---------------------------------------------------------------------------
+//
+// clap's value parsers normally reject these at parse time. `CLIArgs` fields
+// are public, though, so a library user can build or mutate one directly;
+// `Config::try_from` must still reject the bad value instead of panicking.
+
+#[test]
+fn config_rejects_invalid_filter_larger_size_set_after_parsing() {
+    init_dummy_tracing_subscriber();
+
+    let mut cli = parse_from_args(vec!["s3rm", "s3://bucket/"]).unwrap();
+    cli.filter_larger_size = Some("not-a-size".to_string());
+
+    let err = Config::try_from(cli).err().unwrap();
+    assert!(
+        err.starts_with("Invalid filter-larger-size:"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn config_rejects_invalid_filter_smaller_size_set_after_parsing() {
+    init_dummy_tracing_subscriber();
+
+    let mut cli = parse_from_args(vec!["s3rm", "s3://bucket/"]).unwrap();
+    cli.filter_smaller_size = Some("not-a-size".to_string());
+
+    let err = Config::try_from(cli).err().unwrap();
+    assert!(
+        err.starts_with("Invalid filter-smaller-size:"),
+        "unexpected error: {err}"
+    );
+}
+
+#[cfg(feature = "lua_support")]
+#[test]
+fn config_rejects_invalid_lua_vm_memory_limit_set_after_parsing() {
+    init_dummy_tracing_subscriber();
+
+    let mut cli = parse_from_args(vec!["s3rm", "s3://bucket/"]).unwrap();
+    cli.lua_vm_memory_limit = "not-a-size".to_string();
+
+    let err = Config::try_from(cli).err().unwrap();
+    assert!(
+        err.starts_with("Invalid lua-vm-memory-limit:"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn config_target_request_payer_sets_requester() {
+    init_dummy_tracing_subscriber();
+
+    let cli = parse_from_args(vec!["s3rm", "s3://bucket/", "--target-request-payer"]).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    let client_config = config.target_client_config.unwrap();
+    assert_eq!(
+        client_config.request_payer,
+        Some(aws_sdk_s3::types::RequestPayer::Requester)
+    );
+
+    let cli = parse_from_args(vec!["s3rm", "s3://bucket/"]).unwrap();
+    let config = Config::try_from(cli).unwrap();
+    assert_eq!(config.target_client_config.unwrap().request_payer, None);
+}
+
+// ---------------------------------------------------------------------------
+// Lua callback scripts: registration and compile failures
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "lua_support")]
+fn write_temp_lua_script(source: &str) -> tempfile::NamedTempFile {
+    use std::io::Write;
+
+    let mut file = tempfile::Builder::new().suffix(".lua").tempfile().unwrap();
+    file.write_all(source.as_bytes()).unwrap();
+    file.flush().unwrap();
+    file
+}
+
+#[cfg(feature = "lua_support")]
+#[test]
+fn config_registers_lua_filter_and_event_callbacks() {
+    init_dummy_tracing_subscriber();
+
+    let cli = parse_from_args(vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-callback-lua-script",
+        "examples/filter.lua",
+        "--event-callback-lua-script",
+        "examples/event.lua",
+    ])
+    .unwrap();
+    let config = Config::try_from(cli).unwrap();
+
+    assert_eq!(
+        config.filter_callback_lua_script.as_deref(),
+        Some("examples/filter.lua")
+    );
+    assert_eq!(
+        config.event_callback_lua_script.as_deref(),
+        Some("examples/event.lua")
+    );
+    assert!(config.filter_manager.is_callback_registered());
+    assert!(config.event_manager.is_callback_registered());
+}
+
+#[cfg(feature = "lua_support")]
+#[test]
+fn config_without_lua_scripts_registers_no_callbacks() {
+    init_dummy_tracing_subscriber();
+
+    let cli = parse_from_args(vec!["s3rm", "s3://bucket/"]).unwrap();
+    let config = Config::try_from(cli).unwrap();
+
+    assert!(!config.filter_manager.is_callback_registered());
+    assert!(!config.event_manager.is_callback_registered());
+}
+
+#[cfg(feature = "lua_support")]
+#[test]
+fn config_rejects_filter_lua_script_that_does_not_compile() {
+    init_dummy_tracing_subscriber();
+
+    let script = write_temp_lua_script("function filter(object) return true -- missing end");
+    let cli = parse_from_args(vec![
+        "s3rm",
+        "s3://bucket/",
+        "--filter-callback-lua-script",
+        script.path().to_str().unwrap(),
+    ])
+    .unwrap();
+
+    let err = Config::try_from(cli).err().unwrap();
+    assert!(
+        err.starts_with("Failed to load filter Lua script:"),
+        "unexpected error: {err}"
+    );
+}
+
+#[cfg(feature = "lua_support")]
+#[test]
+fn config_rejects_event_lua_script_that_does_not_compile() {
+    init_dummy_tracing_subscriber();
+
+    let script = write_temp_lua_script("function on_event(event) -- missing end");
+    let cli = parse_from_args(vec![
+        "s3rm",
+        "s3://bucket/",
+        "--event-callback-lua-script",
+        script.path().to_str().unwrap(),
+    ])
+    .unwrap();
+
+    let err = Config::try_from(cli).err().unwrap();
+    assert!(
+        err.starts_with("Failed to load event Lua script:"),
+        "unexpected error: {err}"
+    );
+}

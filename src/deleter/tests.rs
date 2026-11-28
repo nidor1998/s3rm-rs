@@ -6305,3 +6305,190 @@ mod extract_error_code_properties {
         }
     }
 }
+
+// ===========================================================================
+// Regex engine failure in the content-type / metadata / tag filters
+// ===========================================================================
+
+/// A regex that compiles but fails at match time: the backreference forces
+/// fancy_regex's backtracking VM, and `backtrack_limit(1)` makes any
+/// non-trivial match attempt exceed the limit.
+fn make_failing_regex() -> Regex {
+    let regex = fancy_regex::RegexBuilder::new(r"(a+)\1b")
+        .backtrack_limit(1)
+        .build()
+        .unwrap();
+    assert!(regex.is_match(FAILING_REGEX_INPUT).is_err());
+    regex
+}
+
+const FAILING_REGEX_INPUT: &str = "aaaaaaaaaaaaaaac";
+
+#[tokio::test]
+async fn apply_head_object_filters_regex_engine_failure_returns_err() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    *mock.head_object_content_type.lock().unwrap() = Some(FAILING_REGEX_INPUT.to_string());
+
+    let mut config = make_test_config();
+    config.filter_config.include_content_type_regex = Some(make_failing_regex());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    let err = deleter.apply_head_object_filters(&obj).await.unwrap_err();
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("regex match failed for filter") && msg.contains("key/1"),
+        "unexpected error: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn apply_tag_filters_regex_engine_failure_returns_err() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    // format_tags renders this as "<input>=v", which still fails to match.
+    *mock.tagging_response_tags.lock().unwrap() = Some(vec![
+        Tag::builder()
+            .key(FAILING_REGEX_INPUT)
+            .value("v")
+            .build()
+            .unwrap(),
+    ]);
+
+    let mut config = make_test_config();
+    config.filter_config.exclude_tag_regex = Some(make_failing_regex());
+    let counter = Arc::new(AtomicU64::new(0));
+    let deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let obj = make_s3_object("key/1", 100);
+    let err = deleter.apply_tag_filters(&obj).await.unwrap_err();
+    assert!(
+        format!("{err:#}").contains("regex match failed for filter"),
+        "unexpected error: {err:#}"
+    );
+}
+
+/// A regex failure must not delete the object: the worker returns the error
+/// and nothing reaches the delete API.
+#[tokio::test]
+async fn process_object_regex_engine_failure_does_not_delete() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    *mock.head_object_content_type.lock().unwrap() = Some(FAILING_REGEX_INPUT.to_string());
+
+    let mut config = make_test_config();
+    config.filter_config.exclude_content_type_regex = Some(make_failing_regex());
+    let counter = Arc::new(AtomicU64::new(0));
+    let mut deleter = make_object_deleter_for_unit_test(config, boxed, counter);
+
+    let result = deleter.process_object(make_s3_object("key/1", 100)).await;
+    assert!(result.is_err());
+    assert!(deleter.buffer.is_empty());
+    assert!(mock.delete_objects_calls.lock().unwrap().is_empty());
+    assert!(mock.delete_object_calls.lock().unwrap().is_empty());
+}
+
+// ===========================================================================
+// if_match with an object that has no ETag
+// ===========================================================================
+
+#[tokio::test]
+async fn batch_deleter_if_match_without_etag_sends_no_etag() {
+    init_dummy_tracing_subscriber();
+    let (stats_sender, _stats_receiver) = async_channel::unbounded();
+    let (boxed, mock) = make_mock_storage_boxed(stats_sender);
+    let deleter = BatchDeleter::new(boxed);
+
+    let mut config = make_test_config();
+    config.if_match = true;
+
+    // make_s3_object builds an object without an ETag.
+    let obj = make_s3_object("key/no-etag", 100);
+    assert!(obj.e_tag().is_none());
+
+    let result = deleter.delete(&[obj], &config).await.unwrap();
+    assert_eq!(result.deleted.len(), 1);
+
+    let calls = mock.delete_objects_calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].identifiers[0].key(), "key/no-etag");
+    assert_eq!(calls[0].identifiers[0].e_tag(), None);
+}
+
+// ===========================================================================
+// Error classification: service errors that carry no usable code
+// ===========================================================================
+
+#[test]
+fn is_not_found_error_head_object_service_error_other_than_not_found() {
+    use aws_sdk_s3::operation::head_object::HeadObjectError;
+    use aws_smithy_runtime_api::http::StatusCode;
+
+    // A HeadObject *service* error that is not NotFound (e.g. 403).
+    let service_err = HeadObjectError::generic(
+        aws_smithy_types::error::ErrorMetadata::builder()
+            .code("AccessDenied")
+            .message("Access Denied")
+            .build(),
+    );
+    let raw_response = aws_smithy_runtime_api::http::Response::new(
+        StatusCode::try_from(403).unwrap(),
+        SdkBody::from(""),
+    );
+    let sdk_error: SdkError<HeadObjectError, Response<SdkBody>> =
+        SdkError::service_error(service_err, raw_response);
+    let anyhow_err: anyhow::Error = sdk_error.into();
+
+    assert!(!is_not_found_error(&anyhow_err));
+}
+
+#[test]
+fn is_not_found_error_tagging_without_code_uses_status() {
+    use aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingError;
+    use aws_smithy_runtime_api::http::StatusCode;
+
+    let make = |status: u16| -> anyhow::Error {
+        // No error code at all: only the HTTP status can classify it.
+        let service_err = GetObjectTaggingError::generic(
+            aws_smithy_types::error::ErrorMetadata::builder()
+                .message("no code")
+                .build(),
+        );
+        let raw_response = aws_smithy_runtime_api::http::Response::new(
+            StatusCode::try_from(status).unwrap(),
+            SdkBody::from(""),
+        );
+        let sdk_error: SdkError<GetObjectTaggingError, Response<SdkBody>> =
+            SdkError::service_error(service_err, raw_response);
+        sdk_error.into()
+    };
+
+    assert!(is_not_found_error(&make(404)));
+    assert!(!is_not_found_error(&make(500)));
+}
+
+#[test]
+fn extract_error_code_from_service_error_without_code_returns_unknown() {
+    use aws_sdk_s3::operation::delete_object::DeleteObjectError;
+    use aws_smithy_runtime_api::http::StatusCode;
+
+    let service_err = DeleteObjectError::generic(
+        aws_smithy_types::error::ErrorMetadata::builder()
+            .message("no code")
+            .build(),
+    );
+    let raw_response = aws_smithy_runtime_api::http::Response::new(
+        StatusCode::try_from(500).unwrap(),
+        SdkBody::from(""),
+    );
+    let sdk_error: SdkError<DeleteObjectError, Response<SdkBody>> =
+        SdkError::service_error(service_err, raw_response);
+    let err = anyhow::anyhow!(sdk_error).context("aws_sdk_s3::client::delete_object() failed.");
+
+    assert_eq!(extract_delete_object_error_code(&err), "unknown");
+}
